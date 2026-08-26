@@ -1,0 +1,43 @@
+{
+  "name": "friday-native-vision",
+  "version": 1,
+  "coverage": [
+    "color-shape binding",
+    "spatial relation",
+    "object counting",
+    "containment",
+    "relative size"
+  ],
+  "cases": [
+    {
+      "name": "bind color shape and left position",
+      "scene": "left_color_shape",
+      "question": "Which colored shape is farther left? Reply with exactly two words.",
+      "expected_answer": "red square"
+    },
+    {
+      "name": "count only matching shapes",
+      "scene": "count_green_triangles",
+      "question": "How many green triangles are visible? Reply with only the number.",
+      "expected_answer": "3"
+    },
+    {
+      "name": "bind a color to the requested shape",
+      "scene": "triangle_color_binding",
+      "question": "What color is the triangle? Reply with only the color.",
+      "expected_answer": "yellow"
+    },
+    {
+      "name": "identify containment without text",
+      "scene": "shape_inside_frame",
+      "question": "Which colored shape is inside the black frame? Reply with exactly two words.",
+      "expected_answer": "purple circle"
+    },
+    {
+      "name": "compare relative object size",
+      "scene": "larger_colored_circle",
+      "question": "Which colored circle is larger? Reply with exactly two words.",
+      "expected_answer": "red circle"
+    }
+  ]
+}

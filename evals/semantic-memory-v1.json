@@ -1,0 +1,56 @@
+{
+  "name": "friday-semantic-memory",
+  "version": 1,
+  "coverage": [
+    "English synonym-only recall",
+    "Spanish cross-lingual recall",
+    "Hindi cross-lingual recall",
+    "German cross-lingual recall",
+    "irrelevant-query abstention",
+    "semantic expiry",
+    "semantic correction propagation",
+    "bounded large-corpus cache"
+  ],
+  "cases": [
+    {
+      "name": "English synonyms recover a lexically disjoint preference",
+      "scenario": "english_paraphrase",
+      "expected": {"target_first": true, "semantic_mode": true, "no_lexical_match": true}
+    },
+    {
+      "name": "Spanish query recovers an English preference",
+      "scenario": "spanish_crosslingual",
+      "expected": {"target_first": true, "semantic_mode": true}
+    },
+    {
+      "name": "Hindi query recovers an English preference",
+      "scenario": "hindi_crosslingual",
+      "expected": {"target_first": true, "semantic_mode": true}
+    },
+    {
+      "name": "German query recovers an English preference",
+      "scenario": "german_crosslingual",
+      "expected": {"target_first": true, "semantic_mode": true}
+    },
+    {
+      "name": "Unrelated questions abstain instead of leaking a memory",
+      "scenario": "irrelevant_abstention",
+      "expected": {"weather_empty": true, "cuisine_empty": true, "ram_empty": true}
+    },
+    {
+      "name": "Expired semantic memory is excluded",
+      "scenario": "semantic_expiry",
+      "expected": {"present_before": true, "absent_after": true}
+    },
+    {
+      "name": "Semantic correction removes old recall and vector",
+      "scenario": "semantic_correction",
+      "expected": {"old_retrieved_before": true, "new_retrieved_after": true, "old_retrieved_after": false, "old_vector_removed": true}
+    },
+    {
+      "name": "One hundred twenty-nine claims index once and retain top one",
+      "scenario": "bounded_large_corpus",
+      "expected": {"target_first": true, "indexed_claims": 129, "cache_count_stable": true}
+    }
+  ]
+}

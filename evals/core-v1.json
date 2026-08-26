@@ -1,0 +1,42 @@
+{
+  "name": "friday-cognitive-core",
+  "version": 1,
+  "cases": [
+    {
+      "name": "casual greeting stays conversational",
+      "kind": "intent",
+      "text": "Hey Friday",
+      "expected": "conversation"
+    },
+    {
+      "name": "web research is an action",
+      "kind": "intent",
+      "text": "Research current battery technology",
+      "tools": ["web_search"],
+      "expected": "action"
+    },
+    {
+      "name": "news contract demands fresh network evidence",
+      "kind": "contract",
+      "text": "What is today's news?",
+      "tools": ["fetch_news"],
+      "expected": {
+        "required_tools": ["fetch_news"],
+        "permissions": ["network"],
+        "risk": "read_only",
+        "freshness_seconds": 900
+      }
+    },
+    {
+      "name": "inferred core upgrade requires approval",
+      "kind": "policy",
+      "tool": "upgrade_core",
+      "explicitly_requested": false,
+      "expected": {
+        "allowed": true,
+        "approval_required": true,
+        "risk": "high"
+      }
+    }
+  ]
+}

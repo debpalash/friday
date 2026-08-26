@@ -1,0 +1,50 @@
+{
+  "name": "friday-memory-retrieval",
+  "version": 1,
+  "coverage": [
+    "retrieval precision",
+    "correction propagation",
+    "stale-memory rejection",
+    "source-author provenance",
+    "query boundary safety",
+    "duplicate suppression",
+    "morphological recall"
+  ],
+  "cases": [
+    {
+      "name": "Relevant preference ranks alone at one",
+      "scenario": "precision_at_one",
+      "expected": {"top_is_target": true, "returned": 1, "precision_at_one": 1.0}
+    },
+    {
+      "name": "Explicit correction removes the prior active value",
+      "scenario": "correction_propagation",
+      "expected": {"new_retrieved": true, "old_retrieved": false, "one_active_version": true}
+    },
+    {
+      "name": "Expired facts fail promotion and retrieval",
+      "scenario": "stale_rejection",
+      "expected": {"retrieved_before_expiry": true, "retrieved_after_expiry": false, "past_claim_promoted": false}
+    },
+    {
+      "name": "Utterance kind cannot forge user authorship",
+      "scenario": "actor_provenance",
+      "expected": {"forged_promoted": false, "forged_retrieved": false, "user_promoted": true, "user_retrieved": true}
+    },
+    {
+      "name": "Hostile and uninformative queries fail safely",
+      "scenario": "hostile_query",
+      "expected": {"syntax_safe": true, "stop_words_empty": true, "oversized_rejected": true}
+    },
+    {
+      "name": "Repeated evidence leaves one active refresh",
+      "scenario": "duplicate_refresh",
+      "expected": {"latest_retrieved": true, "one_active_version": true}
+    },
+    {
+      "name": "Singular queries recall plural memory terms",
+      "scenario": "morphology_recall",
+      "expected": {"notification_recalled": true, "matched_progress": true}
+    }
+  ]
+}

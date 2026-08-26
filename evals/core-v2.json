@@ -1,0 +1,179 @@
+{
+  "name": "friday-capability-core",
+  "version": 2,
+  "coverage": [
+    "intent routing",
+    "task contracts",
+    "approval policy",
+    "receipt verification",
+    "false-completion prevention",
+    "restart recovery",
+    "nonrepeatable reconciliation",
+    "memory provenance",
+    "public-network isolation",
+    "hardware scaling"
+  ],
+  "cases": [
+    {
+      "name": "casual greeting stays conversational",
+      "kind": "intent",
+      "text": "Hey Friday",
+      "expected": "conversation"
+    },
+    {
+      "name": "web research is an action",
+      "kind": "intent",
+      "text": "Research current battery technology",
+      "tools": ["web_search"],
+      "expected": "action"
+    },
+    {
+      "name": "news contract demands fresh network evidence",
+      "kind": "contract",
+      "text": "What is today's news?",
+      "tools": ["fetch_news"],
+      "expected": {
+        "required_tools": ["fetch_news"],
+        "permissions": ["network"],
+        "risk": "read_only",
+        "freshness_seconds": 900
+      }
+    },
+    {
+      "name": "managed process contract is approval bound",
+      "kind": "contract",
+      "text": "Launch the approved application",
+      "tools": ["machine_launch_process"],
+      "expected": {
+        "required_tools": ["machine_launch_process"],
+        "permissions": ["process"],
+        "risk": "high",
+        "needs_user_confirmation": true
+      }
+    },
+    {
+      "name": "inferred core upgrade requires approval",
+      "kind": "policy",
+      "tool": "upgrade_core",
+      "explicitly_requested": false,
+      "expected": {
+        "allowed": true,
+        "approval_required": true,
+        "risk": "high"
+      }
+    },
+    {
+      "name": "browser typing requires high-risk approval",
+      "kind": "policy",
+      "tool": "browser_type",
+      "explicitly_requested": false,
+      "expected": {
+        "allowed": true,
+        "approval_required": true,
+        "risk": "high",
+        "permissions": ["browser"]
+      }
+    },
+    {
+      "name": "unattributed news cannot verify",
+      "kind": "verification",
+      "tool": "fetch_news",
+      "result": {
+        "headlines": [{"title": "Plausible claim", "source": "Wire"}]
+      },
+      "succeeded": true,
+      "expected": {
+        "status": "failed",
+        "missing_evidence": true
+      }
+    },
+    {
+      "name": "versioned task cannot self-complete",
+      "kind": "scenario",
+      "scenario": "false_completion_gate",
+      "expected": {
+        "completion_blocked": true,
+        "final_status": "verifying",
+        "verification_status": null
+      }
+    },
+    {
+      "name": "read-only restart retries exact dispatch then successor",
+      "kind": "scenario",
+      "scenario": "durable_readonly_restart",
+      "expected": {
+        "recovered_retry_count": 1,
+        "same_dispatch": true,
+        "retry_attempt": 2,
+        "stale_fenced": true,
+        "successor_ordered": true
+      }
+    },
+    {
+      "name": "nonrepeatable restart requires reconciliation",
+      "kind": "scenario",
+      "scenario": "nonrepeatable_reconciliation",
+      "expected": {
+        "retry_count": 0,
+        "reconcile_count": 1,
+        "redispatch_blocked": true,
+        "state": "reconcile_required",
+        "same_step": true
+      }
+    },
+    {
+      "name": "memory requires attributable user provenance",
+      "kind": "scenario",
+      "scenario": "memory_provenance",
+      "expected": {
+        "assistant_claim_promoted": false,
+        "assistant_claim_retrieved": false,
+        "user_claim_promoted": true,
+        "user_claim_retrieved": true
+      }
+    },
+    {
+      "name": "public transport rejects private authorities",
+      "kind": "scenario",
+      "scenario": "public_network_boundary",
+      "input": {
+        "private_urls": [
+          "http://127.0.0.1/",
+          "http://[::1]/",
+          "http://10.0.0.1/",
+          "http://169.254.169.254/latest"
+        ],
+        "public_url": "https://1.1.1.1/evidence"
+      },
+      "expected": {
+        "private_blocked": 4,
+        "private_total": 4,
+        "public_normalized": "https://1.1.1.1/evidence"
+      }
+    },
+    {
+      "name": "homogeneous model ranks remain separately budgeted",
+      "kind": "scenario",
+      "scenario": "hardware_tensor_parallel",
+      "input": {
+        "cuda_gib": [48, 48, 12],
+        "llm_devices": "1,0"
+      },
+      "expected": {
+        "llm_devices": [0, 1],
+        "tensor_parallel_size": 2,
+        "tts_device": "cuda",
+        "tts_cuda_device": 2,
+        "per_rank_budget_gib": 26.5,
+        "total_budget_gib": 53.0,
+        "native_vision_enabled": true,
+        "native_vision_max_images": 2,
+        "native_vision_max_side": 1536,
+        "rank_remaining_mib": {
+          "cuda:0": 20541,
+          "cuda:1": 20541
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+# Friday's primary CPU speech recognizer. Model weights live under models/.
+sherpa-onnx==1.13.3
+sherpa-onnx-core==1.13.3

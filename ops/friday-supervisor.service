@@ -1,0 +1,22 @@
+[Unit]
+Description=Friday cognitive assistant supervisor
+After=network-online.target
+
+[Service]
+Type=simple
+KillMode=control-group
+WorkingDirectory=%h/github/friday
+Environment=FRIDAY_BIND_HOST=0.0.0.0
+Environment=FRIDAY_PORT=8500
+Environment=FRIDAY_TTS_DEVICE=cuda
+Environment=FRIDAY_GPU_UTIL=0.74
+Environment=FRIDAY_TTS_RESERVE_GIB=6.2
+Environment=FRIDAY_ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.158,omarchy,omarchy.local
+Environment=FRIDAY_ALLOWED_ORIGINS=https://localhost:8500,https://127.0.0.1:8500,https://192.168.1.158:8500,https://omarchy:8500,https://omarchy.local:8500
+ExecStart=%h/github/friday/venv/bin/python %h/github/friday/supervisor.py watch
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
