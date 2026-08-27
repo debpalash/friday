@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from .builtin_tools import (
+    private_argument_fields_for,
+    tool_has_private_payload as catalog_tool_has_private_payload,
+)
+
 from .admission import ResourceAdmissionController, ResourceSnapshot
 from .cognition import ResourceClaim, TaskContract, TaskPlan, VerificationResult
 from .controller_auth import ControllerAuthService, ControllerPrincipal
@@ -29,27 +34,6 @@ ALLOWED_TRANSITIONS = {
     "recovering": {"running", "waiting_input", "failed", "cancelled"},
 }
 
-_PRIVATE_ARGUMENT_FIELDS = {
-    "browser_open": {"url"},
-    "browser_snapshot": {"page_url"},
-    "browser_click": {"page_url"},
-    "browser_type": {"page_url", "text"},
-    "clipboard_write": {"text"},
-    "desktop_notify": {"title", "message"},
-    "remote_reason": {"prompt"},
-    "write_file": {"content"},
-    "machine_grant_path": {"path"},
-    "machine_revoke_grant": {"grant_id"},
-    "machine_inspect_path": {"path"},
-    "machine_list_path": {"path"},
-    "machine_read_text": {"path"},
-    "machine_read_document": {"path"},
-    "machine_ocr_image": {"path"},
-    "machine_understand_image": {"path", "question"},
-    "machine_write_text": {"path", "content"},
-    "machine_rollback_write": {"operation_id"},
-    "machine_launch_process": {"parameter_values"},
-}
 _SECRET_FIELD_FRAGMENTS = (
     "password", "secret", "token", "api_key", "authorization",
 )
@@ -63,17 +47,12 @@ _SAFE_RESULT_STATUSES = {
 
 def tool_has_private_payload(tool_name: str) -> bool:
     """Return whether raw arguments/results must remain ephemeral."""
-    return (tool_name.startswith("browser_")
-            or tool_name.startswith("machine_")
-            or tool_name in {
-                "clipboard_read", "clipboard_write", "read_file",
-                "remote_reason",
-            })
+    return catalog_tool_has_private_payload(tool_name)
 
 
 def tool_arguments_are_private(tool_name: str) -> bool:
     """Return whether a tool call's raw arguments must stay out of sessions."""
-    return bool(_PRIVATE_ARGUMENT_FIELDS.get(tool_name))
+    return bool(private_argument_fields_for(tool_name))
 
 
 def _value_sha256(value: Any) -> str:
@@ -115,7 +94,7 @@ def redact_tool_arguments(tool_name: str,
                           args: dict[str, Any]) -> dict[str, Any]:
     """Create a persistence-safe argument record without mutating live args."""
     return _redact_argument_value(
-        args, _PRIVATE_ARGUMENT_FIELDS.get(tool_name, set()))
+        args, set(private_argument_fields_for(tool_name)))
 
 
 def _decoded_result(result: Any) -> Any:

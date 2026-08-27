@@ -12,6 +12,14 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .builtin_tools import (
+    DESKTOP_TOOL_NAMES,
+    PROCESS_TOOL_NAMES,
+    RESOURCE_OVERRIDES,
+    TOOL_CRITERIA,
+    TOOL_POLICY_DATA,
+)
+
 
 class IntentType(StrEnum):
     CONVERSATION = "conversation"
@@ -117,55 +125,8 @@ class ResourceClaim(BaseModel):
 
 
 TOOL_POLICIES: dict[str, tuple[RiskClass, tuple[str, ...], bool]] = {
-    "fetch_news": (RiskClass.READ_ONLY, ("network",), False),
-    "web_search": (RiskClass.READ_ONLY, ("network",), False),
-    "read_web": (RiskClass.READ_ONLY, ("network",), False),
-    "search_skill_catalog": (RiskClass.READ_ONLY, ("network",), False),
-    "import_skill": (RiskClass.MEDIUM, ("network", "skill_write"), True),
-    "browser_open": (RiskClass.LOW, ("browser",), False),
-    "browser_snapshot": (RiskClass.READ_ONLY, ("browser",), False),
-    "browser_click": (RiskClass.MEDIUM, ("browser",), True),
-    "browser_type": (RiskClass.HIGH, ("browser",), True),
-    "clipboard_read": (RiskClass.READ_ONLY, ("clipboard",), False),
-    "clipboard_write": (RiskClass.LOW, ("clipboard",), False),
-    "desktop_notify": (RiskClass.LOW, ("notifications",), False),
-    "open_local": (RiskClass.LOW, ("process", "filesystem_read"), False),
-    "list_files": (RiskClass.READ_ONLY, ("filesystem_read",), False),
-    "read_file": (RiskClass.READ_ONLY, ("filesystem_read",), False),
-    "write_file": (RiskClass.MEDIUM, ("filesystem_write",), True),
-    "machine_grant_path": (RiskClass.HIGH, ("operator_grant",), True),
-    "machine_list_grants": (RiskClass.READ_ONLY, ("operator_grant",), False),
-    "machine_revoke_grant": (RiskClass.MEDIUM, ("operator_grant",), True),
-    "machine_inspect_path": (RiskClass.READ_ONLY, ("filesystem_read",), False),
-    "machine_list_path": (RiskClass.READ_ONLY, ("filesystem_read",), False),
-    "machine_read_text": (RiskClass.READ_ONLY, ("filesystem_read",), False),
-    "machine_read_document": (
-        RiskClass.READ_ONLY, ("filesystem_read",), False),
-    "machine_ocr_image": (
-        RiskClass.READ_ONLY, ("filesystem_read",), False),
-    "machine_understand_image": (
-        RiskClass.READ_ONLY, ("filesystem_read",), False),
-    "machine_write_text": (RiskClass.HIGH, ("filesystem_write",), True),
-    "machine_rollback_write": (RiskClass.HIGH, ("filesystem_write",), True),
-    "machine_list_process_specs": (
-        RiskClass.READ_ONLY, ("process",), False),
-    "machine_launch_process": (RiskClass.HIGH, ("process",), True),
-    "machine_inspect_process": (
-        RiskClass.READ_ONLY, ("process",), False),
-    "machine_terminate_process": (RiskClass.HIGH, ("process",), True),
-    "machine_list_windows": (RiskClass.READ_ONLY, ("desktop",), False),
-    "machine_focus_window": (RiskClass.MEDIUM, ("desktop",), True),
-    "machine_close_window": (RiskClass.HIGH, ("desktop",), True),
-    "create_reminder": (RiskClass.LOW, ("scheduling", "notifications"), False),
-    "list_reminders": (RiskClass.READ_ONLY, ("scheduling",), False),
-    "cancel_reminder": (RiskClass.LOW, ("scheduling",), False),
-    "set_voice": (RiskClass.LOW, ("voice",), False),
-    "rollback_voice": (RiskClass.LOW, ("voice",), False),
-    "upgrade_core": (RiskClass.HIGH, ("core_upgrade", "filesystem_write"), True),
-    "create_capability": (RiskClass.HIGH,
-                          ("dynamic_capability", "filesystem_write"), True),
-    "remote_reason": (RiskClass.HIGH, ("remote_model", "network"), True),
-    "restart": (RiskClass.MEDIUM, ("process",), False),
+    name: (RiskClass(risk), permissions, always_approve)
+    for name, (risk, permissions, always_approve) in TOOL_POLICY_DATA.items()
 }
 
 _PERMISSION_RISK = {
@@ -180,45 +141,7 @@ _PERMISSION_RISK = {
     "scheduling": RiskClass.MEDIUM,
 }
 
-_RESOURCE_OVERRIDES: dict[str, dict[str, Any]] = {
-    "browser_open": {"cpu_cores": 1.0, "ram_mib": 768, "network": True},
-    "browser_snapshot": {"cpu_cores": 0.5, "ram_mib": 512},
-    "browser_click": {"cpu_cores": 0.5, "ram_mib": 512},
-    "browser_type": {"cpu_cores": 0.5, "ram_mib": 512},
-    "fetch_news": {"ram_mib": 192, "network": True},
-    "web_search": {"ram_mib": 192, "network": True},
-    "read_web": {"ram_mib": 256, "network": True},
-    "import_skill": {"cpu_cores": 1.0, "ram_mib": 512, "network": True},
-    "create_capability": {"cpu_cores": 1.0, "ram_mib": 512,
-                          "latency_class": "batch"},
-    "upgrade_core": {"cpu_cores": 2.0, "ram_mib": 2048,
-                     "latency_class": "batch"},
-    "set_voice": {"cpu_cores": 1.0, "ram_mib": 2048,
-                  "latency_class": "batch"},
-    "machine_understand_image": {
-        "cpu_cores": 1.0, "ram_mib": 768,
-        "latency_class": "interactive"},
-    # Process launch claims are replaced with the immutable curated spec claim
-    # before a durable batch is staged.  This conservative fallback is used
-    # only if a caller bypasses that binding step, in which case the broker
-    # rejects the unbound launch before creating an external effect.
-    "machine_launch_process": {
-        "cpu_cores": 1.0, "ram_mib": 512, "latency_class": "interactive"},
-    # Cleanup must remain dispatchable when ordinary capacity is saturated.
-    # ResourceAdmissionController recognizes only this exact zero-resource
-    # shape as a short-lived control-lane claim; workload transfer rejects it.
-    "machine_terminate_process": {
-        "cpu_cores": 0.0, "ram_mib": 0, "vram_mib": 0,
-        "accelerator": "none", "network": False,
-        "concurrency_slots": 1, "latency_class": "control"},
-    "machine_inspect_process": {
-        "cpu_cores": 0.0, "ram_mib": 0, "vram_mib": 0,
-        "accelerator": "none", "network": False,
-        "concurrency_slots": 1, "latency_class": "control"},
-    "machine_list_windows": {"cpu_cores": 0.1, "ram_mib": 64},
-    "machine_focus_window": {"cpu_cores": 0.1, "ram_mib": 64},
-    "machine_close_window": {"cpu_cores": 0.1, "ram_mib": 64},
-}
+_RESOURCE_OVERRIDES = RESOURCE_OVERRIDES
 
 
 def resource_claim_for(tool_name: str, *,
@@ -258,39 +181,7 @@ class IntentInterpreter:
 
 
 class ContractBuilder:
-    _TOOL_CRITERIA = {
-        "fetch_news": ("fresh_sources", "Return current attributed headlines", "news_receipt"),
-        "web_search": ("search_sources", "Return attributed search results", "source_receipt"),
-        "read_web": ("page_read", "Return content from the requested page", "page_receipt"),
-        "search_skill_catalog": ("skill_candidates", "Return attributable Skills.sh candidates", "skill_search_receipt"),
-        "import_skill": ("skill_imported", "Activate only a pinned and security-validated skill", "skill_import_receipt"),
-        "browser_open": ("browser_opened", "Open the requested URL in the managed profile", "browser_receipt"),
-        "browser_snapshot": ("browser_observed", "Observe the active managed browser page", "browser_receipt"),
-        "browser_click": ("browser_clicked", "Perform the approved browser click", "browser_receipt"),
-        "browser_type": ("browser_typed", "Type into the approved browser field", "browser_receipt"),
-        "write_file": ("deployment_passed", "Promote the requested file only after tests", "deployment_receipt"),
-        "machine_grant_path": ("operator_grant_created", "Create only the exact approved encrypted path grant", "operator_grant_receipt"),
-        "machine_revoke_grant": ("operator_grant_revoked", "Revoke the requested exact grant", "operator_grant_receipt"),
-        "machine_inspect_path": ("machine_path_inspected", "Return verified metadata from a granted path", "machine_read_receipt"),
-        "machine_list_path": ("machine_path_listed", "Return a bounded granted directory listing", "machine_read_receipt"),
-        "machine_read_text": ("machine_text_read", "Return bounded text and its content hash", "machine_read_receipt"),
-        "machine_read_document": ("machine_document_read", "Extract bounded text from an exact granted document and return source and text hashes", "machine_read_receipt"),
-        "machine_ocr_image": ("machine_image_ocr", "Recognize bounded text from an exact granted PNG or JPEG and return source and text hashes", "machine_read_receipt"),
-        "machine_understand_image": ("machine_image_understood", "Answer one bounded question about an exact granted, sandbox-sanitized PNG or JPEG using the profile-bound local vision model", "machine_read_receipt"),
-        "machine_write_text": ("machine_text_written", "Atomically write, reread, and checkpoint the exact approved content", "machine_write_receipt"),
-        "machine_rollback_write": ("machine_write_rolled_back", "Restore the checkpoint only when no later edit would be overwritten", "machine_rollback_receipt"),
-        "machine_list_process_specs": ("process_specs_listed", "List only trusted immutable process specifications", "process_list_receipt"),
-        "machine_launch_process": ("process_launched", "Launch exactly one approved curated process in an owned resource boundary", "process_launch_receipt"),
-        "machine_inspect_process": ("process_inspected", "Inspect only a Friday-owned opaque process instance", "process_inspect_receipt"),
-        "machine_terminate_process": ("process_terminated", "Terminate only the exact approved Friday-owned process boundary", "process_terminate_receipt"),
-        "machine_list_windows": ("desktop_windows_listed", "List only identity-verified windows with opaque targets", "desktop_list_receipt"),
-        "machine_focus_window": ("desktop_window_focused", "Focus only the exact approved window identity", "desktop_focus_receipt"),
-        "machine_close_window": ("desktop_window_closed", "Gracefully close only the exact approved window identity", "desktop_close_receipt"),
-        "create_reminder": ("reminder_saved", "Persist the requested reminder", "reminder_receipt"),
-        "cancel_reminder": ("reminder_cancelled", "Cancel the requested reminder", "reminder_receipt"),
-        "set_voice": ("voice_activated", "Activate the requested voice after synthesis", "voice_receipt"),
-        "upgrade_core": ("upgrade_reviewable", "Prepare a tested core candidate for explicit review", "upgrade_receipt"),
-    }
+    _TOOL_CRITERIA = TOOL_CRITERIA
 
     def build(self, objective: str, tool_names: list[str], *,
               dynamic_permissions: dict[str, list[str]] | None = None
@@ -389,15 +280,8 @@ class PolicyEngine:
 class OutcomeVerifier:
     """Validate receipts independently of the model that selected the action."""
 
-    _PROCESS_RECEIPT_TOOLS = frozenset({
-        "machine_list_process_specs", "machine_launch_process",
-        "machine_inspect_process", "machine_terminate_process",
-    })
-
-    _DESKTOP_RECEIPT_TOOLS = frozenset({
-        "machine_list_windows", "machine_focus_window",
-        "machine_close_window",
-    })
+    _PROCESS_RECEIPT_TOOLS = PROCESS_TOOL_NAMES
+    _DESKTOP_RECEIPT_TOOLS = DESKTOP_TOOL_NAMES
 
     def __init__(self, *, process_receipt_verifier: Callable[
             [str, Any, dict[str, Any] | None, str | None], bool] | None = None,
