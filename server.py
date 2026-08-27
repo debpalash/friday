@@ -78,6 +78,7 @@ from friday_core.local_http import (normalize_loopback_model_base_url,
 from friday_core.builtin_tools import (
     BLOCKING_IO_TOOLS, BUILTIN_TOOL_NAMES, BUILTIN_TOOL_SCHEMAS,
     DESKTOP_TOOL_NAMES, EXACT_STEP_APPROVAL_TOOLS, PROCESS_TOOL_NAMES,
+    BuiltinToolAdapters, BuiltinToolRuntime,
 )
 
 SAMPLE_RATE = 16000
@@ -262,168 +263,28 @@ def capability_inventory() -> list[dict]:
     return builtins + dynamic
 
 
-_PROTECTED_PROJECT_ROOTS = {
-    ".git", "backups", "capabilities", "models", "state", "venv",
-}
-_PROTECTED_PROJECT_FILES = {
-    ".env", "friday.log", "server.log", "session.json", "supervisor.log",
-}
+BUILTIN_TOOL_RUNTIME = BuiltinToolRuntime()
 
 
 def _safe_path(path: str):
-    p = (REPO / path).resolve() if not path.startswith("/") else Path(path).resolve()
-    if REPO not in p.parents and p != REPO:
-        return None
-    try:
-        relative = p.relative_to(REPO)
-    except ValueError:
-        return None
-    if relative.parts and relative.parts[0] in _PROTECTED_PROJECT_ROOTS:
-        return None
-    if (p.name in _PROTECTED_PROJECT_FILES
-            or p.name.casefold().startswith((".env.", "api_key"))
-            or "secret" in p.name.casefold()
-            or "token" in p.name.casefold()):
-        return None
-    return p
+    return BUILTIN_TOOL_RUNTIME.safe_project_path(REPO, path)
+
+
+def _builtin_tool_adapters() -> BuiltinToolAdapters:
+    return BuiltinToolAdapters(
+        repo=REPO,
+        fetch_news=fetch_news,
+        web=WEB,
+        skill_source=SKILL_SOURCE,
+        reminders=REMINDERS,
+        run_process=subprocess.run,
+        start_process=subprocess.Popen,
+    )
 
 
 def exec_tool(name: str, args: dict) -> str:
-    if name == "fetch_news":
-        try:
-            result = fetch_news(
-                str(args.get("topic") or ""), int(args.get("limit") or 5),
-                str(args.get("region") or "India"))
-            return json.dumps(result, ensure_ascii=False)
-        except Exception as exc:
-            return f"error: news fetch failed: {exc}"
-    if name == "web_search":
-        try:
-            return json.dumps(WEB.search(
-                str(args.get("query") or ""), limit=int(args.get("limit") or 5)),
-                ensure_ascii=False)
-        except Exception as exc:
-            return f"error: web search failed: {exc}"
-    if name == "search_skill_catalog":
-        try:
-            return json.dumps(SKILL_SOURCE.search(
-                str(args.get("query") or ""), limit=int(args.get("limit") or 5)),
-                ensure_ascii=False)
-        except Exception as exc:
-            return f"error: skill discovery failed: {exc}"
-    if name == "read_web":
-        try:
-            return json.dumps(WEB.read(
-                str(args.get("url") or ""),
-                max_chars=int(args.get("max_chars") or 12000)), ensure_ascii=False)
-        except Exception as exc:
-            return f"error: web read failed: {exc}"
-    if name == "browser_open":
-        try:
-            return json.dumps(WEB.open(str(args.get("url") or "")),
-                              ensure_ascii=False)
-        except Exception as exc:
-            return f"error: browser open failed: {exc}"
-    if name == "browser_snapshot":
-        try:
-            return json.dumps(WEB.snapshot(
-                args.get("page_url"), max_chars=int(args.get("max_chars") or 12000)),
-                ensure_ascii=False)
-        except Exception as exc:
-            return f"error: browser snapshot failed: {exc}"
-    if name == "browser_click":
-        try:
-            return json.dumps(WEB.click(
-                str(args.get("selector") or ""), page_url=args.get("page_url")),
-                ensure_ascii=False)
-        except Exception as exc:
-            return f"error: browser click failed: {exc}"
-    if name == "browser_type":
-        try:
-            return json.dumps(WEB.type(
-                str(args.get("selector") or ""), str(args.get("text") or ""),
-                page_url=args.get("page_url"), submit=bool(args.get("submit"))),
-                ensure_ascii=False)
-        except Exception as exc:
-            return f"error: browser typing failed: {exc}"
-    if name == "clipboard_read":
-        try:
-            value = subprocess.run(
-                ["wl-paste", "--no-newline"], text=True, capture_output=True,
-                timeout=5, check=True).stdout[:4000]
-            return json.dumps({"status": "ok", "text": value}, ensure_ascii=False)
-        except Exception as exc:
-            return f"error: clipboard read failed: {exc}"
-    if name == "clipboard_write":
-        try:
-            value = str(args.get("text") or "")
-            subprocess.run(["wl-copy"], input=value, text=True, capture_output=True,
-                           timeout=5, check=True)
-            return json.dumps({"status": "ok", "characters": len(value)})
-        except Exception as exc:
-            return f"error: clipboard write failed: {exc}"
-    if name == "desktop_notify":
-        try:
-            subprocess.run(
-                ["notify-send", str(args.get("title") or "Friday"),
-                 str(args.get("message") or "")], capture_output=True,
-                timeout=5, check=True)
-            return json.dumps({"status": "ok", "delivered": True})
-        except Exception as exc:
-            return f"error: desktop notification failed: {exc}"
-    if name == "open_local":
-        p = _safe_path(str(args.get("path") or ""))
-        if p is None or not p.exists():
-            return "error: local target is unavailable (project paths only)"
-        try:
-            subprocess.Popen(["xdg-open", str(p)], stdin=subprocess.DEVNULL,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True)
-            return json.dumps({"status": "ok", "path": str(p.relative_to(REPO))})
-        except Exception as exc:
-            return f"error: local open failed: {exc}"
-    if name == "create_reminder":
-        try:
-            return json.dumps(REMINDERS.create(
-                str(args.get("text") or ""), str(args.get("due_at") or ""),
-                interval_seconds=(int(args["interval_seconds"])
-                                  if args.get("interval_seconds") else None)),
-                ensure_ascii=False)
-        except Exception as exc:
-            return f"error: reminder creation failed: {exc}"
-    if name == "list_reminders":
-        return json.dumps(REMINDERS.list(status=args.get("status")), ensure_ascii=False)
-    if name == "cancel_reminder":
-        try:
-            return json.dumps(REMINDERS.cancel(str(args.get("reminder_id") or "")),
-                              ensure_ascii=False)
-        except Exception as exc:
-            return f"error: reminder cancellation failed: {exc}"
-    if name == "list_files":
-        d = _safe_path(args.get("path") or ".")
-        if d is None or not d.is_dir():
-            return f"error: {args.get('path', '.')} is not a directory in your project"
-        entries = sorted(d.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
-        out = []
-        for e in entries[:100]:
-            if e.name.startswith((".", "__")) or e.name == "venv":
-                continue
-            out.append(("d " if e.is_dir() else "f ") + e.name)
-        return "\n".join(out) or "(empty)"
-    if name == "read_file":
-        p = _safe_path(args["path"])
-        if p is None or not p.is_file():
-            return f"error: {args['path']} not found (project dir only)"
-        return p.read_text(errors="replace")[:20000]
-    if name == "restart":
-        reason = args.get("reason", "")
-        subprocess.Popen(
-            [str(REPO / "venv/bin/python"), str(REPO / "supervisor.py"),
-             "restart-friday", "--after", "1.5"], cwd=REPO,
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, start_new_session=True)
-        return f"restarting now: {reason}"
-    return f"error: unknown tool {name}"
+    return BUILTIN_TOOL_RUNTIME.execute(
+        name, args, _builtin_tool_adapters())
 
 
 class Friday:

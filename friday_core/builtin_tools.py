@@ -7,9 +7,12 @@ It deliberately has no dependencies on server composition or cognition models.
 
 from __future__ import annotations
 
+import json
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 BUILTIN_TOOL_SCHEMAS = [
     {"type": "function", "function": {
@@ -599,6 +602,13 @@ PRIVATE_PAYLOAD_TOOL_NAMES = frozenset({
 })
 PRIVATE_PAYLOAD_PREFIXES = ("browser_", "machine_")
 
+PROTECTED_PROJECT_ROOTS = frozenset({
+    ".git", "backups", "capabilities", "models", "state", "venv",
+})
+PROTECTED_PROJECT_FILES = frozenset({
+    ".env", "friday.log", "server.log", "session.json", "supervisor.log",
+})
+
 
 @dataclass(frozen=True)
 class BuiltinToolSpec:
@@ -616,6 +626,19 @@ class BuiltinToolSpec:
     exact_step_approval: bool
     blocking_io: bool
     receipt_family: str | None
+
+
+@dataclass(frozen=True)
+class BuiltinToolAdapters:
+    """Domain effectors required by the stateless built-in implementations."""
+
+    repo: Path
+    fetch_news: Callable[[str, int, str], Any]
+    web: Any
+    skill_source: Any
+    reminders: Any
+    run_process: Callable[..., Any]
+    start_process: Callable[..., Any]
 
 
 def _build_catalog() -> Mapping[str, BuiltinToolSpec]:
@@ -684,6 +707,190 @@ def _build_catalog() -> Mapping[str, BuiltinToolSpec]:
 
 
 BUILTIN_TOOLS = _build_catalog()
+
+
+class BuiltinToolRuntime:
+    """Execute stateless built-ins through one narrow adapter seam."""
+
+    @staticmethod
+    def safe_project_path(repo: Path, path: str) -> Path | None:
+        candidate = ((repo / path).resolve()
+                     if not path.startswith("/") else Path(path).resolve())
+        if repo not in candidate.parents and candidate != repo:
+            return None
+        try:
+            relative = candidate.relative_to(repo)
+        except ValueError:
+            return None
+        if (relative.parts
+                and relative.parts[0] in PROTECTED_PROJECT_ROOTS):
+            return None
+        folded_name = candidate.name.casefold()
+        if (candidate.name in PROTECTED_PROJECT_FILES
+                or folded_name.startswith((".env.", "api_key"))
+                or "secret" in folded_name
+                or "token" in folded_name):
+            return None
+        return candidate
+
+    def execute(self, name: str, args: dict[str, Any],
+                adapters: BuiltinToolAdapters) -> str:
+        """Execute one non-durable built-in and return its model-facing receipt."""
+        if name == "fetch_news":
+            try:
+                result = adapters.fetch_news(
+                    str(args.get("topic") or ""), int(args.get("limit") or 5),
+                    str(args.get("region") or "India"))
+                return json.dumps(result, ensure_ascii=False)
+            except Exception as exc:
+                return f"error: news fetch failed: {exc}"
+        if name == "web_search":
+            try:
+                return json.dumps(adapters.web.search(
+                    str(args.get("query") or ""),
+                    limit=int(args.get("limit") or 5)), ensure_ascii=False)
+            except Exception as exc:
+                return f"error: web search failed: {exc}"
+        if name == "search_skill_catalog":
+            try:
+                return json.dumps(adapters.skill_source.search(
+                    str(args.get("query") or ""),
+                    limit=int(args.get("limit") or 5)), ensure_ascii=False)
+            except Exception as exc:
+                return f"error: skill discovery failed: {exc}"
+        if name == "read_web":
+            try:
+                return json.dumps(adapters.web.read(
+                    str(args.get("url") or ""),
+                    max_chars=int(args.get("max_chars") or 12000)),
+                    ensure_ascii=False)
+            except Exception as exc:
+                return f"error: web read failed: {exc}"
+        if name == "browser_open":
+            try:
+                return json.dumps(adapters.web.open(
+                    str(args.get("url") or "")), ensure_ascii=False)
+            except Exception as exc:
+                return f"error: browser open failed: {exc}"
+        if name == "browser_snapshot":
+            try:
+                return json.dumps(adapters.web.snapshot(
+                    args.get("page_url"),
+                    max_chars=int(args.get("max_chars") or 12000)),
+                    ensure_ascii=False)
+            except Exception as exc:
+                return f"error: browser snapshot failed: {exc}"
+        if name == "browser_click":
+            try:
+                return json.dumps(adapters.web.click(
+                    str(args.get("selector") or ""),
+                    page_url=args.get("page_url")), ensure_ascii=False)
+            except Exception as exc:
+                return f"error: browser click failed: {exc}"
+        if name == "browser_type":
+            try:
+                return json.dumps(adapters.web.type(
+                    str(args.get("selector") or ""),
+                    str(args.get("text") or ""),
+                    page_url=args.get("page_url"),
+                    submit=bool(args.get("submit"))), ensure_ascii=False)
+            except Exception as exc:
+                return f"error: browser typing failed: {exc}"
+        if name == "clipboard_read":
+            try:
+                value = adapters.run_process(
+                    ["wl-paste", "--no-newline"], text=True,
+                    capture_output=True, timeout=5, check=True).stdout[:4000]
+                return json.dumps(
+                    {"status": "ok", "text": value}, ensure_ascii=False)
+            except Exception as exc:
+                return f"error: clipboard read failed: {exc}"
+        if name == "clipboard_write":
+            try:
+                value = str(args.get("text") or "")
+                adapters.run_process(
+                    ["wl-copy"], input=value, text=True, capture_output=True,
+                    timeout=5, check=True)
+                return json.dumps(
+                    {"status": "ok", "characters": len(value)})
+            except Exception as exc:
+                return f"error: clipboard write failed: {exc}"
+        if name == "desktop_notify":
+            try:
+                adapters.run_process(
+                    ["notify-send", str(args.get("title") or "Friday"),
+                     str(args.get("message") or "")], capture_output=True,
+                    timeout=5, check=True)
+                return json.dumps({"status": "ok", "delivered": True})
+            except Exception as exc:
+                return f"error: desktop notification failed: {exc}"
+        if name == "open_local":
+            path = self.safe_project_path(
+                adapters.repo, str(args.get("path") or ""))
+            if path is None or not path.exists():
+                return "error: local target is unavailable (project paths only)"
+            try:
+                adapters.start_process(
+                    ["xdg-open", str(path)], stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True)
+                return json.dumps({
+                    "status": "ok", "path": str(path.relative_to(adapters.repo)),
+                })
+            except Exception as exc:
+                return f"error: local open failed: {exc}"
+        if name == "create_reminder":
+            try:
+                return json.dumps(adapters.reminders.create(
+                    str(args.get("text") or ""),
+                    str(args.get("due_at") or ""),
+                    interval_seconds=(int(args["interval_seconds"])
+                                      if args.get("interval_seconds") else None)),
+                    ensure_ascii=False)
+            except Exception as exc:
+                return f"error: reminder creation failed: {exc}"
+        if name == "list_reminders":
+            return json.dumps(
+                adapters.reminders.list(status=args.get("status")),
+                ensure_ascii=False)
+        if name == "cancel_reminder":
+            try:
+                return json.dumps(adapters.reminders.cancel(
+                    str(args.get("reminder_id") or "")), ensure_ascii=False)
+            except Exception as exc:
+                return f"error: reminder cancellation failed: {exc}"
+        if name == "list_files":
+            directory = self.safe_project_path(
+                adapters.repo, args.get("path") or ".")
+            if directory is None or not directory.is_dir():
+                return (f"error: {args.get('path', '.')} is not a directory "
+                        "in your project")
+            entries = sorted(
+                directory.iterdir(), key=lambda item: (
+                    item.is_file(), item.name.lower()))
+            visible = []
+            for entry in entries[:100]:
+                if (entry.name.startswith((".", "__"))
+                        or entry.name == "venv"):
+                    continue
+                visible.append(
+                    ("d " if entry.is_dir() else "f ") + entry.name)
+            return "\n".join(visible) or "(empty)"
+        if name == "read_file":
+            path = self.safe_project_path(adapters.repo, args["path"])
+            if path is None or not path.is_file():
+                return f"error: {args['path']} not found (project dir only)"
+            return path.read_text(errors="replace")[:20000]
+        if name == "restart":
+            reason = args.get("reason", "")
+            adapters.start_process(
+                [str(adapters.repo / "venv/bin/python"),
+                 str(adapters.repo / "supervisor.py"),
+                 "restart-friday", "--after", "1.5"], cwd=adapters.repo,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, start_new_session=True)
+            return f"restarting now: {reason}"
+        return f"error: unknown tool {name}"
 
 
 def builtin_tool(name: str) -> BuiltinToolSpec | None:
