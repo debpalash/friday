@@ -1138,6 +1138,36 @@ class BootRecoveryStore:
         _atomic_write_private_json(self.path, value)
         return True
 
+    def record_planned_stop_identity(
+        self, *, active_profile_fingerprint: str,
+        runtime_identity: str,
+    ) -> bool:
+        """Record SIGTERM shutdown without probing hardware in the handler."""
+        status, value = _read_private_json(self.path)
+        if (status != "ok" or value is None
+                or value.get("schema_version") != RECOVERY_SCHEMA_VERSION
+                or value.get("clock_boot_id") != _boot_session_id()
+                or not value.get("expected_running")
+                or value.get("active_profile_fingerprint")
+                    != active_profile_fingerprint
+                or value.get("runtime_identity") != runtime_identity):
+            return False
+        try:
+            _plain_int(
+                value.get("consecutive_failures"), minimum=0, maximum=32)
+            _plain_float(
+                value.get("next_retry_at"), minimum=0, maximum=10 ** 12)
+        except (TypeError, ValueError):
+            return False
+        value.update({
+            "consecutive_failures": 0,
+            "expected_running": False,
+            "next_retry_at": 0.0,
+            "state": "ready",
+        })
+        _atomic_write_private_json(self.path, value)
+        return True
+
     def observe(self, proposed: RuntimeProfile, *, running: bool,
                 active: RuntimeProfile | None = None,
                 runtime_identity: str | None = None,

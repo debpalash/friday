@@ -329,6 +329,26 @@ class BootRecoveryTests(unittest.TestCase):
             "retry_after_seconds": 0,
         })
 
+    def test_signal_safe_planned_stop_uses_exact_persisted_identity(self):
+        proposed = select_runtime_profile(snapshot(24), environment={})
+        with tempfile.TemporaryDirectory() as temporary:
+            store = BootRecoveryStore(Path(temporary) / "recovery.json")
+            store.record_launch_success(
+                proposed, proposed, runtime_identity="runtime-a", now=20)
+
+            wrong = store.record_planned_stop_identity(
+                active_profile_fingerprint=proposed.fingerprint,
+                runtime_identity="runtime-b")
+            stopped = store.record_planned_stop_identity(
+                active_profile_fingerprint=proposed.fingerprint,
+                runtime_identity="runtime-a")
+            status = store.public_status(proposed, now=21)
+
+        self.assertFalse(wrong)
+        self.assertTrue(stopped)
+        self.assertEqual(status["state"], "ready")
+        self.assertEqual(status["consecutive_failures"], 0)
+
     def test_early_runtime_loss_is_edge_triggered_and_exponentially_backed_off(self):
         proposed = select_runtime_profile(snapshot(24), environment={})
         active = runtime_boot_candidates(proposed)[1]

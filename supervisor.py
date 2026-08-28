@@ -1990,15 +1990,18 @@ def _planned_runtime_identity(active: Mapping[str, Any] | None) -> str | None:
 def _record_planned_watch_stop() -> bool:
     """Persist a clean-stop edge without requiring a still-live child PID."""
     try:
-        proposed = resolve_runtime_profile()
         active_manifest = read_active_runtime_profile()
-        active = match_active_candidate(
-            _boot_candidates(proposed), active_manifest)
         runtime_identity = _planned_runtime_identity(active_manifest)
-        if active is None or runtime_identity is None:
+        fingerprint = (
+            active_manifest.get("fingerprint")
+            if isinstance(active_manifest, Mapping) else None)
+        if (not isinstance(fingerprint, str)
+                or not fingerprint or runtime_identity is None):
             return False
-        return BootRecoveryStore(BOOT_RECOVERY_FILE).record_planned_stop(
-            proposed, active, runtime_identity=runtime_identity)
+        return BootRecoveryStore(
+            BOOT_RECOVERY_FILE).record_planned_stop_identity(
+                active_profile_fingerprint=fingerprint,
+                runtime_identity=runtime_identity)
     except Exception:
         return False
 
