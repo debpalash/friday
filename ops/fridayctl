@@ -38,8 +38,6 @@ Usage: friday <command>
   verify-export PATH
               Verify a Friday private export without importing it
   delete ...  Preview or confirm selective private-data deletion
-  release-candidate PATH
-              Run every local release gate and write one private report
   uninstall   Remove Friday's app/runtime; preserve personal data
   version     Print the installed release identity
 EOF
@@ -170,17 +168,6 @@ PY
     exec "$CURRENT/venv/bin/python" "$CURRENT/ops/friday_data.py" \
       --state-dir "${FRIDAY_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/friday}" \
       delete "$@"
-    ;;
-  release-candidate)
-    need_install
-    [[ $# -eq 2 ]] || {
-      echo "Usage: friday release-candidate PATH" >&2
-      exit 2
-    }
-    exec "$CURRENT/venv/bin/python" \
-      "$CURRENT/ops/friday_release_candidate.py" \
-      --output "$2" --app-python "$CURRENT/venv/bin/python" \
-      --qwen-python "$FRIDAY_LLM_REPO/venv/bin/python"
     ;;
   uninstall)
     need_install

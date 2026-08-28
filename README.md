@@ -148,7 +148,6 @@ or directory layout.
 | `friday logs` | Follow the private user-service log |
 | `friday update` | Install the configured upstream release through the same transaction |
 | `friday repair` | Rebuild the active release and run its diagnostics |
-| `friday release-candidate PATH` | Run every local gate and write a private hash-bound report |
 | `friday stop` | Stop the service and unload the local model |
 | `friday uninstall` | Remove the app and runtime while preserving personal data and models |
 
