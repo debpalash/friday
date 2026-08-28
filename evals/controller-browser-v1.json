@@ -1,0 +1,10 @@
+{
+  "name": "friday-controller-browser",
+  "version": 1,
+  "origin": "https://192.0.2.10:8500",
+  "transport_binding_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "page_url": "https://93.184.216.34/form",
+  "selector": "#query",
+  "input": "controller-browser-private-fixture-7d6c12",
+  "controller_label": "Friday evaluation controller"
+}

@@ -255,6 +255,22 @@ user-visible completion is derived from the task state, receipts, attempt
 journal, file hashes, and a fresh test run. Project content and test output live
 only in disposable directories and do not enter the aggregate graph record.
 
+Run the signed controller and managed-browser control-path scorecard with:
+
+```bash
+venv/bin/python ops/run_controller_browser_evals.py
+```
+
+It generates an ephemeral P-256 controller key, pairs it, reconstructs the auth
+service, reconnects with a new signed challenge, rejects one exact browser
+action, and separately authorizes one exact browser input. The approved action
+passes through `WebOperator` with the managed-runtime identity checked before
+and after the mutation. The approval is consumed by one effect, both sessions
+fail immediately after controller revocation, and raw input plus bearer secrets
+stay out of durable state. Browser transport is a deterministic CDP-shaped
+fixture in this scorecard; an actual Chromium launch and stop are retained as a
+separate clean-host installer rehearsal gate.
+
 Run the separate live document/OCR reasoning scorecard while the local model is healthy:
 
 ```bash

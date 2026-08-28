@@ -787,3 +787,22 @@ ANN or sharded indexing beyond 4,096 active claims only when measurements justif
 - Source fixtures, the temporary project, and raw test output are removed after
   the run. Only counts, durations, hashes, gate decisions, and the structured
   outcome enter Friday's graph.
+
+### 2026-08-28: signed controller and browser control path
+
+- Added a versioned controller-browser scorecard using real P-256 OpenSSL
+  signatures, the production controller-auth and approval services, durable
+  task dispatch, and the production `WebOperator` mutation logic.
+- Pairing survives auth-service reconstruction. A returning controller proves
+  key possession with a fresh signed challenge and receives a distinct session.
+- A signed rejection produces zero effect uses and cancels its durable batch.
+  A separately signed exact browser input produces one effect use, cannot reuse
+  its approval, and passes managed-runtime identity checks before and after the
+  mutation.
+- Revoking the controller invalidates both sessions immediately. Pairing and
+  session bearers, the ephemeral private key, and raw browser input do not enter
+  the retained aggregate result.
+- The browser transport is a deterministic CDP-shaped fixture. This qualifies
+  controller ownership, exact approval, dispatch, WebOperator mutation, and
+  revocation as one reproducible path; actual Chromium lifecycle remains part
+  of the clean-host installation rehearsal.
