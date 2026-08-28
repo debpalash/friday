@@ -34,6 +34,7 @@ not authorized by this ledger.
 | Private data lifecycle | closed | Owner-only complete export and offline deletion by conversation, task, artifact, memory claim, and time range; manifests, hashes, tombstones, dependency closure, compaction, and failure atomicity are tested |
 | Recovered project execution | closed | Long-horizon project v1: 3/3 files, 3/3 tests, 5/5 verified receipts, one interrupted step resumed as attempt 2 in 55.8 ms, no duplicate effects, and receipt-derived completion |
 | Paired controller and browser control path | closed | Controller-browser v1: signed pairing, restart/reconnect, rejected action with zero effects, one exact approved effect, before/after managed-runtime fencing, single-use approval, and immediate controller revocation |
+| Injected rollback and recovery | closed | Recovery v1: 4/4 model, worker, browser, and filesystem scenarios; 12.7 ms control-path p95; 15-second model retry policy; no duplicate worker or rejected-browser effects |
 
 The performance numbers above describe one local machine and one exact runtime
 profile. They are not a cross-device claim.
@@ -59,8 +60,6 @@ profile. They are not a cross-device claim.
 
 ### Capability and runtime
 
-- Measure rollback rate and recovery time under injected model, worker,
-  browser, and filesystem failures.
 
 ### Architecture and compatibility
 

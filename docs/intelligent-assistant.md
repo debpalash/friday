@@ -271,6 +271,20 @@ stay out of durable state. Browser transport is a deterministic CDP-shaped
 fixture in this scorecard; an actual Chromium launch and stop are retained as a
 separate clean-host installer rehearsal gate.
 
+Run the four-family injected recovery scorecard with:
+
+```bash
+venv/bin/python ops/run_recovery_evals.py
+```
+
+It injects an early model loss, an abandoned dispatched worker attempt, a
+replaced managed-browser runtime, and a deployment verification failure. The
+version 1 run recovered 4/4 with 12.7 ms control-path p95. Model recovery used
+the bounded 15-second backoff and returned to stable; the worker used attempt 2
+with one effect; the browser rejected the replaced runtime before mutation;
+and the deployment restored the original file bytes. Fixtures and raw command
+output are removed before the aggregate result is recorded.
+
 Run the separate live document/OCR reasoning scorecard while the local model is healthy:
 
 ```bash

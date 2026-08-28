@@ -1,0 +1,9 @@
+{
+  "name": "friday-injected-recovery",
+  "version": 1,
+  "gates": {
+    "minimum_recovery_rate": 1.0,
+    "maximum_control_path_p95_ms": 5000,
+    "maximum_model_retry_seconds": 30
+  }
+}

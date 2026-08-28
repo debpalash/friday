@@ -806,3 +806,19 @@ ANN or sharded indexing beyond 4,096 active claims only when measurements justif
   controller ownership, exact approval, dispatch, WebOperator mutation, and
   revocation as one reproducible path; actual Chromium lifecycle remains part
   of the clean-host installation rehearsal.
+
+### 2026-08-28: injected rollback and recovery metrics
+
+- Added one versioned recovery scorecard spanning model, worker, browser, and
+  filesystem failure boundaries instead of inferring recovery from unit tests.
+- An early model loss enters a 15-second bounded backoff, accepts a replacement
+  runtime identity, and clears failure history only after the stability window.
+- An abandoned dispatched worker step resumes under attempt 2 and produces one
+  effect. A replaced managed-browser runtime is rejected before mutation, then
+  succeeds after exact identity recovery. A failed deployment test restores the
+  source bytes and records the candidate as rejected.
+- The real local run recovered 4/4. Control-path p50 was 0.5 ms and p95 was
+  12.7 ms; this excludes the intentional model retry delay, which is reported
+  separately.
+- Each scenario uses a disposable private state root. The retained result holds
+  only aggregate measurements and bounded status evidence.
