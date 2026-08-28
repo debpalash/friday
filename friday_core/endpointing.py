@@ -5,6 +5,27 @@ from __future__ import annotations
 import numpy as np
 
 
+class PlaybackEchoGate:
+    """Block microphone endpointing during playback and its acoustic tail."""
+
+    def __init__(self, tail_ms: int = 650):
+        if tail_ms < 0:
+            raise ValueError("playback echo tail must not be negative")
+        self.tail_seconds = tail_ms / 1000
+        self._playing = False
+        self._release_at = 0.0
+
+    def start(self) -> None:
+        self._playing = True
+
+    def finish(self, now: float) -> None:
+        self._playing = False
+        self._release_at = max(self._release_at, now + self.tail_seconds)
+
+    def blocks(self, now: float) -> bool:
+        return self._playing or now < self._release_at
+
+
 class UtteranceBuffer:
     """Preserve speech edges and carry barge-in audio into the next turn."""
 

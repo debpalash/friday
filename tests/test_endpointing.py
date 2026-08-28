@@ -2,10 +2,30 @@ import unittest
 
 import numpy as np
 
-from friday_core.endpointing import UtteranceBuffer
+from friday_core.endpointing import PlaybackEchoGate, UtteranceBuffer
 
 
 class EndpointingTests(unittest.TestCase):
+    def test_playback_echo_gate_blocks_audio_and_tail(self):
+        gate = PlaybackEchoGate(tail_ms=650)
+
+        self.assertFalse(gate.blocks(10.0))
+        gate.start()
+        self.assertTrue(gate.blocks(100.0))
+        gate.finish(10.0)
+        self.assertTrue(gate.blocks(10.649))
+        self.assertFalse(gate.blocks(10.650))
+
+    def test_playback_echo_gate_restart_extends_existing_tail(self):
+        gate = PlaybackEchoGate(tail_ms=650)
+        gate.start()
+        gate.finish(5.0)
+        gate.start()
+        gate.finish(5.4)
+
+        self.assertTrue(gate.blocks(6.049))
+        self.assertFalse(gate.blocks(6.051))
+
     def test_pre_roll_preserves_audio_before_vad_trigger(self):
         endpoint = UtteranceBuffer(
             1000, pre_roll_ms=300, post_roll_ms=200,

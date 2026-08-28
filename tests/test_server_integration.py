@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import io
 import json
+import re
 import stat
 import tempfile
 import threading
@@ -786,6 +787,35 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("session-file-content-secret", saved)
         self.assertIn("REDACTED", saved)
 
+    def test_session_removes_sustained_mirrored_echo_loop(self):
+        friday = server.Friday.__new__(server.Friday)
+        friday.history = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "Hey."},
+            *(
+                message
+                for _ in range(4)
+                for message in (
+                    {"role": "user", "content": "Okay."},
+                    {"role": "assistant", "content": "Okay."},
+                )
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            old_session = server.SESSION_FILE
+            server.SESSION_FILE = Path(temporary) / "session.json"
+            try:
+                friday.save_session()
+                saved = json.loads(server.SESSION_FILE.read_text())
+            finally:
+                server.SESSION_FILE = old_session
+
+        self.assertEqual(
+            [(message["role"], message["content"]) for message in saved],
+            [("system", "system"), ("user", "hello"),
+             ("assistant", "Hey.")])
+
     def test_private_tool_log_summaries_never_include_raw_values(self):
         cases = {
             "clipboard_read": "clipboard-log-secret",
@@ -836,6 +866,19 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             "Trump threatened Iran after an attack on U.S. forces in Jordan.",
             "More followed.",
         ])
+
+    def test_voice_client_gates_microphone_for_server_echo_tail(self):
+        tail = re.search(
+            r"const PLAYBACK_ECHO_TAIL_MS=(\d+);", server.HTML)
+
+        self.assertIsNotNone(tail)
+        self.assertEqual(int(tail.group(1)), server.PLAYBACK_ECHO_TAIL_MS)
+        self.assertIn(
+            "if(playbackActive||playing||performance.now()<micResumeAt)",
+            server.HTML)
+        self.assertIn(
+            "micResumeAt=performance.now()+PLAYBACK_ECHO_TAIL_MS",
+            server.HTML)
 
     async def test_text_display_mode_delivers_one_complete_markdown_answer(self):
         answer = "# Result\n\n- First item\n- Second item"
@@ -1198,6 +1241,29 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([item["role"] for item in messages], ["system", "user"])
         self.assertEqual(messages[-1]["content"], "Where were we?")
+
+    def test_chat_context_drops_sustained_mirrored_echo_loop(self):
+        friday = server.Friday.__new__(server.Friday)
+        friday.history = [
+            {"role": "system", "content": "test"},
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "Hey."},
+            *(
+                message
+                for _ in range(5)
+                for message in (
+                    {"role": "user", "content": "Okay."},
+                    {"role": "assistant", "content": "Okay."},
+                )
+            ),
+            {"role": "user", "content": "Where were we?"},
+        ]
+
+        messages = friday._chat_messages()
+
+        self.assertEqual(
+            [message.get("content") for message in messages[1:]],
+            ["hello", "Hey.", "Where were we?"])
 
     def test_chat_context_removes_obsolete_news_denials(self):
         friday = server.Friday.__new__(server.Friday)

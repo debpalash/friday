@@ -10,7 +10,7 @@ from .desktop import (DesktopActionError, DesktopApplicationLaunchBinding,
                       DesktopBindingError, DesktopBroker, DesktopBrokerError, DesktopSnapshot,
                       DesktopUnavailableError, DesktopWindowBinding,
                       DesktopWindowObservation, HyprlandDesktopBackend)
-from .endpointing import UtteranceBuffer
+from .endpointing import PlaybackEchoGate, UtteranceBuffer
 from .capabilities import CapabilityManager
 from .cognition import (ContractBuilder, IntentInterpreter, OutcomeVerifier, Planner,
                         PolicyEngine, ResourceClaim, RiskClass, TaskContract,
@@ -63,7 +63,7 @@ __all__ = ["ActionHandle", "AdmissionBudget", "AdmissionDecision", "ApprovalServ
            "FasterWhisperASR", "FeedbackService", "IntentInterpreter", "ModelRouter", "OutcomeVerifier", "ParakeetASR",
            "PiperSpeechSynthesizer", "Planner", "PolicyEngine", "ReconciliationCandidate", "RiskClass", "SkillManager", "SkillsShRegistry", "TaskContract",
            "ResourceAdmissionController", "ResourceClaim", "ResourceSnapshot", "TaskPlan", "TaskService", "ReminderService", "ReminderWorker", "StepExecutionResult", "VerificationResult", "VerificationStatus", "WebOperator", "PublicWebProxy",
-           "UtteranceBuffer", "VoiceManager", "fetch_news", "format_news_brief", "format_search_result",
+           "PlaybackEchoGate", "UtteranceBuffer", "VoiceManager", "fetch_news", "format_news_brief", "format_search_result",
            "detect_hardware", "format_news_segments", "load_asr",
            "choose_speech_backend", "pinned_piper_model_path", "select_runtime_profile", "verify_pinned_piper_voice", "write_runtime_profile",
            "migrate_session_json", "normalize_https_origin",

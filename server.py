@@ -2,7 +2,7 @@
 
 Browser captures mic (16 kHz mono) over a WebSocket; server runs
 Silero VAD -> Parakeet TDT -> Qwen3.8 vLLM stream -> OmniVoice TTS and
-streams 24 kHz audio back. Barge-in: keep talking while she speaks.
+streams 24 kHz audio back. Microphone endpointing is gated during playback.
 
 Friday can read/edit files in this project and restart herself.
 System prompt lives in system_prompt.md; memory persists in session.json.
@@ -49,7 +49,7 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          Planner, PolicyEngine, ReflectionService, ReminderService,
                          ReminderWorker, SkillManager, StepExecutionResult,
                          PublicWebProxy, ResourceAdmissionController, ResourceSnapshot,
-                         PiperSpeechSynthesizer,
+                         PiperSpeechSynthesizer, PlaybackEchoGate,
                          TaskContract, TaskService,
                          SkillsShRegistry, UtteranceBuffer, VoiceManager, WebOperator, fetch_news,
                          choose_speech_backend,
@@ -88,6 +88,7 @@ SILENCE_END_MS = 700
 PRE_ROLL_MS = 350
 POST_ROLL_MS = 250
 BARGE_IN_MS = 220
+PLAYBACK_ECHO_TAIL_MS = 650
 MAX_UTTERANCE_S = 30
 HISTORY_TURNS = 24
 LOCAL_BASE_URL = normalize_loopback_model_base_url(os.environ.get(
@@ -387,7 +388,13 @@ class Friday:
                 h = json.loads(SESSION_FILE.read_text())
                 rest = h[1:] if h and h[0]["role"] == "system" else h
                 self.history = [{"role": "system", "content": system_prompt}] + rest
-                print(f"restored session ({len(self.history)} messages)", flush=True)
+                loaded_messages = len(self.history)
+                self.history = self._drop_repeated_echo_messages(self.history)
+                removed_messages = loaded_messages - len(self.history)
+                repaired = (f"; removed {removed_messages} echo-loop messages"
+                            if removed_messages else "")
+                print(f"restored session ({len(self.history)} messages{repaired})",
+                      flush=True)
             except Exception:
                 self.history = [{"role": "system", "content": system_prompt}]
         else:
@@ -407,6 +414,7 @@ class Friday:
                         if (tool_has_private_payload(tool_name)
                                 or tool_arguments_are_private(tool_name)):
                             sensitive_calls.add(str(call.get("id") or ""))
+                self.history = self._drop_repeated_echo_messages(self.history)
                 snapshot = json.loads(json.dumps(self.history[-80:]))
                 for message in snapshot:
                     for call in message.get("tool_calls") or []:
@@ -688,6 +696,53 @@ class Friday:
             return None
         return canonical
 
+    @staticmethod
+    def _echo_turn_signature(turn: list[dict]) -> str | None:
+        if (len(turn) != 2 or turn[0].get("role") != "user"
+                or turn[1].get("role") != "assistant"
+                or turn[1].get("tool_calls")):
+            return None
+        user = turn[0].get("content")
+        assistant = turn[1].get("content")
+        if not isinstance(user, str) or not isinstance(assistant, str):
+            return None
+        user = re.sub(r"[^\w]+", " ", user.casefold()).strip()
+        assistant = re.sub(r"[^\w]+", " ", assistant.casefold()).strip()
+        if not user or len(user) > 80 or user != assistant:
+            return None
+        return user
+
+    @classmethod
+    def _drop_repeated_echo_turns(cls, turns: list[list[dict]]) -> list[list[dict]]:
+        """Remove only sustained identical user/assistant feedback cycles."""
+        kept: list[list[dict]] = []
+        index = 0
+        while index < len(turns):
+            signature = cls._echo_turn_signature(turns[index])
+            end = index + 1
+            if signature is not None:
+                while (end < len(turns)
+                       and cls._echo_turn_signature(turns[end]) == signature):
+                    end += 1
+            if signature is None or end - index < 3:
+                kept.extend(turns[index:end])
+            index = end
+        return kept
+
+    @classmethod
+    def _drop_repeated_echo_messages(cls, messages: list[dict]) -> list[dict]:
+        prefix: list[dict] = []
+        turns: list[list[dict]] = []
+        for message in messages:
+            if message.get("role") == "user":
+                turns.append([message])
+            elif turns:
+                turns[-1].append(message)
+            else:
+                prefix.append(message)
+        turns = cls._drop_repeated_echo_turns(turns)
+        return prefix + [message for turn in turns for message in turn]
+
     def _chat_messages(self, context_sections: list[str] | None = None) -> list[dict]:
         """Build a Qwen-compatible prompt with exactly one leading system message."""
         base_prompt = str(self.history[0].get("content", DEFAULT_PROMPT))
@@ -747,6 +802,7 @@ class Friday:
             if (not has_tools and (complete or current_user_only)) or (
                     has_tools and (complete or current_tool_receipt)):
                 cleaned_turns.append(turn)
+        cleaned_turns = self._drop_repeated_echo_turns(cleaned_turns)
         cleaned = [message for turn in cleaned_turns[-HISTORY_TURNS:]
                    for message in turn]
         return ([{"role": "system", "content": base_prompt}]
@@ -3986,6 +4042,7 @@ async def ws_endpoint(ws: WebSocket):
     interrupt = asyncio.Event()
     active_speaker_task: asyncio.Task | None = None
     loop = asyncio.get_event_loop()
+    echo_gate = PlaybackEchoGate(PLAYBACK_ECHO_TAIL_MS)
 
     async def send(msg: dict):
         try:
@@ -3995,6 +4052,8 @@ async def ws_endpoint(ws: WebSocket):
 
     async def interrupt_current() -> None:
         nonlocal mode, active_speaker_task
+        if mode == "speak":
+            echo_gate.finish(loop.time())
         interrupt.set()
         running = active_speaker_task
         if running is not None and not running.done():
@@ -4221,10 +4280,11 @@ async def ws_endpoint(ws: WebSocket):
                 if message.get("type") == "playback":
                     state = message.get("state")
                     if state == "started":
+                        echo_gate.start()
                         mode = "speak"
                         utterance.reset()
-                    elif state == "ended" and mode == "speak":
-                        mode = "listen"
+                    elif state == "ended":
+                        echo_gate.finish(loop.time())
                         utterance.reset()
                 elif message.get("type") == "text":
                     text = str(message.get("text") or "").strip()
@@ -4244,6 +4304,19 @@ async def ws_endpoint(ws: WebSocket):
                 continue
             x16 = np.frombuffer(data, dtype="<f4")   # browser sends 16 kHz mono
             rms = float(np.sqrt((x16 ** 2).mean()))
+            if echo_gate.blocks(loop.time()):
+                # Speaker output is not user intent. Drop it before VAD so it
+                # cannot trigger barge-in or enter the next utterance pre-roll.
+                utterance.reset()
+                vad_carry = np.zeros(0, dtype=np.float32)
+                frame_n += 1
+                if frame_n % 5 == 0:
+                    await send({"type": "dbg", "vad": 0.0,
+                                "rms": round(rms, 5), "mode": "speak"})
+                continue
+            if mode == "speak":
+                mode = "listen"
+                utterance.reset()
             vad_carry = np.concatenate([vad_carry, x16])
             n = len(vad_carry) // 512
             p = 0.0
@@ -4258,7 +4331,7 @@ async def ws_endpoint(ws: WebSocket):
                 await send({"type": "dbg", "vad": round(p, 3),
                             "rms": round(rms, 5), "mode": mode})
 
-            if mode in {"speak", "think"}:
+            if mode == "think":
                 if utterance.feed_barge_in(x16, p > SPEECH_THRESHOLD):
                     await interrupt_current()
                     await send({"type": "hearing"})
@@ -5679,7 +5752,9 @@ function testTone(){
   o.start();o.stop(ctx.currentTime+0.5);dlog('test tone played');
 }
 
+const PLAYBACK_ECHO_TAIL_MS=650;
 let ws, ctx, playQ=[], playing=false, playbackActive=false, curSrc=null;
+let micResumeAt=0;
 let connected=false, audioEnabled=false;
 let progressSeq=Number(localStorage.getItem('friday-progress-seq')||0);
 let progressInitialized=localStorage.getItem('friday-progress-seq')!==null;
@@ -5825,6 +5900,9 @@ async function start(){
         let peak=0;for(let i=0;i<inp.length;i++){const a=Math.abs(inp[i]);if(a>peak)peak=a;}
         meter('micbar',peak,0.05);
         document.documentElement.style.setProperty('--orb-scale',Math.min(1,peak/0.05));
+        if(playbackActive||playing||performance.now()<micResumeAt){
+          carry=new Float32Array(0);return;
+        }
         if(ws&&ws.readyState===1){
           const all=new Float32Array(carry.length+inp.length);
           all.set(carry);all.set(inp,carry.length);
@@ -5923,7 +6001,8 @@ function connect(){
               for(const button of row.querySelectorAll('button'))button.disabled=false;}};
           row.appendChild(b);}card.appendChild(row);break;}
       case 'audio': if(audioEnabled)playQ.push(m);break;
-      case 'interrupted': playQ=[];if(curSrc){curSrc.stop();curSrc=null;}
+      case 'interrupted': playQ=[];micResumeAt=performance.now()+PLAYBACK_ECHO_TAIL_MS;
+                          if(curSrc){curSrc.stop();curSrc=null;}
                           setState('listening');setStatus('Listening');break;
       case 'done': if(!playbackActive&&!playing){setState(audioEnabled?'listening':'idle');setStatus(audioEnabled?'Listening':'Text');}break;
       case 'error': showBanner(m.text);add('status','error — see banner');dlog('ERROR '+m.text);break;
@@ -5952,6 +6031,7 @@ function pump(){
   curSrc.onended=()=>{
     playing=false;curSrc=null;
     if(playQ.length){pump();return;}
+    micResumeAt=performance.now()+PLAYBACK_ECHO_TAIL_MS;
     if(playbackActive){
       playbackActive=false;
       if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'playback',state:'ended'}));
