@@ -561,6 +561,14 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('meta name="friday-control-token"', rendered)
         self.assertIn('id="tokeninput" type="password"', rendered)
         self.assertIn('type="password" autocomplete="off"', rendered)
+        self.assertIn('id="workspace"', rendered)
+        self.assertIn('id="log" role="log" aria-live="polite"', rendered)
+        self.assertIn('id="status" role="status" aria-live="polite"', rendered)
+        self.assertIn('@media (prefers-reduced-motion:reduce)', rendered)
+        self.assertIn("function richText(value)", rendered)
+        self.assertIn("code.textContent=codeText", rendered)
+        self.assertIn("speak:audioEnabled", rendered)
+        self.assertNotIn("innerHTML", rendered)
         self.assertNotIn("sessionStorage", rendered)
         self.assertIn("indexedDB.open('friday-controller-v1'", rendered)
         self.assertIn("crypto.subtle.generateKey", rendered)
@@ -824,6 +832,27 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             "Trump threatened Iran after an attack on U.S. forces in Jordan.",
             "More followed.",
         ])
+
+    async def test_text_display_mode_delivers_one_complete_markdown_answer(self):
+        answer = "# Result\n\n- First item\n- Second item"
+        friday = server.Friday.__new__(server.Friday)
+        friday.llm = SimpleNamespace(chat=SimpleNamespace(
+            completions=_FakeCompletions([_chunk(answer)])))
+
+        async def no_trim(messages, _use_tools):
+            return messages
+
+        friday._fit_context = no_trim
+        queue = asyncio.Queue()
+
+        full, calls = await friday._stream_once(
+            [{"role": "user", "content": "Give me a structured answer."}],
+            queue, display_mode=True)
+
+        self.assertEqual(calls, [])
+        self.assertEqual(full, answer)
+        self.assertEqual(await queue.get(), answer)
+        self.assertTrue(queue.empty())
 
     def test_capability_inventory_includes_active_builtins(self):
         inventory = server.capability_inventory()
