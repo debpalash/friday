@@ -8,11 +8,11 @@ numpy==2.5.2
 omnivoice==0.2.1
 openai==3.3.1
 pillow==12.3.0
-piper-tts==1.4.2
-playwright==1.55.0
+piper-tts==1.7.0
+playwright==1.62.0
 psutil==7.2.2
 pydantic==2.13.4
-scipy==1.18.0
+scipy==1.18.1
 sherpa-onnx==1.13.3
 sherpa-onnx-core==1.13.3
 silero-vad==6.2.1
