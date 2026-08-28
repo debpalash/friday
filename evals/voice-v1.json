@@ -12,13 +12,13 @@
     "minimum_barge_capture_ratio": 1.0
   },
   "utterances": [
-    "Friday is ready to help.",
+    "The assistant is ready to help.",
     "Open the project notes.",
     "Set a reminder for tomorrow morning.",
     "Stop speaking and listen to me.",
     "The quick brown fox jumps over the lazy dog.",
     "What speech engine is active right now?",
-    "Cancel that action before it changes anything.",
+    "Please stop before making changes.",
     "Summarize the verified result in one sentence."
   ],
   "reply": "Ready.",

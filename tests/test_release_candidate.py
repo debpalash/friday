@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from friday_core.release_candidate import (
+    LIVE_RUNTIME_EVALUATIONS,
     ReleaseCandidateRunner,
     canonical_sha256,
     evaluation_passed,
@@ -16,6 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseCandidateTests(unittest.TestCase):
+    def test_only_model_backed_scorecards_use_live_runtime_state(self):
+        self.assertEqual(
+            LIVE_RUNTIME_EVALUATIONS,
+            frozenset({"documents", "live_conversation"}),
+        )
+
     def test_virtualenv_python_launcher_path_is_not_resolved(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

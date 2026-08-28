@@ -30,6 +30,7 @@ EVALUATION_COMMANDS = (
     ("adversarial", "ops/run_adversarial_evals.py"),
     ("live_conversation", "ops/run_conversation_evals.py"),
 )
+LIVE_RUNTIME_EVALUATIONS = frozenset({"documents", "live_conversation"})
 
 
 def canonical_sha256(value: Any) -> str:
@@ -187,7 +188,13 @@ class ReleaseCandidateRunner:
                 qwen_python=self.qwen_python)
             evaluations = [
                 self._evaluation(
-                    name, script, environment=evaluation_environment)
+                    name, script,
+                    environment=(
+                        gate_environment
+                        if name in LIVE_RUNTIME_EVALUATIONS
+                        else evaluation_environment
+                    ),
+                )
                 for name, script in EVALUATION_COMMANDS
             ]
             local_passed = bool(
