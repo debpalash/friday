@@ -1,0 +1,92 @@
+{
+  "name": "friday-conversation-quality",
+  "version": 1,
+  "coverage": [
+    "voice brevity",
+    "voice plain text",
+    "text completeness",
+    "factual minimums",
+    "no task ceremony",
+    "no repeated sentences"
+  ],
+  "cases": [
+    {
+      "name": "voice greeting",
+      "mode": "voice",
+      "prompt": "Hey Friday.",
+      "min_words": 1,
+      "max_words": 10,
+      "max_sentences": 1,
+      "forbid_markdown": true,
+      "forbidden_terms": ["how can I assist", "what can I help"]
+    },
+    {
+      "name": "voice concise explanation",
+      "mode": "voice",
+      "prompt": "Explain recursion in one sentence.",
+      "min_words": 5,
+      "max_words": 34,
+      "max_sentences": 1,
+      "forbid_markdown": true,
+      "required_any": [["itself", "self"]]
+    },
+    {
+      "name": "voice direct arithmetic",
+      "mode": "voice",
+      "prompt": "What is six times seven?",
+      "min_words": 1,
+      "max_words": 12,
+      "max_sentences": 1,
+      "forbid_markdown": true,
+      "required_any": [["42", "forty-two", "forty two"]]
+    },
+    {
+      "name": "voice factual minimum",
+      "mode": "voice",
+      "prompt": "Why does the sky look blue?",
+      "min_words": 7,
+      "max_words": 38,
+      "max_sentences": 2,
+      "forbid_markdown": true,
+      "required_any": [["scatter", "scattering"], ["blue", "wavelength"]]
+    },
+    {
+      "name": "voice light humor",
+      "mode": "voice",
+      "prompt": "Tell me a short compiler joke.",
+      "min_words": 3,
+      "max_words": 38,
+      "max_sentences": 2,
+      "forbid_markdown": true,
+      "forbidden_terms": ["here is a joke", "sure"]
+    },
+    {
+      "name": "text direct arithmetic",
+      "mode": "text",
+      "prompt": "What is six times seven?",
+      "min_words": 1,
+      "max_words": 20,
+      "max_sentences": 2,
+      "required_any": [["42", "forty-two", "forty two"]]
+    },
+    {
+      "name": "text technical comparison",
+      "mode": "text",
+      "prompt": "In practical terms, how does a mutex differ from a semaphore?",
+      "min_words": 25,
+      "max_words": 180,
+      "max_sentences": 8,
+      "required_any": [["mutex"], ["semaphore"], ["owner", "ownership"], ["count", "permits"]]
+    },
+    {
+      "name": "text complete explanation without canned framing",
+      "mode": "text",
+      "prompt": "Why does the sky look blue?",
+      "min_words": 18,
+      "max_words": 130,
+      "max_sentences": 6,
+      "required_any": [["scatter", "scattering"], ["blue"], ["wavelength", "sunlight"]],
+      "forbidden_terms": ["great question", "in conclusion"]
+    }
+  ]
+}

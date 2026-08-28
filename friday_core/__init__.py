@@ -20,6 +20,9 @@ from .controller_auth import (ControllerAuthError, ControllerAuthService,
                               ControllerPrincipal, normalize_https_origin,
                               normalize_public_jwk, public_key_sha256,
                               verify_p256_signature)
+from .conversation import (fast_system_prompt, format_runtime_answer,
+                           runtime_topics, safe_for_fast_conversation)
+from .conversation_evals import ConversationQualityEvalRunner
 from .evolution import EvolutionEngine
 from .evals import CognitiveEvalRunner
 from .evidence import CorrectedAudioStore
@@ -55,7 +58,7 @@ from .worker import (BackgroundTaskWorker, BatchExecutionOutcome,
                      DurableStepWorker, StepExecutionResult)
 from .voices import VoiceManager
 
-__all__ = ["ActionHandle", "AdmissionBudget", "AdmissionDecision", "ApprovalService", "BackgroundTaskWorker", "BatchExecutionOutcome", "CapabilityManager", "ClaimedStep", "CognitiveEvalRunner", "ContractBuilder", "ControllerAuthError", "ControllerAuthService", "ControllerPrincipal", "CoreUpgradeHarness", "CorrectedAudioStore", "DeploymentManager", "DurableStepWorker",
+__all__ = ["ActionHandle", "AdmissionBudget", "AdmissionDecision", "ApprovalService", "BackgroundTaskWorker", "BatchExecutionOutcome", "CapabilityManager", "ClaimedStep", "CognitiveEvalRunner", "ConversationQualityEvalRunner", "ContractBuilder", "ControllerAuthError", "ControllerAuthService", "ControllerPrincipal", "CoreUpgradeHarness", "CorrectedAudioStore", "DeploymentManager", "DurableStepWorker",
            "Accelerator", "EvolutionEngine", "GraphStore", "HardwareSnapshot",
            "MachineOperator", "MemoryCurator", "NativeVisionInput", "OperatorGrantService", "ReflectionService", "RuntimeProfile",
            "DesktopActionError", "DesktopApplicationLaunchBinding", "DesktopBindingError", "DesktopBroker", "DesktopBrokerError", "DesktopSnapshot", "DesktopUnavailableError", "DesktopWindowBinding", "DesktopWindowObservation", "HyprlandDesktopBackend",
@@ -65,6 +68,8 @@ __all__ = ["ActionHandle", "AdmissionBudget", "AdmissionDecision", "ApprovalServ
            "ResourceAdmissionController", "ResourceClaim", "ResourceSnapshot", "TaskPlan", "TaskService", "ReminderService", "ReminderWorker", "StepExecutionResult", "VerificationResult", "VerificationStatus", "WebOperator", "PublicWebProxy",
            "PlaybackEchoGate", "UtteranceBuffer", "VoiceManager", "fetch_news", "format_news_brief", "format_search_result",
            "detect_hardware", "format_news_segments", "load_asr",
+           "fast_system_prompt", "format_runtime_answer", "runtime_topics",
+           "safe_for_fast_conversation",
            "choose_speech_backend", "pinned_piper_model_path", "select_runtime_profile", "verify_pinned_piper_voice", "write_runtime_profile",
            "migrate_session_json", "normalize_https_origin",
            "normalize_public_jwk", "public_key_sha256",

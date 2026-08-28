@@ -981,6 +981,76 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(status["profile_activation_supported"])
         self.assertIn("OmniVoice", status["runtime_change_required"])
 
+    async def test_runtime_identity_answer_uses_live_receipt_without_llm_or_task(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            graph = GraphStore(Path(temporary) / "friday.db")
+            friday = server.Friday.__new__(server.Friday)
+            friday.history = [{"role": "system", "content": "test"}]
+            friday.save_session = lambda: None
+            friday.asr = SimpleNamespace(
+                name="parakeet-tdt-0.6b-v3-int8", device="cpu")
+            friday.tts_backend = "piper"
+            friday.tts_device = "cpu"
+            friday.voice_name = "kristin"
+            friday._stream_once = lambda *_args, **_kwargs: self.fail(
+                "runtime identity must not call the language model")
+            voices = SimpleNamespace(
+                active=lambda: {"name": "scarlet"},
+                list=lambda: [{"name": "scarlet", "status": "active"}],
+            )
+            manifest = {
+                "name": "reasoning-24gb", "served_model": "qwen3.8-27b",
+                "llm_cuda_devices": [0], "local_runtime_available": True,
+                "fingerprint": "a" * 64,
+            }
+            queue = asyncio.Queue()
+            progress = []
+
+            with patch.multiple(
+                    server, GRAPH=graph, VOICES=voices,
+                    _RESOLVED_RUNTIME=manifest):
+                await friday.respond(
+                    "What TTS are you using right now?", queue,
+                    progress_sink=lambda event: _collect(progress, event))
+
+            answer = await queue.get()
+            self.assertIn("Piper", answer)
+            self.assertIn("kristin", answer)
+            self.assertIn("scarlet is stored but is not the audible voice", answer)
+            self.assertIn("OmniVoice", answer)
+            self.assertIsNone(await queue.get())
+            self.assertEqual(progress, [])
+            self.assertEqual(graph.count_nodes("runtime_receipt"), 1)
+            self.assertEqual(graph.count("task_state"), 0)
+
+    def test_runtime_receipt_covers_model_asr_tts_voice_and_devices(self):
+        friday = server.Friday.__new__(server.Friday)
+        friday.asr = SimpleNamespace(name="test-asr", device="cpu")
+        friday.tts_backend = "piper"
+        friday.tts_device = "cpu"
+        friday.voice_name = "kristin"
+        voices = SimpleNamespace(
+            active=lambda: {"name": "scarlet"}, list=lambda: [])
+        manifest = {
+            "name": "test-profile", "served_model": "test-model",
+            "llm_cuda_devices": [0, 1], "fingerprint": "b" * 64,
+        }
+
+        with patch.multiple(
+                server, VOICES=voices, _RESOLVED_RUNTIME=manifest):
+            receipt = friday.runtime_receipt()
+
+        self.assertEqual(receipt["llm"], {
+            "model": "test-model", "provider": "local",
+            "devices": ["cuda:0", "cuda:1"],
+        })
+        self.assertEqual(receipt["asr"], {
+            "backend": "test-asr", "device": "cpu"})
+        self.assertEqual(receipt["tts"]["backend"], "piper")
+        self.assertEqual(receipt["tts"]["runtime_voice"], "kristin")
+        self.assertEqual(receipt["tts"]["stored_active_profile"], "scarlet")
+        self.assertEqual(len(receipt["receipt_sha256"]), 64)
+
     def test_voice_intents_require_authoritative_voice_tools(self):
         friday = server.Friday.__new__(server.Friday)
 
@@ -1025,6 +1095,26 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Verified long-term memory", messages[0]["content"])
         self.assertIn("Validated active skill", messages[0]["content"])
         self.assertNotIn("legacy misplaced context", messages[0]["content"])
+
+    def test_fast_context_omits_tool_receipts_and_large_agent_prompt(self):
+        friday = server.Friday.__new__(server.Friday)
+        friday.history = [
+            {"role": "system", "content": "agent prompt with tool contracts"},
+            {"role": "user", "content": "Inspect it."},
+            {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "call_1", "type": "function",
+                "function": {"name": "read_file", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "call_1", "content": "private"},
+            {"role": "assistant", "content": "Inspected."},
+            {"role": "user", "content": "Tell me a joke."},
+        ]
+
+        messages = friday._fast_chat_messages(display_mode=False)
+
+        self.assertEqual([item["role"] for item in messages], ["system", "user"])
+        self.assertEqual(messages[-1]["content"], "Tell me a joke.")
+        self.assertNotIn("tool contracts", messages[0]["content"])
+        self.assertNotIn("private", str(messages))
 
     async def test_context_budget_drops_old_history_at_user_boundary(self):
         friday = server.Friday.__new__(server.Friday)
@@ -1469,7 +1559,9 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             friday.history = [{"role": "system", "content": "test"}]
             friday.save_session = lambda: None
 
-            async def fake_stream(_msgs, speak_q, use_tools=True):
+            async def fake_stream(_msgs, speak_q, use_tools=True, **kwargs):
+                self.assertFalse(use_tools)
+                self.assertTrue(kwargs["context_is_bounded"])
                 await speak_q.put("Hey.")
                 return "Hey.", []
 

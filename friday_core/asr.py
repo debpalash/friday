@@ -42,6 +42,7 @@ class ParakeetASR:
     """CPU int8 Parakeet TDT v3 through Sherpa-ONNX."""
 
     name = "parakeet-tdt-0.6b-v3-int8"
+    device = "cpu"
 
     def __init__(self, model_dir: Path | str, *, recognizer=None, num_threads: int = 4):
         self.model_dir = Path(model_dir).resolve()
@@ -97,6 +98,7 @@ class FasterWhisperASR:
     """Compatibility fallback for systems without a usable Parakeet model."""
 
     name = "faster-whisper-small-fallback"
+    device = "cpu"
 
     def __init__(self):
         from faster_whisper import WhisperModel

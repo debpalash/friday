@@ -230,6 +230,15 @@ model answers are hashed rather than journaled, and each score binds the artifac
 hashes, extractor, model identity, and active runtime fingerprint. It is a separate capability
 family and never changes the capability-core denominator.
 
+Run the held-out conversation scorecard only while the local model runtime is
+already loaded. It grades voice and text output with exact constraints for
+brevity, factual minimums, Markdown policy, repetition, and workflow ceremony;
+it does not use a model as a judge or retain raw answers.
+
+```bash
+venv/bin/python ops/run_conversation_evals.py
+```
+
 The v2 held-out suite has thirteen deterministic cases across intent routing, task contracts,
 approval policy, receipt verification, false-completion prevention, exact read-only restart,
 nonrepeatable reconciliation, memory provenance, public-network isolation, and hardware

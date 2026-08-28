@@ -53,9 +53,11 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          TaskContract, TaskService,
                          SkillsShRegistry, UtteranceBuffer, VoiceManager, WebOperator, fetch_news,
                          choose_speech_backend,
+                         fast_system_prompt, format_runtime_answer,
                          load_asr,
                          migrate_session_json, normalize_https_origin,
-                         resource_claim_for)
+                         resource_claim_for, runtime_topics,
+                         safe_for_fast_conversation)
 from friday_core.processes import (
     BubblewrapProfile, ProcessBindingError, ProcessBroker,
     ProcessBrokerError, ProcessCleanupBlocked, ProcessLimits,
@@ -108,6 +110,8 @@ PROMPT_SAFETY_TOKENS = 128
 PROMPT_TOKEN_BUDGET = MODEL_CONTEXT_TOKENS - MAX_OUTPUT_TOKENS - PROMPT_SAFETY_TOKENS
 MAX_TOOL_ROUNDS = 8
 MAX_TOOL_ACTIONS = 8
+FAST_HISTORY_TURNS = 6
+FAST_CONTEXT_CHARS = 8_000
 UNGROUNDED_ACTION_CLAIM = re.compile(
     r"\b(?:i(?:'m| am)\s+(?:working|adding|editing|modifying|changing|updating|"
     r"checking|inspecting|reading|fetching|creating|implementing|fixing|testing|"
@@ -219,8 +223,9 @@ def _new_local_llm_client() -> AsyncOpenAI:
             trust_env=False, follow_redirects=False))
 
 DEFAULT_PROMPT = (
-    "You are Friday, a personal AI assistant. You use a locally served "
-    f"Qwen3.8-27B checkpoint by default (user: {OWNER_NAME}). Match the active "
+    "You are Friday, a personal AI assistant. Runtime identity is supplied by "
+    f"the host and must never be guessed from this prompt (user: {OWNER_NAME}). "
+    "Match the active "
     "delivery mode: concise natural speech in voice; complete, polished answers "
     "with useful Markdown in text. Start with the answer. No filler, repetition, "
     "canned sections, or decorative formatting. Dry wit."
@@ -602,12 +607,71 @@ class Friday:
             "profiles": VOICES.list(),
         }
 
+    def runtime_receipt(self) -> dict:
+        """Capture runtime identity from live objects and the resolved boot profile."""
+        manifest = globals().get("_RESOLVED_RUNTIME")
+        if not isinstance(manifest, dict):
+            manifest = {}
+        voice = self.voice_runtime_status()
+        raw_devices = manifest.get("llm_cuda_devices")
+        llm_devices = (
+            [f"cuda:{int(index)}" for index in raw_devices]
+            if isinstance(raw_devices, list) else [])
+        if not llm_devices and manifest.get("local_runtime_available") is True:
+            llm_devices = ["cpu"]
+        receipt = {
+            "observed_at": datetime.now(UTC).isoformat(),
+            "source": "live_runtime",
+            "runtime": {
+                "status": "running",
+                "profile": str(manifest.get("name") or "unknown"),
+                "fingerprint": str(manifest.get("fingerprint") or ""),
+            },
+            "llm": {
+                "model": str(manifest.get("served_model") or LOCAL_MODEL),
+                "provider": "local",
+                "devices": llm_devices,
+            },
+            "asr": {
+                "backend": str(getattr(self.asr, "name", "unknown")),
+                "device": str(getattr(self.asr, "device", "cpu")),
+            },
+            "tts": {
+                key: voice[key] for key in (
+                    "backend", "device", "runtime_voice",
+                    "stored_active_profile", "stored_profile_is_runtime_active",
+                    "profile_activation_supported", "runtime_change_required")
+            },
+        }
+        encoded = json.dumps(
+            receipt, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":")).encode()
+        receipt["receipt_sha256"] = hashlib.sha256(encoded).hexdigest()
+        return receipt
+
+    @staticmethod
+    def _record_runtime_receipt(receipt: dict, *, session_id: str | None,
+                                turn_id: str | None,
+                                utterance_id: str | None) -> str | None:
+        graph = globals().get("GRAPH")
+        if graph is None:
+            return None
+        links = ([("derived_from", utterance_id)] if utterance_id else [])
+        try:
+            return graph.record_node(
+                "runtime_receipt", receipt, actor="runtime",
+                session_id=session_id, turn_id=turn_id,
+                event_type="runtime.observed", links=links)
+        except Exception as exc:
+            print(f"runtime receipt journal unavailable: {exc}", flush=True)
+            return None
+
     @staticmethod
     def _voice_required_tool(text: str) -> str | None:
-        if VOICE_ACTIVATION_INTENT.search(text):
-            return "set_voice"
         if VOICE_RUNTIME_INTENT.search(text):
             return "list_voices"
+        if VOICE_ACTIVATION_INTENT.search(text):
+            return "set_voice"
         return None
 
     @staticmethod
@@ -803,6 +867,46 @@ class Friday:
         return ([{"role": "system", "content": base_prompt}]
                 + cleaned)
 
+    def _fast_chat_messages(self, *, display_mode: bool) -> list[dict]:
+        """Build a bounded prompt containing only recent plain conversation turns."""
+        conversation = [message for message in self.history[1:]
+                        if message.get("role") != "system"]
+        turns: list[list[dict]] = []
+        for message in conversation:
+            if message.get("role") == "user":
+                turns.append([message])
+            elif turns:
+                turns[-1].append(message)
+
+        plain_turns: list[list[dict]] = []
+        for index, raw_turn in enumerate(turns):
+            turn = self._canonical_chat_turn(raw_turn)
+            if turn is None or any(
+                    message.get("role") == "tool" or message.get("tool_calls")
+                    for message in turn):
+                continue
+            final = turn[-1]
+            complete = final.get("role") == "assistant" and bool(final.get("content"))
+            current_user_only = index == len(turns) - 1 and len(turn) == 1
+            if complete or current_user_only:
+                plain_turns.append(turn)
+
+        selected: list[list[dict]] = []
+        used_chars = 0
+        for turn in reversed(plain_turns[-FAST_HISTORY_TURNS:]):
+            turn_chars = sum(len(str(message.get("content") or ""))
+                             for message in turn)
+            if selected and used_chars + turn_chars > FAST_CONTEXT_CHARS:
+                break
+            selected.append(turn)
+            used_chars += turn_chars
+        selected.reverse()
+        return ([{
+            "role": "system",
+            "content": fast_system_prompt(
+                owner_name=OWNER_NAME, display_mode=display_mode),
+        }] + [message for turn in selected for message in turn])
+
     @staticmethod
     def _is_action_request(messages: list[dict]) -> bool:
         latest_user = next(
@@ -921,9 +1025,12 @@ class Friday:
     # ---------- llm ----------
     async def _stream_once(self, msgs, speak_q, use_tools=True,
                            required_tool: str | None = None,
-                           display_mode: bool = False):
+                           display_mode: bool = False,
+                           context_is_bounded: bool = False,
+                           max_tokens: int = MAX_OUTPUT_TOKENS):
         """Stream one completion into speak_q. Returns (text, tool_calls)."""
-        msgs = await self._fit_context(msgs, use_tools)
+        if not context_is_bounded:
+            msgs = await self._fit_context(msgs, use_tools)
 
         async def create_stream(messages):
             tool_choice = None
@@ -933,7 +1040,7 @@ class Friday:
             return await self.llm.chat.completions.create(
                 model=LOCAL_MODEL,
                 messages=messages,
-                temperature=0.7, top_p=0.8, max_tokens=MAX_OUTPUT_TOKENS,
+                temperature=0.7, top_p=0.8, max_tokens=max_tokens,
                 stream=True,
                 tools=current_tool_schema() if use_tools else None,
                 tool_choice=tool_choice,
@@ -1421,6 +1528,7 @@ class Friday:
         news_followup = self._is_news_followup(
             user_text, recent_web_receipt is not None)
         voice_required_tool = self._voice_required_tool(user_text)
+        requested_runtime_topics = runtime_topics(user_text)
         if NEWS_INTENT.search(user_text) and not news_followup:
             required_tool = "fetch_news"
         elif REMINDER_INTENT.search(user_text):
@@ -1524,6 +1632,39 @@ class Friday:
             return False
 
         try:
+            if (requested_runtime_topics
+                    and voice_required_tool != "set_voice"
+                    and existing_task_id is None and not resume_context):
+                receipt = self.runtime_receipt()
+                self._record_runtime_receipt(
+                    receipt, session_id=session_id, turn_id=turn_id,
+                    utterance_id=utterance_id)
+                full = format_runtime_answer(receipt, requested_runtime_topics)
+                await speak_q.put(full)
+                self.history.append({"role": "assistant", "content": full})
+                return
+
+            fast_conversation = (
+                existing_task_id is None
+                and not resume_context
+                and required_tool is None
+                and not explicit_news_style
+                and safe_for_fast_conversation(
+                    user_text,
+                    action_request=bool(ACTION_REQUEST.search(user_text))))
+            if fast_conversation:
+                msgs = self._fast_chat_messages(display_mode=display_mode)
+                full, calls = await self._stream_once(
+                    msgs, speak_q, use_tools=False,
+                    display_mode=display_mode, context_is_bounded=True,
+                    max_tokens=360 if display_mode else 120)
+                if calls:
+                    raise RuntimeError(
+                        "bounded conversation completion returned an unexpected tool call")
+                await record_intent([])
+                self.history.append({"role": "assistant", "content": full})
+                return
+
             for _round in range(MAX_TOOL_ROUNDS):
                 if task_id and TASKS.is_cancelled(task_id):
                     return
