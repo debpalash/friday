@@ -166,10 +166,37 @@ exit 0
     def _make_llm(self, target: Path) -> None:
         self._write_executable(target / "venv" / "bin" / "vllm", "#!/bin/sh\nexit 0\n")
         self._write_executable(target / "single-user" / "start_qwen.sh", "#!/bin/sh\nexit 0\n")
+        self._write_executable(target / "verify.sh", "#!/bin/sh\nexit 0\n")
         model = target / "models" / "Huihui-Qwen3.8-27B-Abliterated-W4A16-AutoRound"
         model.mkdir(parents=True)
         (model / "config.json").write_text("{}")
         (target / "api_key.txt").write_text("private-test-key\n")
+
+    def test_broken_qwen_launcher_is_repaired_not_reused(self):
+        self._write_executable(
+            self.llm / "venv" / "bin" / "vllm",
+            "#!/missing/staging/python\n",
+        )
+        self._write_executable(
+            self.source / "ops" / "provision_qwen_runtime.sh",
+            """#!/usr/bin/env bash
+set -eu
+runtime="$1"
+printf '#!/bin/sh\nprintf repaired\\n\n' > "$runtime/venv/bin/vllm"
+chmod 755 "$runtime/venv/bin/vllm"
+touch "$runtime/provisioner-invoked"
+""",
+        )
+
+        result = self._install(self.source)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.llm / "provisioner-invoked").is_file())
+        launched = subprocess.run(
+            [str(self.llm / "venv" / "bin" / "vllm"), "--version"],
+            text=True, capture_output=True, timeout=10, check=False)
+        self.assertEqual(launched.returncode, 0, launched.stderr)
+        self.assertEqual(launched.stdout.strip(), "repaired")
 
     def _install(self, source: Path, *, extra_env: dict[str, str] | None = None):
         env = self.env | (extra_env or {})

@@ -474,15 +474,9 @@ PY
   if [[ -z "$llm_root" ]]; then
     llm_root="$install_root/runtime/qwen"
   fi
-  if [[ ! -x "$llm_root/venv/bin/vllm" \
-        || ! -f "$llm_root/single-user/start_qwen.sh" \
-        || ! -f "$llm_root/models/Huihui-Qwen3.8-27B-Abliterated-W4A16-AutoRound/config.json" ]]; then
-    step model "provisioning the pinned Qwen/vLLM runtime"
-    "$release_dir/ops/provision_qwen_runtime.sh" "$llm_root" \
-      "$shared/qwen-models" "$uv_bin"
-  else
-    step model "reusing verified runtime at $llm_root"
-  fi
+  step model "verifying or provisioning the pinned Qwen/vLLM runtime"
+  "$release_dir/ops/provision_qwen_runtime.sh" "$llm_root" \
+    "$shared/qwen-models" "$uv_bin"
   [[ -s "$llm_root/api_key.txt" ]] || {
     openssl rand -hex 24 > "$llm_root/api_key.txt"
   }

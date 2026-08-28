@@ -1,5 +1,6 @@
 import hashlib
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,13 +12,22 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 class InstallerRehearsalTests(unittest.TestCase):
-    def test_exact_head_archive_completes_clean_lifecycle_without_external_hosts(self):
+    def test_current_source_archive_completes_clean_lifecycle_without_external_hosts(self):
         with tempfile.TemporaryDirectory() as temporary:
             archive = Path(temporary) / "source.tar.gz"
-            subprocess.run([
-                "git", "archive", "--format=tar.gz",
-                "--prefix=friday-candidate/", "-o", str(archive), "HEAD",
-            ], cwd=REPO, check=True, timeout=20)
+            tracked = subprocess.run(
+                ["git", "ls-files", "-z"], cwd=REPO, check=True,
+                capture_output=True, timeout=20).stdout.split(b"\0")
+            with tarfile.open(archive, "w:gz") as bundle:
+                for encoded in tracked:
+                    if not encoded:
+                        continue
+                    relative = Path(encoded.decode("utf-8"))
+                    bundle.add(
+                        REPO / relative,
+                        arcname=str(Path("friday-candidate") / relative),
+                        recursive=False,
+                    )
             digest = hashlib.sha256(archive.read_bytes()).hexdigest()
 
             result = InstallerRehearsalRunner(REPO).run(archive, digest)

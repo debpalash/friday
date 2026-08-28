@@ -104,6 +104,7 @@ exit 0
                               "#!/bin/sh\nexit 0\n")
             _write_executable(llm / "single-user" / "start_qwen.sh",
                               "#!/bin/sh\nexit 0\n")
+            _write_executable(llm / "verify.sh", "#!/bin/sh\nexit 0\n")
             model = (llm / "models"
                      / "Huihui-Qwen3.8-27B-Abliterated-W4A16-AutoRound")
             model.mkdir(parents=True)

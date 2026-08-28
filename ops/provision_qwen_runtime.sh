@@ -23,9 +23,11 @@ UV="$(realpath -m "$3")"
 }
 
 MODEL="$MODEL_ROOT/$MODEL_DIRECTORY"
+RUNTIME_MODEL="$RUNTIME_ROOT/models/$MODEL_DIRECTORY"
 if [[ -x "$RUNTIME_ROOT/venv/bin/vllm" \
       && -f "$RUNTIME_ROOT/single-user/start_qwen.sh" \
-      && -f "$MODEL/config.json" \
+      && -f "$RUNTIME_ROOT/verify.sh" \
+      && -f "$RUNTIME_MODEL/config.json" \
       && -s "$RUNTIME_ROOT/api_key.txt" ]] \
       && "$RUNTIME_ROOT/venv/bin/vllm" --version >/dev/null 2>&1; then
   MODEL="models/$MODEL_DIRECTORY" bash "$RUNTIME_ROOT/verify.sh" --no-server
