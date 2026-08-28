@@ -177,6 +177,7 @@ exit 0
         self.assertNotIn("0.0.0.0", environment)
         self.assertEqual((self.root / "user-bin" / "friday").stat().st_mode & 0o777, 0o755)
         self.assertEqual((self.root / "config" / "friday" / "friday.env").stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.llm.joinpath("api_key.txt").stat().st_mode & 0o777, 0o600)
 
     def test_failed_post_switch_doctor_restores_previous_release(self):
         first = self._install(self.source)

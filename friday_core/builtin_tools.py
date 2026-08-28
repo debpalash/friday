@@ -142,12 +142,16 @@ BUILTIN_TOOL_SCHEMAS.extend([
         }, "required": ["name", "instruct"]}}},
     {"type": "function", "function": {
         "name": "list_voices",
-        "description": "List available voice profiles and their lifecycle states.",
+        "description": "Report the active synthesis backend, device, audible runtime "
+                       "voice, separately stored active profile, activation support, "
+                       "and available profile lifecycle states. Use this before every "
+                       "claim about the current TTS or voice.",
         "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
         "name": "set_voice",
         "description": "Synthesize a private test sample and activate the named voice "
-                       "only if validation succeeds; otherwise keep the current voice.",
+                       "only if validation succeeds on OmniVoice; otherwise keep the "
+                       "audible runtime voice and report the active backend.",
         "parameters": {"type": "object", "properties": {
             "name": {"type": "string"}}, "required": ["name"]}}},
     {"type": "function", "function": {

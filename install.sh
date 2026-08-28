@@ -424,8 +424,8 @@ PY
   fi
   [[ -s "$llm_root/api_key.txt" ]] || {
     openssl rand -hex 24 > "$llm_root/api_key.txt"
-    chmod 600 "$llm_root/api_key.txt"
   }
+  chmod 600 "$llm_root/api_key.txt"
 
   step config "writing private per-user configuration"
   cat > "$config_file" <<EOF

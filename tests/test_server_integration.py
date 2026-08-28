@@ -914,6 +914,51 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(friday.voice_name, "scarlet")
         self.assertIs(friday.clone_prompt, prompt)
 
+    def test_voice_runtime_status_does_not_confuse_stored_profile_with_piper(self):
+        friday = server.Friday.__new__(server.Friday)
+        friday.tts_backend = "piper"
+        friday.tts_device = "cpu"
+        friday.voice_name = "kristin"
+        voices = SimpleNamespace(
+            active=lambda: {"name": "scarlet"},
+            list=lambda: [{"name": "scarlet", "status": "active"}],
+        )
+
+        with patch.object(server, "VOICES", voices):
+            status = friday.voice_runtime_status()
+
+        self.assertEqual(status["backend"], "piper")
+        self.assertEqual(status["runtime_voice"], "kristin")
+        self.assertEqual(status["stored_active_profile"], "scarlet")
+        self.assertFalse(status["stored_profile_is_runtime_active"])
+        self.assertFalse(status["profile_activation_supported"])
+        self.assertIn("OmniVoice", status["runtime_change_required"])
+
+    def test_voice_intents_require_authoritative_voice_tools(self):
+        friday = server.Friday.__new__(server.Friday)
+
+        for text in (
+                "Use the Scarlet voice.", "Load the Scarlet voice.",
+                "Lord the Scarlet voice."):
+            with self.subTest(text=text):
+                self.assertEqual(friday._voice_required_tool(text), "set_voice")
+        for text in (
+                "What TTS are you using?", "Are you Piper?",
+                "Start the OmniVoice speech backend.",
+                "No, you are not the Scarlet voice."):
+            with self.subTest(text=text):
+                self.assertEqual(friday._voice_required_tool(text), "list_voices")
+
+    def test_piper_voice_activation_error_names_audible_runtime(self):
+        friday = server.Friday.__new__(server.Friday)
+        friday.tts_backend = "piper"
+        friday.tts_device = "cpu"
+        friday.voice_name = "kristin"
+
+        with self.assertRaisesRegex(
+                RuntimeError, "current synthesis is piper with kristin on cpu"):
+            friday.activate_voice("scarlet")
+
     def test_runtime_context_uses_one_leading_system_message(self):
         friday = server.Friday.__new__(server.Friday)
         friday.history = [

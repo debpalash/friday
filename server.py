@@ -153,6 +153,18 @@ WEB_SEARCH_INTENT = re.compile(
     r"research|latest information|weather|forecast|stock price|exchange rate|"
     r"sports score)\b", re.IGNORECASE)
 REMINDER_INTENT = re.compile(r"\bremind me\b", re.IGNORECASE)
+VOICE_ACTIVATION_INTENT = re.compile(
+    r"\b(?:use|set|activate|load|lord|switch(?:\s+to)?|change(?:\s+to)?)\b"
+    r".{0,48}\b(?:voice|scarlet|base)\b",
+    re.IGNORECASE,
+)
+VOICE_RUNTIME_INTENT = re.compile(
+    r"\b(?:what|which)\b.{0,48}\b(?:tts|voice|speech\s+backend)\b|"
+    r"\b(?:are|is)\b.{0,48}\b(?:piper|omni\s*voice|omnivoice|pocket\s*t\s*s|scarlet)\b|"
+    r"\b(?:start|enable|use|switch(?:\s+to)?)\b.{0,40}"
+    r"\b(?:piper|omni\s*voice|omnivoice)\b",
+    re.IGNORECASE,
+)
 FILLER_UTTERANCE = re.compile(r"^\s*(?:um+|uh+|erm+|hmm+|mm+)\s*[.!?]*\s*$",
                               re.IGNORECASE)
 STALE_CAPABILITY_DENIAL = re.compile(
@@ -531,8 +543,12 @@ class Friday:
 
     def activate_voice(self, name: str) -> str:
         if getattr(self, "tts_backend", "omnivoice") != "omnivoice":
+            backend = str(getattr(self, "tts_backend", "unknown"))
+            runtime_voice = str(getattr(self, "voice_name", "unknown"))
+            device = str(getattr(self, "tts_device", "unknown"))
             raise RuntimeError(
-                "voice-profile activation requires the OmniVoice speech backend")
+                f"current synthesis is {backend} with {runtime_voice} on {device}; "
+                "voice-profile activation requires an OmniVoice runtime restart")
         proposed = VOICES.get(name)
         current = VOICES.active()
         old = (self.instruct, self.ref_audio, self.clone_prompt, self.voice_name)
@@ -555,6 +571,35 @@ class Friday:
         if previous is None:
             raise ValueError("no previous voice profile is available")
         return self.activate_voice(previous["name"])
+
+    def voice_runtime_status(self) -> dict:
+        backend = str(getattr(self, "tts_backend", "unknown"))
+        runtime_voice = str(getattr(self, "voice_name", "unknown"))
+        device = str(getattr(self, "tts_device", "unknown"))
+        stored = VOICES.active()
+        stored_name = str(stored.get("name") or "base")
+        profile_active = backend == "omnivoice" and runtime_voice == stored_name
+        return {
+            "backend": backend,
+            "device": device,
+            "runtime_voice": runtime_voice,
+            "stored_active_profile": stored_name,
+            "stored_profile_is_runtime_active": profile_active,
+            "profile_activation_supported": backend == "omnivoice",
+            "runtime_change_required": (
+                None if backend == "omnivoice"
+                else "restart Friday with a compatible OmniVoice runtime profile"
+            ),
+            "profiles": VOICES.list(),
+        }
+
+    @staticmethod
+    def _voice_required_tool(text: str) -> str | None:
+        if VOICE_ACTIVATION_INTENT.search(text):
+            return "set_voice"
+        if VOICE_RUNTIME_INTENT.search(text):
+            return "list_voices"
+        return None
 
     def _chat_messages(self, context_sections: list[str] | None = None) -> list[dict]:
         """Build a Qwen-compatible prompt with exactly one leading system message."""
@@ -874,7 +919,7 @@ class Friday:
                 source_node_ids=[task_id])
             result = f"created candidate voice profile {voice_id}"
         elif name == "list_voices":
-            result = json.dumps(VOICES.list())
+            result = json.dumps(self.voice_runtime_status())
         elif name == "set_voice":
             result = self.activate_voice(str(args.get("name", "")))
         elif name == "rollback_voice":
@@ -1223,10 +1268,13 @@ class Friday:
             if explicit_news_style else False)
         news_followup = self._is_news_followup(
             user_text, recent_web_receipt is not None)
+        voice_required_tool = self._voice_required_tool(user_text)
         if NEWS_INTENT.search(user_text) and not news_followup:
             required_tool = "fetch_news"
         elif REMINDER_INTENT.search(user_text):
             required_tool = "create_reminder"
+        elif voice_required_tool is not None:
+            required_tool = voice_required_tool
         elif WEB_SEARCH_INTENT.search(user_text):
             required_tool = "web_search"
         elif SKILL_SEARCH_INTENT.search(user_text):
@@ -3762,11 +3810,19 @@ async def api_capabilities():
 
 @app.get("/api/voices")
 async def api_voices():
-    return {"active": (getattr(FRIDAY, "voice_name", None)
-                       if FRIDAY is not None else VOICES.active()["name"]),
-            "backend": (getattr(FRIDAY, "tts_backend", None)
-                        if FRIDAY is not None else None),
-            "voices": VOICES.list()}
+    if FRIDAY is not None:
+        return FRIDAY.voice_runtime_status()
+    stored = VOICES.active()["name"]
+    return {
+        "backend": None,
+        "device": None,
+        "runtime_voice": None,
+        "stored_active_profile": stored,
+        "stored_profile_is_runtime_active": False,
+        "profile_activation_supported": False,
+        "runtime_change_required": "Friday is not running",
+        "profiles": VOICES.list(),
+    }
 
 
 @app.get("/api/upgrades")
