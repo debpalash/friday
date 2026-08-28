@@ -56,8 +56,13 @@ git -C "$STAGING" checkout --detach "$QWEN_COMMIT"
 
 echo "Creating pinned vLLM environment..."
 "$UV" venv --python 3.12 "$STAGING/venv"
-"$UV" pip install --python "$STAGING/venv/bin/python" \
-  "vllm==0.27.1" "huggingface-hub==1.28.0" "hf-transfer==0.1.9" "ninja==1.13.0"
+QWEN_LOCK="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/requirements/qwen-runtime.lock"
+[[ -f "$QWEN_LOCK" ]] || {
+  echo "Qwen runtime lock is missing: $QWEN_LOCK" >&2
+  exit 1
+}
+"$UV" pip sync --python "$STAGING/venv/bin/python" \
+  --require-hashes "$QWEN_LOCK"
 
 SITE="$($STAGING/venv/bin/python -c 'import os,vllm; print(os.path.dirname(vllm.__file__))')"
 for patch_file in "$STAGING"/patches/*.patch; do

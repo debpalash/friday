@@ -5,21 +5,15 @@ microphone audio reaches the recognizer as mono float32 PCM at 16 kHz. The
 active backend is returned by `/api/status` and included in every ASR timing
 line in the diagnostic panel.
 
-Install the runtime into Friday's environment:
+Install the complete hash-locked Friday environment and exact ASR assets:
 
 ```bash
-uv pip install --python venv/bin/python -r requirements/asr.txt
+uv pip sync --python venv/bin/python --require-hashes requirements/runtime.lock
+venv/bin/python ops/install_asr_model.py
 ```
 
-Download and unpack the int8 model from Sherpa-ONNX's official model release:
-
-```bash
-curl --fail --location --output /tmp/friday-parakeet.tar.bz2 \
-  https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2
-mkdir -p models
-tar -xjf /tmp/friday-parakeet.tar.bz2 -C models
-```
-
+The asset installer checks the release archive before extraction, rejects
+traversal, links, and device entries, then checks every required output file.
 The expected model directory is
 `models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/` and must contain
 `encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx`, and `tokens.txt`.

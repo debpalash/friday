@@ -63,22 +63,22 @@ security audit at `SAFE`, `NONE`, or `LOW` risk. A missing, warning, or failed a
 the immutable candidate to quarantine instead of runtime context. Registry popularity is
 discovery metadata, not evidence of safety or quality.
 
-Install the managed-browser client dependency with:
+Install Friday's complete hash-locked application environment with:
 
 ```bash
-uv pip install --python venv/bin/python -r requirements/operator.txt
+uv pip sync --python venv/bin/python --require-hashes requirements/runtime.lock
 ```
 
 Install Friday's fast local CPU speech backend and exact hash-pinned voice with:
 
 ```bash
-uv pip install --python venv/bin/python -r requirements/tts.txt
 venv/bin/python ops/install_piper_voice.py
+venv/bin/python ops/install_omnivoice_model.py
 ```
 
 The automatic 24 GiB reasoning profile uses this persistent Piper voice so spoken replies are
 generated faster than playback without reducing Qwen's 200K context. CUDA speech profiles retain
-OmniVoice and cloned-voice support.
+the exact locally installed OmniVoice snapshot and reference-based voice support.
 
 Install the single supervisor unit; it owns both Friday and its embedded reminder worker:
 

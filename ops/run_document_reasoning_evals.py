@@ -19,6 +19,7 @@ sys.path.insert(0, str(REPO))
 
 from friday_core.generalization_evals import GroundedQAEvalRunner
 from friday_core.graph import GraphStore
+from friday_core.runtime_paths import default_qwen_runtime
 
 
 def _runtime() -> tuple[str, str, str]:
@@ -64,8 +65,7 @@ def _credential() -> str:
     configured = os.environ.get("FRIDAY_LOCAL_API_KEY_FILE", "").strip()
     llm_root = Path(os.environ.get(
         "FRIDAY_LLM_REPO",
-        os.environ.get("FRIDAY_QWEN_ROOT",
-                       "/home/pal/github/qwen38-27b-uncensored")))
+        os.environ.get("FRIDAY_QWEN_ROOT", str(default_qwen_runtime()))))
     path = Path(configured).expanduser() if configured else llm_root / "api_key.txt"
     flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
     try:

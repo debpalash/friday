@@ -19,6 +19,8 @@ from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
 from friday_core import load_asr
 from friday_core.local_http import normalize_loopback_model_base_url
+from friday_core.runtime_paths import default_qwen_runtime
+from friday_core.speech import pinned_omnivoice_model_path
 
 SAMPLE_RATE = 16000              # vad/asr rate
 MIC_RATE = 48000                 # hw mic rate (PortAudio pipewire bridge is broken)
@@ -63,7 +65,7 @@ LOCAL_MODEL = os.environ.get("FRIDAY_LOCAL_MODEL", "qwen3.8-27b")
 TTS_DEVICE = os.environ.get("FRIDAY_TTS_DEVICE", "cuda")
 LLM_REPO = Path(os.environ.get(
     "FRIDAY_LLM_REPO",
-    os.environ.get("FRIDAY_QWEN_ROOT", "/home/pal/github/qwen38-27b-uncensored"),
+    os.environ.get("FRIDAY_QWEN_ROOT", str(default_qwen_runtime())),
 )).expanduser().resolve()
 KEY = os.environ.get("FRIDAY_LOCAL_API_KEY", "").strip()
 if not KEY:
@@ -94,7 +96,8 @@ class Friday:
         print("loading tts...", flush=True)
         t0 = time.time()
         self.tts = OmniVoice.from_pretrained(
-            "khaledmezdour/omnivoice-singing", device_map=TTS_DEVICE).eval()
+            str(pinned_omnivoice_model_path(Path(__file__).parent)),
+            device_map=TTS_DEVICE).eval()
         print(f"models loaded in {time.time()-t0:.1f}s")
         self.llm = AsyncOpenAI(
             base_url=LOCAL_BASE_URL, api_key=KEY,

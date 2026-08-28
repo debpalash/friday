@@ -15,8 +15,12 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+
+from friday_core.speech import pinned_omnivoice_model_path
+
+
 STATE = Path(os.environ.get("FRIDAY_STATE_DIR", str(REPO / "state"))).expanduser()
 DEFAULT_INSTALL_ROOT = Path(
     os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
@@ -87,6 +91,14 @@ def _health(port: int) -> dict[str, Any]:
     return _check("friday_health", passed, detail)
 
 
+def _omnivoice() -> dict[str, Any]:
+    try:
+        model = pinned_omnivoice_model_path(REPO)
+    except RuntimeError as exc:
+        return _check("omnivoice_model", False, str(exc))
+    return _check("omnivoice_model", True, str(model))
+
+
 def run(*, expect_running: bool = False) -> dict[str, Any]:
     results = [
         _check(
@@ -100,6 +112,7 @@ def run(*, expect_running: bool = False) -> dict[str, Any]:
         _check("app_python", (REPO / "venv" / "bin" / "python").is_file(), str(REPO / "venv")),
         _check("asr_model", (REPO / "models" / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8" / "encoder.int8.onnx").is_file(), "pinned Parakeet int8 assets"),
         _check("piper_voice", any((REPO / "models").glob("piper-en_US-kristin-medium-*/en_US-kristin-medium.onnx")), "pinned Kristin voice"),
+        _omnivoice(),
         _check("embedding_model", any((REPO / "models").glob("multilingual-e5-small-*/model.safetensors")), "pinned multilingual embedding model", required=False),
         _check("qwen_root", (QWEN / "single-user" / "start_qwen.sh").is_file(), str(QWEN)),
         _check("qwen_runtime", (QWEN / "venv" / "bin" / "vllm").is_file(), "pinned vLLM runtime"),

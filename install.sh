@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Friday installer for Linux/x86_64. The whole implementation is parsed before
-# execution so `curl ... | bash` cannot strand a half-read script on early exit.
+# execution so a streamed invocation cannot strand a half-read script.
 
 friday_install() {
   set -Eeuo pipefail
@@ -36,7 +36,8 @@ friday_install() {
 Install Friday as a private local desktop assistant.
 
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/debpalash/friday/main/install.sh | bash
+  Download and verify a versioned installer from GitHub Releases, then run it.
+  Development checkout: ./install.sh --local . --build-venv
   ./install.sh --local PATH --llm-root PATH
 
 Options:
@@ -55,7 +56,7 @@ Options:
   -h, --help            Show this help
 
 Public install requirements: Linux x86_64, systemd user services, an NVIDIA
-GPU with at least 22 GiB VRAM, and about 45 GiB free disk for the default model.
+GPU with at least 22 GiB VRAM, and about 50 GiB free disk for the default model.
 EOF
   }
 
@@ -393,7 +394,7 @@ PY
       || fail "requirements/runtime.lock is missing"
     "$uv_bin" venv --python 3.12 "$release_dir/venv"
     "$uv_bin" pip sync --python "$release_dir/venv/bin/python" \
-      "$release_dir/requirements/runtime.lock"
+      --require-hashes "$release_dir/requirements/runtime.lock"
   fi
   (cd "$release_dir" && venv/bin/python - <<'PY'
 import fastapi, numpy, openai, pydantic, sherpa_onnx, silero_vad, torch, uvicorn
@@ -403,10 +404,11 @@ PY
   )
 
   if (( ! skip_assets )); then
-    step assets "verifying pinned ASR, voice, and embedding models"
+    step assets "verifying pinned ASR, speech, and embedding models"
     "$release_dir/venv/bin/python" "$release_dir/ops/install_asr_model.py" \
       --model-root "$model_root" --cache-root "$cache_root/downloads"
     "$release_dir/venv/bin/python" "$release_dir/ops/install_piper_voice.py"
+    "$release_dir/venv/bin/python" "$release_dir/ops/install_omnivoice_model.py"
     "$release_dir/venv/bin/python" "$release_dir/ops/install_embedding_model.py"
   fi
 

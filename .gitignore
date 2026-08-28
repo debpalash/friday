@@ -1,6 +1,9 @@
 /__pycache__/
 *.py[cod]
 /*.log
+/.env
+/.env.*
+!/.env.example
 /state/
 /backups/
 /models/
@@ -8,3 +11,7 @@
 /venv/
 /capabilities/
 /skills/workflow-*/
+/persona/voices/*
+!/persona/voices/.gitkeep
+/dist/
+*.enc.json

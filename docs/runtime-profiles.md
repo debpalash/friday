@@ -56,7 +56,7 @@ pinned Kristin Piper checkpoint. It loads once, performs no runtime network acce
 bounded mono audio locally, rejects silent/malformed output, and resamples to Friday's 24 kHz
 browser stream. If the pinned voice is absent, automatic mode preserves the older OmniVoice CPU
 fallback; explicit `piper` fails closed instead. Piper prioritizes immediate speech and does not
-offer cloned-voice activation. CUDA speech automatically retains OmniVoice and its voice-profile
+offer reference-based voice activation. CUDA speech automatically retains OmniVoice and its voice-profile
 lifecycle. The authenticated status response reports the active backend and runtime voice.
 
 The 200K ceiling is capacity, not a promise of constant decode speed. KVarN's own measured

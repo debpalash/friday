@@ -1,2 +1,0 @@
-# Fast, fully local CPU speech for the 24 GiB language-first runtime profile.
-piper-tts==1.4.2

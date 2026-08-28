@@ -80,6 +80,7 @@ from friday_core.builtin_tools import (
     DESKTOP_TOOL_NAMES, EXACT_STEP_APPROVAL_TOOLS, PROCESS_TOOL_NAMES,
     BuiltinToolAdapters, BuiltinToolRuntime,
 )
+from friday_core.speech import pinned_omnivoice_model_path
 
 SAMPLE_RATE = 16000
 TTS_RATE = 24000
@@ -218,8 +219,8 @@ def _new_local_llm_client() -> AsyncOpenAI:
             trust_env=False, follow_redirects=False))
 
 DEFAULT_PROMPT = (
-    "You are Friday, a personal AI assistant. You run locally on your owner's "
-    f"machine (user: {OWNER_NAME}) on a fine-tuned Qwen3.8-27B model. Match the active "
+    "You are Friday, a personal AI assistant. You use a locally served "
+    f"Qwen3.8-27B checkpoint by default (user: {OWNER_NAME}). Match the active "
     "delivery mode: concise natural speech in voice; complete, polished answers "
     "with useful Markdown in text. Start with the answer. No filler, repetition, "
     "canned sections, or decorative formatting. Dry wit."
@@ -337,7 +338,7 @@ class Friday:
                 raise RuntimeError(
                     "the selected runtime profile requires CUDA for speech synthesis")
             self.tts = OmniVoice.from_pretrained(
-                "khaledmezdour/omnivoice-singing",
+                str(pinned_omnivoice_model_path(REPO)),
                 device_map=self.tts_device).eval()
             # The audio codec is used only to encode a voice reference and decode
             # final waveform tokens. Keeping it on CUDA adds several GB of peak

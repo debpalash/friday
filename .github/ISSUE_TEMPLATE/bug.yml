@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a reproducible Friday defect
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, control tokens, transcripts, voice clips, browser data, or private documents. Report security problems privately through SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Friday version
+      description: Paste the non-sensitive output of `friday version`.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Linux distribution, desktop session, GPU, VRAM, and driver.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Use synthetic data and list the smallest exact sequence that fails.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include only redacted logs and doctor output.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed private data and credentials.
+          required: true
+        - label: I searched existing issues and discussions.
+          required: true

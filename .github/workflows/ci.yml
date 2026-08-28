@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-installer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check release tree
+        run: scripts/check-release.sh
+      - name: Parse shell entrypoints
+        run: >-
+          bash -n install.sh ops/fridayctl ops/provision_qwen_runtime.sh
+          scripts/uninstall.sh scripts/build-release.sh scripts/check-release.sh
+          scripts/scan-secrets.sh
+      - name: Compile Python source
+        run: >-
+          python3 -m compileall -q friday.py server.py supervisor.py friday_core
+          ops tests
+      - name: Exercise installer lifecycle
+        run: >-
+          python3 -m unittest -v
+          tests.test_installer.AsrInstallerTests
+          tests.test_installer.InstallerLifecycleTests
+      - name: Scan Git history for secrets
+        run: scripts/scan-secrets.sh
+      - name: Reject whitespace errors
+        run: git diff --check

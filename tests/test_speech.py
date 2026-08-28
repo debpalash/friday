@@ -62,6 +62,32 @@ class SpeechBackendTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "boundary"):
                     speech.verify_pinned_piper_voice(repo)
 
+    def test_omnivoice_verifier_rejects_modified_or_writable_assets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            model_dir = repo / "models" / speech.OMNIVOICE_MODEL_DIRECTORY
+            model_dir.mkdir(parents=True)
+            config = model_dir / "config.json"
+            weights = model_dir / "audio_tokenizer" / "model.safetensors"
+            weights.parent.mkdir()
+            config.write_bytes(b"config")
+            weights.write_bytes(b"weights")
+            assets = {
+                "config.json": (6, hashlib.sha256(b"config").hexdigest()),
+                "audio_tokenizer/model.safetensors": (
+                    7, hashlib.sha256(b"weights").hexdigest()),
+            }
+            with mock.patch.object(speech, "OMNIVOICE_ASSETS", assets):
+                self.assertEqual(
+                    speech.pinned_omnivoice_model_path(repo), model_dir)
+                weights.write_bytes(b"changed")
+                with self.assertRaisesRegex(RuntimeError, "digest"):
+                    speech.pinned_omnivoice_model_path(repo)
+                weights.write_bytes(b"weights")
+                os.chmod(weights, 0o666)
+                with self.assertRaisesRegex(RuntimeError, "boundary"):
+                    speech.pinned_omnivoice_model_path(repo)
+
     def test_synthesizer_rejects_silent_and_oversized_output(self):
         synthesizer = speech.PiperSpeechSynthesizer.__new__(
             speech.PiperSpeechSynthesizer)

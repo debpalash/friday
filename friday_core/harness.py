@@ -38,8 +38,9 @@ class CoreUpgradeHarness:
         self.repo = Path(repo).resolve()
         self.root = self.repo / "state" / "upgrades"
         self.root.mkdir(parents=True, exist_ok=True)
-        self.pi_binary = Path(pi_binary or os.environ.get(
-            "FRIDAY_PI_BIN", "/home/pal/.local/share/mise/installs/pi/latest/pi/pi"))
+        self.pi_binary = Path(
+            pi_binary or os.environ.get("FRIDAY_PI_BIN")
+            or shutil.which("pi") or "/nonexistent/friday-pi")
         self.api_key = api_key
         self.local_base_url = (local_base_url or os.environ.get(
             "FRIDAY_LOCAL_BASE_URL", "http://127.0.0.1:18021/v1")).rstrip("/")

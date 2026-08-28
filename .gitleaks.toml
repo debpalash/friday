@@ -1,0 +1,12 @@
+title = "Friday secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic forged operation ID used by one integration test"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+regexes = ['''forged_operation_0001''']
+paths = ['''tests/test_machine_operator_server_integration\.py''']

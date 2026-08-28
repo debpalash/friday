@@ -1,0 +1,5 @@
+# Direct dependencies for the separately patched Qwen/vLLM runtime.
+vllm==0.27.1
+huggingface-hub==1.28.0
+hf-transfer==0.1.9
+ninja==1.13.0

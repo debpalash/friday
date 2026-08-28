@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup and design discussion
+    url: https://github.com/debpalash/friday/discussions
+    about: Ask installation, hardware, and design questions here.
+  - name: Security report
+    url: https://github.com/debpalash/friday/security/advisories/new
+    about: Report vulnerabilities privately. Do not open a public issue.
