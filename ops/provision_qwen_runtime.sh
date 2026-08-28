@@ -26,7 +26,8 @@ MODEL="$MODEL_ROOT/$MODEL_DIRECTORY"
 if [[ -x "$RUNTIME_ROOT/venv/bin/vllm" \
       && -f "$RUNTIME_ROOT/single-user/start_qwen.sh" \
       && -f "$MODEL/config.json" \
-      && -s "$RUNTIME_ROOT/api_key.txt" ]]; then
+      && -s "$RUNTIME_ROOT/api_key.txt" ]] \
+      && "$RUNTIME_ROOT/venv/bin/vllm" --version >/dev/null 2>&1; then
   MODEL="models/$MODEL_DIRECTORY" bash "$RUNTIME_ROOT/verify.sh" --no-server
   echo "Verified existing Friday model runtime: $RUNTIME_ROOT"
   exit 0
@@ -36,11 +37,17 @@ PARENT="$(dirname "$RUNTIME_ROOT")"
 mkdir -p "$PARENT" "$MODEL_ROOT"
 STAGING="$PARENT/.qwen-install-$$"
 ROLLBACK="$PARENT/.qwen-rollback-$$"
+ACTIVATED=0
 cleanup() {
   local status=$?
   [[ -d "$STAGING" ]] && rm -rf -- "$STAGING"
-  if (( status != 0 )) && [[ -d "$ROLLBACK" && ! -e "$RUNTIME_ROOT" ]]; then
-    mv -- "$ROLLBACK" "$RUNTIME_ROOT"
+  if (( status != 0 )); then
+    if (( ACTIVATED )); then
+      rm -rf -- "$RUNTIME_ROOT"
+    fi
+    if [[ -d "$ROLLBACK" && ! -e "$RUNTIME_ROOT" ]]; then
+      mv -- "$ROLLBACK" "$RUNTIME_ROOT"
+    fi
   fi
   exit "$status"
 }
@@ -55,7 +62,7 @@ git -C "$STAGING" checkout --detach "$QWEN_COMMIT"
 }
 
 echo "Creating pinned vLLM environment..."
-"$UV" venv --python 3.12 "$STAGING/venv"
+"$UV" venv --python 3.12 --relocatable "$STAGING/venv"
 QWEN_LOCK="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/requirements/qwen-runtime.lock"
 [[ -f "$QWEN_LOCK" ]] || {
   echo "Qwen runtime lock is missing: $QWEN_LOCK" >&2
@@ -83,6 +90,9 @@ if [[ -e "$RUNTIME_ROOT" ]]; then
   mv -- "$RUNTIME_ROOT" "$ROLLBACK"
 fi
 mv -- "$STAGING" "$RUNTIME_ROOT"
+ACTIVATED=1
+"$RUNTIME_ROOT/venv/bin/vllm" --version >/dev/null \
+  || { echo "relocated vLLM launcher failed" >&2; exit 1; }
 rm -rf -- "$ROLLBACK"
 trap - EXIT HUP INT TERM
 echo "Installed Friday model runtime: $RUNTIME_ROOT"

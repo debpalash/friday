@@ -25,6 +25,8 @@ profiles, browser profile, or downloaded models.
 - uv `0.12.1` standalone archive is SHA-256 pinned when a system uv is absent.
 - Application and Qwen runtime dependencies are fully version locked and
   hash-required for Python 3.12 on Linux x86_64.
+- The Qwen virtual environment is created relocatable and its vLLM launcher is
+  executed after the final-path switch before the previous runtime is removed.
 - Parakeet's upstream release archive and extracted inference files are SHA-256
   pinned and extracted with traversal/link/device rejection.
 - Piper, OmniVoice, and multilingual embedding assets are revision, size, and

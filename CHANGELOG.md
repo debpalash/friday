@@ -14,6 +14,8 @@ releases. Migrations must preserve user state.
   receipts, runtime manifests, skills, extensions, and controllers.
 - Added verified local source-archive installation with pre-mutation digest
   checks and bounded no-link tar extraction.
+- Made the provisioned Qwen environment relocatable and verify its launcher
+  after the atomic runtime switch, with rollback on failure.
 
 ### Added
 
