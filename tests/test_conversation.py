@@ -48,6 +48,7 @@ class ConversationRoutingTests(unittest.TestCase):
         self.assertIn("one short natural sentence", voice)
         self.assertIn("Do not use Markdown", voice)
         self.assertIn("complete answer", text)
+        self.assertIn("under 120 words and six sentences", text)
         self.assertIn("do not guess", voice)
 
     def test_runtime_answer_preserves_exact_backend_names_and_runtime_voice(self):

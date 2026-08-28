@@ -12,11 +12,13 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from friday_core.graph import GraphStore
+from friday_core.live_runtime import resolve_state_dir
 from friday_core.memory_evals import MemoryEvalRunner
 
 
 def main() -> int:
-    result = MemoryEvalRunner(GraphStore(REPO / "state" / "friday.db")).run(
+    state_dir = resolve_state_dir(REPO)
+    result = MemoryEvalRunner(GraphStore(state_dir / "friday.db")).run(
         REPO / "evals" / "memory-retrieval-v1.json")
     print(json.dumps({
         "evaluation_run_id": result["evaluation_run_id"],

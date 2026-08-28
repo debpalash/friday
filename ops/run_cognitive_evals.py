@@ -10,9 +10,11 @@ sys.path.insert(0, str(REPO))
 
 from friday_core.evals import CognitiveEvalRunner
 from friday_core.graph import GraphStore
+from friday_core.live_runtime import resolve_state_dir
 
 
 result = CognitiveEvalRunner(
-    GraphStore(REPO / "state" / "friday.db")).run(REPO / "evals" / "core-v2.json")
+    GraphStore(resolve_state_dir(REPO) / "friday.db")).run(
+        REPO / "evals" / "core-v2.json")
 print(json.dumps(result, indent=2))
 raise SystemExit(0 if result["passed"] == result["total"] else 1)

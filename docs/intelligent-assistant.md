@@ -173,6 +173,11 @@ public-HTTPS transport. Remote HTTP and redirects are not accepted.
 
 ## Verification
 
+Live and stateful evaluation commands resolve the installer-generated private
+configuration before selecting the active state root, model credential, and
+application assets. Symlinked, non-owner, group-readable, world-readable,
+oversized, malformed, non-loopback, or non-finite runtime inputs fail closed.
+
 Run unit/integration tests and the versioned capability suite:
 
 ```bash

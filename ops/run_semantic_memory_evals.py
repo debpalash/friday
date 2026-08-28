@@ -13,17 +13,25 @@ sys.path.insert(0, str(REPO))
 
 from friday_core.embeddings import configured_local_embedder
 from friday_core.graph import GraphStore
+from friday_core.live_runtime import (
+    resolve_application_root,
+    resolve_state_dir,
+    runtime_environment,
+)
 from friday_core.semantic_memory_evals import SemanticMemoryEvalRunner
 
 
 def main() -> int:
-    embedder = configured_local_embedder(REPO)
+    environment = runtime_environment()
+    application_root = resolve_application_root(REPO, environment)
+    state_dir = resolve_state_dir(REPO, environment)
+    embedder = configured_local_embedder(application_root, environment)
     if embedder is None:
         raise RuntimeError(
             "pinned embedding model is not installed; run "
             "ops/install_embedding_model.py")
     result = SemanticMemoryEvalRunner(
-        GraphStore(REPO / "state" / "friday.db"), embedder).run(
+        GraphStore(state_dir / "friday.db"), embedder).run(
             REPO / "evals" / "semantic-memory-v1.json")
     print(json.dumps({
         "evaluation_run_id": result["evaluation_run_id"],

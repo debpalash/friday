@@ -583,8 +583,7 @@ def select_runtime_profile(snapshot: HardwareSnapshot, *,
     tts_device = env.get("FRIDAY_TTS_DEVICE", "").strip() or "cuda"
     for variable in (
             "FRIDAY_QWEN_MODEL", "FRIDAY_LOCAL_MODEL", "FRIDAY_LLM_HOST",
-            "FRIDAY_TTS_DEVICE", "FRIDAY_LLM_REPO", "FRIDAY_QWEN_ROOT",
-            "FRIDAY_LLM_EXTRA_ARGS"):
+            "FRIDAY_TTS_DEVICE", "FRIDAY_LLM_EXTRA_ARGS"):
         if env.get(variable, "").strip():
             overrides.append(variable)
     if llm_host != "127.0.0.1":

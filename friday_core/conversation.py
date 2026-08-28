@@ -91,7 +91,8 @@ def safe_for_fast_conversation(text: str, *, action_request: bool = False) -> bo
 
 def fast_system_prompt(*, owner_name: str, display_mode: bool) -> str:
     delivery = (
-        "This is a text conversation. Give the complete answer at useful depth. "
+        "This is a text conversation. Give a concise, complete answer. Stay under "
+        "120 words and six sentences unless the user explicitly asks for more depth. "
         "Use Markdown only when it makes structure clearer."
         if display_mode else
         "This is a voice conversation. Use one short natural sentence, or two when needed. "

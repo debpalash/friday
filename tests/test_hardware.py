@@ -284,6 +284,16 @@ class HardwareProfileTests(unittest.TestCase):
         self.assertEqual(profile.assistant_environment()["FRIDAY_TTS_DEVICE"], "cpu")
         self.assertEqual(profile.assistant_environment()["FRIDAY_ASR_THREADS"], "11")
 
+    def test_installed_runtime_location_is_identity_not_tuning_override(self):
+        automatic = select_runtime_profile(snapshot(24), environment={})
+        installed = select_runtime_profile(snapshot(24), environment={
+            "FRIDAY_LLM_REPO": "/opt/friday/qwen",
+        })
+
+        self.assertEqual(installed.overrides, ())
+        self.assertTrue(installed.launch_override_fingerprint)
+        self.assertNotEqual(installed.fingerprint, automatic.fingerprint)
+
     def test_probe_failure_with_nvidia_device_falls_back_safely(self):
         with tempfile.TemporaryDirectory() as temporary:
             device_root = Path(temporary)
