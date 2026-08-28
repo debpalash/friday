@@ -122,6 +122,9 @@ ACTION_REQUEST = re.compile(
     r"update|upgrade|use|wire|learn)\b|(?:do it|go ahead|proceed|start working)\b)",
     re.IGNORECASE)
 ACTION_FALLBACK = "I didn't execute that action."
+REDACTED_TOOL_ARGUMENTS = '{"_FRIDAY_REDACTED":true}'
+REDACTED_TOOL_RECEIPT = "[REDACTED SENSITIVE TOOL RECEIPT]"
+PUBLIC_RESPONSE_ERROR = "Friday couldn't complete that response. Try again."
 NEWS_INTENT = re.compile(
     r"\b(?:news|headline(?:s)?|current events|what(?:'s| is) happening)\b",
     re.IGNORECASE,
@@ -411,11 +414,14 @@ class Friday:
                         tool_name = str(function.get("name") or "")
                         if (tool_has_private_payload(tool_name)
                                 or tool_arguments_are_private(tool_name)):
-                            function["arguments"] = "[REDACTED]"
+                            # vLLM's Qwen tool template parses every persisted
+                            # argument string as JSON. Keep the privacy marker
+                            # parseable, then omit its whole turn from prompts.
+                            function["arguments"] = REDACTED_TOOL_ARGUMENTS
                     if (message.get("role") == "tool"
                             and str(message.get("tool_call_id") or "")
                             in sensitive_calls):
-                        message["content"] = "[REDACTED SENSITIVE TOOL RECEIPT]"
+                        message["content"] = REDACTED_TOOL_RECEIPT
                 temporary = SESSION_FILE.with_suffix(
                     SESSION_FILE.suffix + f".{os.getpid()}.new")
                 flags = (os.O_WRONLY | os.O_CREAT | os.O_TRUNC
@@ -601,6 +607,87 @@ class Friday:
             return "list_voices"
         return None
 
+    @staticmethod
+    def _canonical_chat_turn(turn: list[dict]) -> list[dict] | None:
+        """Return a model-safe user turn, or omit the complete damaged turn."""
+        if (not turn or turn[0].get("role") != "user"
+                or not isinstance(turn[0].get("content"), str)):
+            return None
+        canonical = [{"role": "user", "content": turn[0]["content"]}]
+        pending_calls: set[str] = set()
+        seen_calls: set[str] = set()
+        for message in turn[1:]:
+            role = message.get("role")
+            if role == "assistant":
+                calls = message.get("tool_calls") or []
+                if calls:
+                    if pending_calls or not isinstance(calls, list):
+                        return None
+                    normalized_calls = []
+                    for call in calls:
+                        if not isinstance(call, dict):
+                            return None
+                        function = call.get("function")
+                        call_id = call.get("id")
+                        if (not isinstance(function, dict)
+                                or not isinstance(call_id, str) or not call_id
+                                or call_id in seen_calls):
+                            return None
+                        name = function.get("name")
+                        arguments = function.get("arguments")
+                        if (not isinstance(name, str) or not name
+                                or not isinstance(arguments, str)):
+                            return None
+                        try:
+                            parsed_arguments = json.loads(arguments)
+                        except json.JSONDecodeError:
+                            return None
+                        if (not isinstance(parsed_arguments, dict)
+                                or parsed_arguments.get("_FRIDAY_REDACTED") is True):
+                            return None
+                        pending_calls.add(call_id)
+                        seen_calls.add(call_id)
+                        normalized_calls.append({
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "arguments": json.dumps(
+                                    parsed_arguments, ensure_ascii=False,
+                                    separators=(",", ":")),
+                            },
+                        })
+                    content = message.get("content")
+                    if content is not None and not isinstance(content, str):
+                        return None
+                    canonical.append({
+                        "role": "assistant", "content": content,
+                        "tool_calls": normalized_calls,
+                    })
+                else:
+                    if pending_calls or not isinstance(
+                            message.get("content"), str):
+                        return None
+                    canonical.append({
+                        "role": "assistant", "content": message["content"]})
+            elif role == "tool":
+                call_id = message.get("tool_call_id")
+                content = message.get("content")
+                if (not isinstance(call_id, str) or call_id not in pending_calls
+                        or not isinstance(content, str)
+                        or content == REDACTED_TOOL_RECEIPT):
+                    return None
+                pending_calls.remove(call_id)
+                canonical.append({
+                    "role": "tool", "tool_call_id": call_id,
+                    "content": content,
+                })
+            else:
+                return None
+        if pending_calls:
+            return None
+        return canonical
+
     def _chat_messages(self, context_sections: list[str] | None = None) -> list[dict]:
         """Build a Qwen-compatible prompt with exactly one leading system message."""
         base_prompt = str(self.history[0].get("content", DEFAULT_PROMPT))
@@ -628,6 +715,9 @@ class Friday:
         cleaned_turns: list[list[dict]] = []
         synthetic_fallbacks = {"I haven't executed that change.", ACTION_FALLBACK}
         for index, turn in enumerate(turns):
+            turn = self._canonical_chat_turn(turn)
+            if turn is None:
+                continue
             if any(message.get("role") == "assistant"
                    and (message.get("content") in synthetic_fallbacks
                         or STALE_CAPABILITY_DENIAL.search(
@@ -802,14 +892,25 @@ class Friday:
         try:
             stream = await create_stream(msgs)
         except Exception as exc:
-            if "maximum context length" not in str(exc):
+            latest_only = self._latest_user_only(msgs)
+            if "maximum context length" in str(exc):
+                # Race-safe fallback if the serving template's count changes between
+                # tokenization and generation. Keep the system prompt and latest user.
+                msgs = latest_only
+                print("context overflow despite budgeting; retrying latest turn only",
+                      flush=True)
+                stream = await create_stream(msgs)
+            elif (getattr(exc, "status_code", None) == 400
+                  and latest_only != msgs):
+                # A legacy or provider-specific history entry may pass local
+                # validation but fail the serving chat template. The request was
+                # rejected before generation, so one context-free retry is safe.
+                msgs = latest_only
+                print("model rejected conversation context; retrying latest turn only",
+                      flush=True)
+                stream = await create_stream(msgs)
+            else:
                 raise
-            # Race-safe fallback if the serving template's count changes between
-            # tokenization and generation. Keep the system prompt and latest user.
-            msgs = self._latest_user_only(msgs)
-            print("context overflow despite budgeting; retrying latest turn only",
-                  flush=True)
-            stream = await create_stream(msgs)
         full = ""
         tool_calls: dict[int, dict] = {}
         async for chunk in stream:
@@ -2445,6 +2546,22 @@ async def _complete_recovered_batch(outcome: BatchExecutionOutcome):
         status = "abandoned_unknown"
     message: str
     if status == "succeeded":
+        incomplete_steps = [
+            item for item in TASKS.list_steps(task_id=task_id)
+            if item.get("status") != "succeeded"
+        ]
+        if incomplete_steps:
+            # Recovery also replays terminal older batches so it can close a
+            # task after a crash between receipt storage and task completion.
+            # A newer batch may already be waiting for approval or execution;
+            # the older callback must not finalize or advance the whole task.
+            if (any(item.get("status") == "waiting_approval"
+                    for item in incomplete_steps)
+                    and state["status"] != "waiting_input"):
+                TASKS.transition(
+                    task_id, "waiting_input", label="Approval required",
+                    detail="A later recorded step is waiting for approval.")
+            return
         if state["status"] in {"recovering", "waiting_input"}:
             TASKS.transition(task_id, "running",
                              label="Resuming exact reconciled steps")
@@ -4002,7 +4119,7 @@ async def ws_endpoint(ws: WebSocket):
                     GRAPH.record_edge(failure_id, "derived_from", utterance_id,
                                       actor="system")
                     await send({"type": "error",
-                                "text": f"Language model unavailable: {e}"})
+                                "text": PUBLIC_RESPONSE_ERROR})
                     return
                 await send({"type": "done"})
             except asyncio.CancelledError:
@@ -4015,7 +4132,7 @@ async def ws_endpoint(ws: WebSocket):
                     event_type="response.failed")
                 GRAPH.record_edge(failure_id, "derived_from", utterance_id,
                                   actor="system")
-                await send({"type": "error", "text": str(e)})
+                await send({"type": "error", "text": PUBLIC_RESPONSE_ERROR})
             finally:
                 # Browser playback owns speak/listen state after audio is sent.
                 if active_speaker_task is asyncio.current_task():
@@ -4080,7 +4197,8 @@ async def ws_endpoint(ws: WebSocket):
             response_task.cancel()
             await asyncio.gather(response_task, return_exceptions=True)
         except Exception as exc:
-            await send({"type": "error", "text": str(exc)})
+            print("text response failed:", repr(exc), flush=True)
+            await send({"type": "error", "text": PUBLIC_RESPONSE_ERROR})
         finally:
             if active_speaker_task is asyncio.current_task():
                 active_speaker_task = None

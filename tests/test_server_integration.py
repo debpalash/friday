@@ -729,6 +729,10 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mode, 0o600)
         self.assertNotIn("private clipboard contents", saved)
         self.assertIn("REDACTED", saved)
+        persisted = json.loads(saved)
+        arguments = persisted[0]["tool_calls"][0]["function"]["arguments"]
+        self.assertEqual(
+            json.loads(arguments), {"_FRIDAY_REDACTED": True})
 
     def test_session_redacts_receipt_when_sensitive_call_precedes_snapshot(self):
         friday = server.Friday.__new__(server.Friday)
@@ -1000,6 +1004,48 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fitted[-1]["content"], "latest question")
         self.assertNotIn("old question", [m.get("content") for m in fitted])
 
+    async def test_rejected_history_retries_with_latest_user_turn(self):
+        class RejectedOnce:
+            def __init__(self):
+                self.requests = []
+
+            async def create(self, **kwargs):
+                self.requests.append(kwargs)
+                if len(self.requests) == 1:
+                    error = RuntimeError("provider rejected prompt")
+                    error.status_code = 400
+                    raise error
+
+                async def stream():
+                    yield _chunk("Recovered.")
+
+                return stream()
+
+        completions = RejectedOnce()
+        friday = server.Friday.__new__(server.Friday)
+        friday.llm = SimpleNamespace(chat=SimpleNamespace(
+            completions=completions))
+
+        async def no_trim(messages, _use_tools):
+            return messages
+
+        friday._fit_context = no_trim
+        messages = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "old"},
+            {"role": "assistant", "content": "old answer"},
+            {"role": "user", "content": "latest"},
+        ]
+
+        full, calls = await friday._stream_once(messages, asyncio.Queue())
+
+        self.assertEqual(full, "Recovered.")
+        self.assertEqual(calls, [])
+        self.assertEqual(
+            completions.requests[1]["messages"],
+            [{"role": "system", "content": "system"},
+             {"role": "user", "content": "latest"}])
+
     async def test_tool_narration_is_not_spoken_before_execution(self):
         friday = server.Friday.__new__(server.Friday)
         friday.llm = SimpleNamespace(chat=SimpleNamespace(
@@ -1121,6 +1167,37 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(messages[-1]["role"], "tool")
         self.assertIn("Verified", messages[-1]["content"])
+
+    def test_chat_context_drops_malformed_and_redacted_tool_turns(self):
+        friday = server.Friday.__new__(server.Friday)
+        friday.history = [
+            {"role": "system", "content": "test"},
+            {"role": "user", "content": "Private action."},
+            {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "call_private", "type": "function",
+                "function": {
+                    "name": "clipboard_write", "arguments": "[REDACTED]",
+                }}]},
+            {"role": "tool", "tool_call_id": "call_private",
+             "content": server.REDACTED_TOOL_RECEIPT},
+            {"role": "assistant", "content": "Done."},
+            {"role": "user", "content": "Visible action."},
+            {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "call_redacted", "type": "function",
+                "function": {
+                    "name": "write_file",
+                    "arguments": server.REDACTED_TOOL_ARGUMENTS,
+                }}]},
+            {"role": "tool", "tool_call_id": "call_redacted",
+             "content": server.REDACTED_TOOL_RECEIPT},
+            {"role": "assistant", "content": "Done too."},
+            {"role": "user", "content": "Where were we?"},
+        ]
+
+        messages = friday._chat_messages()
+
+        self.assertEqual([item["role"] for item in messages], ["system", "user"])
+        self.assertEqual(messages[-1]["content"], "Where were we?")
 
     def test_chat_context_removes_obsolete_news_denials(self):
         friday = server.Friday.__new__(server.Friday)

@@ -535,6 +535,33 @@ class DesktopServerIntegrationTests(unittest.IsolatedAsyncioTestCase):
                        LIMIT 1""").fetchone()
             self.assertIn("remains outcome unknown", message["body_json"])
 
+    async def test_recovered_older_batch_does_not_complete_later_approval(self):
+        transitions = []
+        tasks = SimpleNamespace(
+            step_batch=lambda _batch_id: {
+                "task_id": "task_1", "steps": [{"status": "succeeded"}]},
+            get=lambda _task_id: {
+                "status": "verifying", "objective": "test",
+                "contract_version": 1, "completion_contract": {},
+            },
+            list_steps=lambda **_kwargs: [
+                {"status": "succeeded"},
+                {"status": "waiting_approval"},
+            ],
+            transition=lambda task_id, status, **kwargs: transitions.append(
+                (task_id, status, kwargs)),
+        )
+
+        with patch.object(server, "TASKS", tasks):
+            await server._complete_recovered_batch(
+                server.BatchExecutionOutcome(
+                    batch_id="older_batch", status="succeeded", outcomes=(),
+                    recovered_without_raw_results=False))
+
+        self.assertEqual(len(transitions), 1)
+        self.assertEqual(transitions[0][1], "waiting_input")
+        self.assertEqual(transitions[0][2]["label"], "Approval required")
+
     async def test_interrupted_close_is_never_replayed_automatically(self):
         with tempfile.TemporaryDirectory() as temporary:
             graph = GraphStore(Path(temporary) / "friday.db")
