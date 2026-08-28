@@ -109,7 +109,7 @@ class VoiceEvalRunner:
         if (not isinstance(suite, dict)
                 or set(suite) != {
                     "name", "version", "gates", "utterances", "reply",
-                    "echo_tail_ms", "barge_in_ms",
+                    "echo_tail_ms", "barge_in_ms", "repetitions",
                 }
                 or suite.get("name") != "friday-voice"
                 or suite.get("version") != 1):
@@ -121,6 +121,10 @@ class VoiceEvalRunner:
             raise ValueError("voice utterances are invalid")
         for utterance in utterances:
             _bounded_text(utterance, "utterance")
+        if (isinstance(suite["repetitions"], bool)
+                or not isinstance(suite["repetitions"], int)
+                or not 2 <= suite["repetitions"] <= 5):
+            raise ValueError("voice repetitions are invalid")
         _bounded_text(suite["reply"], "reply")
         for field, minimum, maximum in (
                 ("echo_tail_ms", 100, 2_000),
@@ -191,48 +195,55 @@ class VoiceEvalRunner:
         artifact_hashes: list[str] = []
         interruption_audio = np.zeros(0, dtype=np.float32)
 
-        for index, phrase in enumerate(suite["utterances"]):
-            audio, synth_ms = self._synthesize(phrase)
-            if index == 0:
-                interruption_audio = audio.copy()
-            duration = len(audio) / self.sample_rate
-            path = temporary / f"utterance-{index:02d}.wav"
-            sf.write(path, audio, self.sample_rate, subtype="PCM_16")
-            os.chmod(path, 0o600)
-            encoded = path.read_bytes()
-            artifact_hashes.append(hashlib.sha256(encoded).hexdigest())
-            transcript, recognize_ms = self._transcribe_artifact(path)
-            reference = _words(phrase)
-            observed = _words(transcript)
-            distance = _edit_distance(reference, observed)
-            edits += distance
-            reference_words += len(reference)
-            exact += int(distance == 0)
-            rms_values.append(float(np.sqrt(np.mean(np.square(audio)))))
-            clipped_ratios.append(float(np.mean(np.abs(audio) >= 0.999)))
-            tts_ms.append(synth_ms)
-            tts_rtf.append(synth_ms / max(duration * 1_000, 1e-9))
-            asr_ms.append(recognize_ms)
-            asr_rtf.append(recognize_ms / max(duration * 1_000, 1e-9))
+        artifact_index = 0
+        for repetition in range(suite["repetitions"]):
+            for phrase_index, phrase in enumerate(suite["utterances"]):
+                audio, synth_ms = self._synthesize(phrase)
+                if artifact_index == 0:
+                    interruption_audio = audio.copy()
+                duration = len(audio) / self.sample_rate
+                path = temporary / (
+                    f"utterance-{repetition:02d}-{phrase_index:02d}.wav")
+                sf.write(path, audio, self.sample_rate, subtype="PCM_16")
+                os.chmod(path, 0o600)
+                encoded = path.read_bytes()
+                artifact_hashes.append(hashlib.sha256(encoded).hexdigest())
+                transcript, recognize_ms = self._transcribe_artifact(path)
+                reference = _words(phrase)
+                observed = _words(transcript)
+                distance = _edit_distance(reference, observed)
+                edits += distance
+                reference_words += len(reference)
+                exact += int(distance == 0)
+                rms_values.append(float(np.sqrt(np.mean(np.square(audio)))))
+                clipped_ratios.append(float(np.mean(np.abs(audio) >= 0.999)))
+                tts_ms.append(synth_ms)
+                tts_rtf.append(synth_ms / max(duration * 1_000, 1e-9))
+                asr_ms.append(recognize_ms)
+                asr_rtf.append(recognize_ms / max(duration * 1_000, 1e-9))
 
-            # Voice turn latency is measured from an already captured speech
-            # artifact through ASR, a deterministic local reply selection, and
-            # synthesis of the first complete audio response.
-            turn_started = time.perf_counter_ns()
-            self._transcribe_artifact(path)
-            reply_audio, _ = self._synthesize(suite["reply"])
-            if not reply_audio.size:
-                raise RuntimeError("voice reply produced no audio")
-            first_audio_ms.append(
-                (time.perf_counter_ns() - turn_started) / 1_000_000)
+                # Voice turn latency is measured from an already captured
+                # speech artifact through ASR, deterministic local reply
+                # selection, and synthesis of the first complete response.
+                turn_started = time.perf_counter_ns()
+                self._transcribe_artifact(path)
+                reply_audio, _ = self._synthesize(suite["reply"])
+                if not reply_audio.size:
+                    raise RuntimeError("voice reply produced no audio")
+                first_audio_ms.append(
+                    (time.perf_counter_ns() - turn_started) / 1_000_000)
+                artifact_index += 1
 
+        artifact_count = len(suite["utterances"]) * suite["repetitions"]
         quality = {
-            "utterances": len(suite["utterances"]),
+            "unique_utterances": len(suite["utterances"]),
+            "repetitions": suite["repetitions"],
+            "utterances": artifact_count,
             "reference_words": reference_words,
             "word_errors": edits,
             "word_error_rate": edits / max(reference_words, 1),
             "exact_utterances": exact,
-            "exact_rate": exact / len(suite["utterances"]),
+            "exact_rate": exact / artifact_count,
             "minimum_rms": round(min(rms_values), 6),
             "maximum_clipped_ratio": round(max(clipped_ratios), 8),
         }

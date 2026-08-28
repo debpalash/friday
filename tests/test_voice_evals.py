@@ -48,6 +48,7 @@ def fixture_suite() -> dict:
     return {
         "name": "friday-voice",
         "version": 1,
+        "repetitions": 3,
         "gates": {
             "maximum_word_error_rate": 0,
             "minimum_exact_rate": 1,
@@ -79,11 +80,14 @@ class VoiceEvalTests(unittest.TestCase):
     def test_scorecard_measures_artifacts_latency_echo_and_interruption(self):
         suite = fixture_suite()
         result = VoiceEvalRunner(
-            self.graph, FixtureASR(suite["utterances"]), FixtureSpeech()).run(
+            self.graph,
+            FixtureASR(suite["utterances"] * suite["repetitions"]),
+            FixtureSpeech()).run(
                 self.suite)
 
         self.assertTrue(result["passed"])
         self.assertEqual(result["quality"]["word_error_rate"], 0)
+        self.assertEqual(result["quality"]["utterances"], 15)
         self.assertEqual(result["echo"]["frames_forwarded_to_vad"], 0)
         self.assertTrue(result["interruption"]["captured_prefix_matches"])
         self.assertEqual(result["artifacts_retained"], 0)

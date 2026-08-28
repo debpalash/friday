@@ -1,6 +1,7 @@
 {
   "name": "friday-voice",
   "version": 1,
+  "repetitions": 3,
   "gates": {
     "maximum_word_error_rate": 0.1,
     "minimum_exact_rate": 0.8,
