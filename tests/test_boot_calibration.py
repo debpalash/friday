@@ -303,6 +303,32 @@ class LastKnownGoodCalibrationTests(unittest.TestCase):
 
 
 class BootRecoveryTests(unittest.TestCase):
+    def test_planned_stop_does_not_enter_crash_backoff(self):
+        proposed = select_runtime_profile(snapshot(24), environment={})
+        active = runtime_boot_candidates(proposed)[1]
+        with tempfile.TemporaryDirectory() as temporary:
+            store = BootRecoveryStore(Path(temporary) / "recovery.json")
+            store.record_launch_failure(proposed, now=1)
+            store.record_launch_success(
+                proposed, active, runtime_identity="runtime-a", now=20)
+
+            wrong = store.record_planned_stop(
+                proposed, active, runtime_identity="runtime-b")
+            stopped = store.record_planned_stop(
+                proposed, active, runtime_identity="runtime-a")
+            retry = store.observe(
+                proposed, running=False, active=None, now=21)
+            status = store.public_status(proposed, now=21)
+
+        self.assertFalse(wrong)
+        self.assertTrue(stopped)
+        self.assertEqual(retry, 0)
+        self.assertEqual(status, {
+            "state": "ready",
+            "consecutive_failures": 0,
+            "retry_after_seconds": 0,
+        })
+
     def test_early_runtime_loss_is_edge_triggered_and_exponentially_backed_off(self):
         proposed = select_runtime_profile(snapshot(24), environment={})
         active = runtime_boot_candidates(proposed)[1]

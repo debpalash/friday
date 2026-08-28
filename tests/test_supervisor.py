@@ -768,6 +768,41 @@ class SupervisorProfilePersistenceTests(IsolatedSupervisorStateTestCase):
 
 
 class SupervisorLifecycleFencingTests(IsolatedSupervisorStateTestCase):
+    def test_sigterm_records_planned_stop_before_exiting(self):
+        with mock.patch.object(
+                supervisor, "_record_planned_watch_stop",
+                return_value=True) as record:
+            with self.assertRaises(SystemExit) as stopped:
+                supervisor._request_watch_stop()
+
+        self.assertEqual(stopped.exception.code, 0)
+        record.assert_called_once_with()
+
+    def test_planned_runtime_identity_rejects_stale_binding(self):
+        active = {"fingerprint": "profile-a"}
+        valid = {
+            "schema_version": 1,
+            "profile_fingerprint": "profile-a",
+            "boot_id_hash": "boot-a",
+            "pid": 42,
+            "start_ticks": 99,
+        }
+        with mock.patch.object(
+                supervisor, "_read_runtime_process_binding",
+                return_value=valid), \
+             mock.patch.object(supervisor, "_boot_id_hash",
+                               return_value="boot-a"):
+            identity = supervisor._planned_runtime_identity(active)
+        with mock.patch.object(
+                supervisor, "_read_runtime_process_binding",
+                return_value=valid | {"boot_id_hash": "old-boot"}), \
+             mock.patch.object(supervisor, "_boot_id_hash",
+                               return_value="boot-a"):
+            stale = supervisor._planned_runtime_identity(active)
+
+        self.assertRegex(identity or "", r"^[0-9a-f]{64}$")
+        self.assertIsNone(stale)
+
     def test_watch_reload_execs_in_place_and_unit_keeps_full_shutdown(self):
         unit = (Path(__file__).parents[1] / "ops" /
                 "friday-supervisor.service").read_text()

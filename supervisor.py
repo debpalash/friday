@@ -1970,6 +1970,44 @@ def _request_watch_reload(_signum=None, _frame=None) -> None:
     _WATCH_RELOAD_REQUESTED = True
 
 
+def _planned_runtime_identity(active: Mapping[str, Any] | None) -> str | None:
+    binding = _read_runtime_process_binding()
+    if (not active or not isinstance(binding, Mapping)
+            or binding.get("schema_version") != 1
+            or binding.get("profile_fingerprint") != active.get("fingerprint")
+            or binding.get("boot_id_hash") != _boot_id_hash()
+            or isinstance(binding.get("pid"), bool)
+            or not isinstance(binding.get("pid"), int)
+            or binding["pid"] <= 1
+            or isinstance(binding.get("start_ticks"), bool)
+            or not isinstance(binding.get("start_ticks"), int)
+            or binding["start_ticks"] <= 0):
+        return None
+    return hashlib.sha256(json.dumps(
+        dict(binding), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _record_planned_watch_stop() -> bool:
+    """Persist a clean-stop edge without requiring a still-live child PID."""
+    try:
+        proposed = resolve_runtime_profile()
+        active_manifest = read_active_runtime_profile()
+        active = match_active_candidate(
+            _boot_candidates(proposed), active_manifest)
+        runtime_identity = _planned_runtime_identity(active_manifest)
+        if active is None or runtime_identity is None:
+            return False
+        return BootRecoveryStore(BOOT_RECOVERY_FILE).record_planned_stop(
+            proposed, active, runtime_identity=runtime_identity)
+    except Exception:
+        return False
+
+
+def _request_watch_stop(_signum=None, _frame=None) -> None:
+    _record_planned_watch_stop()
+    raise SystemExit(0)
+
+
 def _reload_watch_if_requested() -> None:
     if not _WATCH_RELOAD_REQUESTED:
         return
@@ -2054,6 +2092,7 @@ def main() -> None:
                 activate_voice=args.voice, profile=active_profile)
     else:
         signal.signal(signal.SIGHUP, _request_watch_reload)
+        signal.signal(signal.SIGTERM, _request_watch_stop)
         with watch_operation():
             while True:
                 _reload_watch_if_requested()

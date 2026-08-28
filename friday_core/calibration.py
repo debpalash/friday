@@ -1118,6 +1118,26 @@ class BootRecoveryStore:
         })
         _atomic_write_private_json(self.path, value)
 
+    def record_planned_stop(
+        self, proposed: RuntimeProfile, active: RuntimeProfile, *,
+        runtime_identity: str,
+    ) -> bool:
+        """Clear crash-loop accounting only for the exact active runtime."""
+        value = self._load(proposed)
+        if (value is None or not value.get("expected_running")
+                or value.get("active_profile_fingerprint")
+                    != active.fingerprint
+                or value.get("runtime_identity") != runtime_identity):
+            return False
+        value.update({
+            "consecutive_failures": 0,
+            "expected_running": False,
+            "next_retry_at": 0.0,
+            "state": "ready",
+        })
+        _atomic_write_private_json(self.path, value)
+        return True
+
     def observe(self, proposed: RuntimeProfile, *, running: bool,
                 active: RuntimeProfile | None = None,
                 runtime_identity: str | None = None,

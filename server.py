@@ -53,6 +53,8 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          TaskContract, TaskService,
                          SkillsShRegistry, UtteranceBuffer, VoiceManager, WebOperator, fetch_news,
                          choose_speech_backend,
+                         FAST_CONVERSATION_TEMPERATURE,
+                         FAST_CONVERSATION_TOP_P,
                          fast_system_prompt, format_runtime_answer,
                          load_asr,
                          migrate_session_json, normalize_https_origin,
@@ -1027,7 +1029,9 @@ class Friday:
                            required_tool: str | None = None,
                            display_mode: bool = False,
                            context_is_bounded: bool = False,
-                           max_tokens: int = MAX_OUTPUT_TOKENS):
+                           max_tokens: int = MAX_OUTPUT_TOKENS,
+                           temperature: float = 0.7,
+                           top_p: float = 0.8):
         """Stream one completion into speak_q. Returns (text, tool_calls)."""
         if not context_is_bounded:
             msgs = await self._fit_context(msgs, use_tools)
@@ -1040,7 +1044,7 @@ class Friday:
             return await self.llm.chat.completions.create(
                 model=LOCAL_MODEL,
                 messages=messages,
-                temperature=0.7, top_p=0.8, max_tokens=max_tokens,
+                temperature=temperature, top_p=top_p, max_tokens=max_tokens,
                 stream=True,
                 tools=current_tool_schema() if use_tools else None,
                 tool_choice=tool_choice,
@@ -1657,7 +1661,9 @@ class Friday:
                 full, calls = await self._stream_once(
                     msgs, speak_q, use_tools=False,
                     display_mode=display_mode, context_is_bounded=True,
-                    max_tokens=360 if display_mode else 120)
+                    max_tokens=360 if display_mode else 120,
+                    temperature=FAST_CONVERSATION_TEMPERATURE,
+                    top_p=FAST_CONVERSATION_TOP_P)
                 if calls:
                     raise RuntimeError(
                         "bounded conversation completion returned an unexpected tool call")

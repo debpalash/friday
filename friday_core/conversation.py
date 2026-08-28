@@ -6,6 +6,10 @@ import re
 from collections.abc import Iterable
 
 
+FAST_CONVERSATION_TEMPERATURE = 0.0
+FAST_CONVERSATION_TOP_P = 1.0
+
+
 _RUNTIME_MODEL = re.compile(
     r"\b(?:what|which)\s+(?:model|llm)\s+(?:are|do)\s+you\b|"
     r"\b(?:your|active|current)\b.{0,32}\b(?:model|llm|language model)\b|"

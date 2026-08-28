@@ -1562,6 +1562,10 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             async def fake_stream(_msgs, speak_q, use_tools=True, **kwargs):
                 self.assertFalse(use_tools)
                 self.assertTrue(kwargs["context_is_bounded"])
+                self.assertEqual(
+                    kwargs["temperature"],
+                    server.FAST_CONVERSATION_TEMPERATURE)
+                self.assertEqual(kwargs["top_p"], server.FAST_CONVERSATION_TOP_P)
                 await speak_q.put("Hey.")
                 return "Hey.", []
 

@@ -1,6 +1,8 @@
 import unittest
 
-from friday_core.conversation import (fast_system_prompt, format_runtime_answer,
+from friday_core.conversation import (FAST_CONVERSATION_TEMPERATURE,
+                                      FAST_CONVERSATION_TOP_P,
+                                      fast_system_prompt, format_runtime_answer,
                                       runtime_topics, safe_for_fast_conversation)
 
 
@@ -50,6 +52,8 @@ class ConversationRoutingTests(unittest.TestCase):
         self.assertIn("complete answer", text)
         self.assertIn("under 120 words and six sentences", text)
         self.assertIn("do not guess", voice)
+        self.assertEqual(FAST_CONVERSATION_TEMPERATURE, 0.0)
+        self.assertEqual(FAST_CONVERSATION_TOP_P, 1.0)
 
     def test_runtime_answer_preserves_exact_backend_names_and_runtime_voice(self):
         receipt = {
