@@ -978,7 +978,8 @@ class ControllerAuthoritySchemaTests(unittest.TestCase):
                 quick = conn.execute("PRAGMA quick_check").fetchone()[0]
                 foreign_keys = conn.execute(
                     "PRAGMA foreign_key_check").fetchall()
-            self.assertEqual(versions, list(range(1, 15)))
+            self.assertEqual(
+                versions, list(range(1, LATEST_SCHEMA_VERSION + 1)))
             self.assertEqual(set(counts.values()), {0})
             self.assertEqual(quick, "ok")
             self.assertEqual(foreign_keys, [])

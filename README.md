@@ -231,9 +231,9 @@ trusted local OS user and one workstation. It is not a multi-tenant service, a
 remote administration plane, or a safety authority.
 
 Known release constraints include the large coupled `server.py` surface, a
-narrow hardware matrix, incomplete selective deletion across every graph record
-type, and no independent penetration test. Alpha schemas and extension APIs do
-not have a published compatibility window yet.
+narrow hardware matrix, and no independent penetration test. Private export and
+offline selective deletion cover the durable graph and its projections. Alpha
+schemas and extension APIs do not have a published compatibility window yet.
 
 For setup and design questions, use GitHub Discussions. File reproducible bugs
 through Issues with synthetic data and redacted logs. Report vulnerabilities
@@ -250,3 +250,4 @@ through the private route in [SECURITY.md](SECURITY.md).
 - [Third-party licenses and model provenance](THIRD_PARTY.md)
 - [Contributing](CONTRIBUTING.md)
 - [Release process](docs/releasing.md)
+- [Roadmap closure ledger](docs/roadmap-closure.md)

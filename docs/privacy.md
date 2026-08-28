@@ -58,9 +58,45 @@ separate deployment review.
 
 ## Removing data
 
+Create a consistent, owner-only export without stopping Friday:
+
+```text
+friday export /path/to/new-export-directory
+friday verify-export /path/to/new-export-directory
+```
+
+The export contains a SQLite snapshot and a canonical manifest with the format
+version, graph schema version, byte size, SHA-256 digest, and row count for
+every logical table. Export directories are mode `0700`; their files are mode
+`0600`. Verification rejects symlinks, public permissions, malformed manifests,
+hash or inventory differences, and failed SQLite integrity checks. The export
+contains private user content and should be stored accordingly.
+
+Preview deletion by conversation, task, artifact node, memory claim, or bounded
+UTC time range. A preview returns counts and a selector hash, never the selected
+content:
+
+```text
+friday delete conversation SESSION_ID
+friday delete task TASK_ID
+friday delete artifact NODE_ID
+friday delete memory_claim CLAIM_ID
+friday delete time_range --start 2026-08-01T00:00:00Z --end 2026-09-01T00:00:00Z
+```
+
+Stop Friday, repeat the command with `--confirm`, and inspect the receipt. The
+confirmed operation builds a private replacement database, removes dependent
+graph and projection records, retains a content-free hashed tombstone, checks
+foreign keys and integrity, compacts free pages, and then atomically replaces
+the database. A failed rewrite leaves the source database unchanged.
+
+This is logical deletion at Friday's application and SQLite layers. Flash
+translation layers, storage snapshots, backups, and forensic media recovery are
+outside Friday's guarantees and must be handled by the owner or platform.
+
 `friday uninstall` removes the application and services while preserving state,
 models, skills, voices, and credentials. `friday uninstall --purge` removes the
 exact Friday-owned roots too. Back up wanted data before purging.
 
-Friday does not currently provide selective deletion for every graph record.
-That is a known product limitation for the alpha release.
+Selective deletion is offline by design so a running projector cannot race the
+replacement. Run `friday start` after a confirmed deletion succeeds.

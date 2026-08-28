@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 
 
-LATEST_SCHEMA_VERSION = 14
+LATEST_SCHEMA_VERSION = 15
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -1696,12 +1696,38 @@ def _migration_14(conn: sqlite3.Connection) -> None:
            ON memory_embedding_index(model_fingerprint, claim_id)""")
 
 
+def _migration_15(conn: sqlite3.Connection) -> None:
+    """Add retained, content-free evidence for private selective deletion."""
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS deletion_tombstones (
+               deletion_id      TEXT PRIMARY KEY,
+               scope            TEXT NOT NULL CHECK(scope IN (
+                                      'conversation', 'task', 'artifact',
+                                      'memory_claim', 'time_range')),
+               selector_sha256  TEXT NOT NULL
+                   CHECK(length(selector_sha256) = 64),
+               deleted_at       TEXT NOT NULL,
+               rows_json        TEXT NOT NULL,
+               UNIQUE(scope, selector_sha256)
+           )""")
+    conn.execute(
+        """CREATE TRIGGER IF NOT EXISTS deletion_tombstones_no_update
+           BEFORE UPDATE ON deletion_tombstones BEGIN
+               SELECT RAISE(ABORT, 'deletion tombstones are immutable');
+           END""")
+    conn.execute(
+        """CREATE TRIGGER IF NOT EXISTS deletion_tombstones_no_delete
+           BEFORE DELETE ON deletion_tombstones BEGIN
+               SELECT RAISE(ABORT, 'deletion tombstones are retained');
+           END""")
+
+
 MIGRATIONS = ((1, _migration_1), (2, _migration_2), (3, _migration_3),
               (4, _migration_4), (5, _migration_5), (6, _migration_6),
               (7, _migration_7), (8, _migration_8), (9, _migration_9),
               (10, _migration_10), (11, _migration_11),
               (12, _migration_12), (13, _migration_13),
-              (14, _migration_14))
+              (14, _migration_14), (15, _migration_15))
 
 
 def apply_schema_migrations(conn: sqlite3.Connection) -> int:

@@ -282,6 +282,27 @@ CREATE TABLE IF NOT EXISTS core_upgrade_state (
     last_event_seq   INTEGER NOT NULL REFERENCES graph_events(seq)
 );
 
+CREATE TABLE IF NOT EXISTS deletion_tombstones (
+    deletion_id      TEXT PRIMARY KEY,
+    scope            TEXT NOT NULL CHECK(scope IN (
+                           'conversation', 'task', 'artifact', 'memory_claim',
+                           'time_range')),
+    selector_sha256  TEXT NOT NULL CHECK(length(selector_sha256) = 64),
+    deleted_at       TEXT NOT NULL,
+    rows_json        TEXT NOT NULL,
+    UNIQUE(scope, selector_sha256)
+);
+
+CREATE TRIGGER IF NOT EXISTS deletion_tombstones_no_update
+BEFORE UPDATE ON deletion_tombstones BEGIN
+    SELECT RAISE(ABORT, 'deletion tombstones are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS deletion_tombstones_no_delete
+BEFORE DELETE ON deletion_tombstones BEGIN
+    SELECT RAISE(ABORT, 'deletion tombstones are retained');
+END;
+
 CREATE TRIGGER IF NOT EXISTS graph_events_no_update
 BEFORE UPDATE ON graph_events BEGIN
     SELECT RAISE(ABORT, 'graph_events is append-only');

@@ -286,9 +286,9 @@ class ProcessSchemaTests(unittest.TestCase):
             tuple(values.values()),
         )
 
-    def test_fresh_database_has_v14_contract_indexes_fks_and_safe_modes(self):
-        self.assertEqual(self.graph.schema_version(), 14)
-        self.assertEqual(LATEST_SCHEMA_VERSION, 14)
+    def test_fresh_database_has_v15_contract_indexes_fks_and_safe_modes(self):
+        self.assertEqual(self.graph.schema_version(), 15)
+        self.assertEqual(LATEST_SCHEMA_VERSION, 15)
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
 
         with self.graph._connect() as conn:
@@ -385,7 +385,7 @@ class ProcessSchemaTests(unittest.TestCase):
             identity_columns = [str(row[2]) for row in conn.execute(
                 "PRAGMA index_info(process_instances_active_runtime_identity)")]
 
-        self.assertEqual(versions, list(range(1, 15)))
+        self.assertEqual(versions, list(range(1, 16)))
         self.assertEqual(modes, ("wal", 1))
         self.assertEqual(
             instance_indexes["process_instances_active_runtime_identity"],
@@ -844,8 +844,8 @@ class ProcessSchemaMigrationTests(unittest.TestCase):
             instance_id = self._insert_v8_terminal(path)
             with sqlite3.connect(path) as conn:
                 conn.execute("PRAGMA foreign_keys = ON")
-                self.assertEqual(apply_schema_migrations(conn), 14)
-                self.assertEqual(apply_schema_migrations(conn), 14)
+                self.assertEqual(apply_schema_migrations(conn), 15)
+                self.assertEqual(apply_schema_migrations(conn), 15)
                 cleanup = conn.execute(
                     "SELECT state,attempt_count,requested_at,last_event_seq "
                     "FROM process_unit_cleanups WHERE instance_id=?",
@@ -872,7 +872,7 @@ class ProcessSchemaMigrationTests(unittest.TestCase):
             self.assertIsNone(prepared_cleanup)
             self.assertEqual(
                 workload, ("released", "2026-08-24T08:01:00Z"))
-            self.assertEqual(versions, list(range(1, 15)))
+            self.assertEqual(versions, list(range(1, 16)))
 
     def test_v9_ddl_backfill_and_marker_roll_back_together(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -911,8 +911,8 @@ class ProcessSchemaMigrationTests(unittest.TestCase):
             self._create_v10(path)
             with sqlite3.connect(path) as conn:
                 conn.execute("PRAGMA foreign_keys = ON")
-                self.assertEqual(apply_schema_migrations(conn), 14)
-                self.assertEqual(apply_schema_migrations(conn), 14)
+                self.assertEqual(apply_schema_migrations(conn), 15)
+                self.assertEqual(apply_schema_migrations(conn), 15)
                 count = int(conn.execute(
                     "SELECT COUNT(*) FROM process_operations").fetchone()[0])
                 controller_count = int(conn.execute(
@@ -923,8 +923,8 @@ class ProcessSchemaMigrationTests(unittest.TestCase):
                     conn.execute("PRAGMA user_version").fetchone()[0])
             self.assertEqual(count, 0)
             self.assertEqual(controller_count, 0)
-            self.assertEqual(versions, list(range(1, 15)))
-            self.assertEqual(user_version, 14)
+            self.assertEqual(versions, list(range(1, 16)))
+            self.assertEqual(user_version, 15)
 
     def test_v11_ddl_and_marker_roll_back_together(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -976,7 +976,7 @@ class ProcessSchemaMigrationTests(unittest.TestCase):
                     "SELECT COUNT(*) FROM process_operations").fetchone()[0])
                 integrity = str(conn.execute(
                     "PRAGMA quick_check").fetchone()[0])
-            self.assertEqual(versions, [14] * 16)
+            self.assertEqual(versions, [15] * 16)
             self.assertEqual(marker_count, 1)
             self.assertEqual(operation_count, 0)
             self.assertEqual(integrity, "ok")
@@ -1048,7 +1048,7 @@ class ProcessSchemaMigrationTests(unittest.TestCase):
                     "PRAGMA quick_check").fetchone()[0])
                 foreign_keys = conn.execute(
                     "PRAGMA foreign_key_check").fetchall()
-            self.assertEqual(versions, [14] * 16)
+            self.assertEqual(versions, [15] * 16)
             self.assertEqual(marker_count, 1)
             self.assertEqual(authority_counts, [0, 0, 0, 0])
             self.assertEqual(integrity, "ok")
@@ -1060,16 +1060,16 @@ class ProcessSchemaMigrationTests(unittest.TestCase):
             graph = GraphStore(path)
             with graph.transaction() as conn:
                 conn.execute(
-                    "INSERT INTO schema_migrations(version) VALUES (15)")
-                conn.execute("PRAGMA user_version = 15")
+                    "INSERT INTO schema_migrations(version) VALUES (16)")
+                conn.execute("PRAGMA user_version = 16")
             with graph._connect() as conn:
                 with self.assertRaisesRegex(
                         RuntimeError, "schema is newer"):
                     apply_schema_migrations(conn)
             with graph.transaction() as conn:
-                conn.execute("DELETE FROM schema_migrations WHERE version=15")
+                conn.execute("DELETE FROM schema_migrations WHERE version=16")
                 conn.execute("DELETE FROM schema_migrations WHERE version=8")
-                conn.execute("PRAGMA user_version = 14")
+                conn.execute("PRAGMA user_version = 15")
             with graph._connect() as conn:
                 with self.assertRaisesRegex(
                         RuntimeError, "history is incomplete"):
@@ -1090,8 +1090,8 @@ class ProcessSchemaMigrationTests(unittest.TestCase):
                 integrity = str(conn.execute(
                     "PRAGMA quick_check").fetchone()[0])
             lock_path = Path(str(path) + ".schema.lock")
-            self.assertEqual(versions, [14] * 16)
-            self.assertEqual(markers, list(range(1, 15)))
+            self.assertEqual(versions, [15] * 16)
+            self.assertEqual(markers, list(range(1, 16)))
             self.assertEqual(integrity, "ok")
             self.assertEqual(stat.S_IMODE(lock_path.stat().st_mode), 0o600)
 
@@ -1118,7 +1118,7 @@ class ProcessSchemaMigrationTests(unittest.TestCase):
                 ).fetchone()[0])
                 integrity = str(conn.execute(
                     "PRAGMA quick_check").fetchone()[0])
-            self.assertEqual(versions, [14] * 16)
+            self.assertEqual(versions, [15] * 16)
             self.assertEqual(marker_count, 1)
             self.assertEqual(cleanup_count, 1)
             self.assertEqual(integrity, "ok")
@@ -1195,8 +1195,8 @@ class ProcessSchemaMigrationTests(unittest.TestCase):
                 self.assertEqual(
                     int(conn.execute("PRAGMA user_version").fetchone()[0]), 7)
 
-                self.assertEqual(apply_schema_migrations(conn), 14)
-                self.assertEqual(apply_schema_migrations(conn), 14)
+                self.assertEqual(apply_schema_migrations(conn), 15)
+                self.assertEqual(apply_schema_migrations(conn), 15)
                 conn.commit()
 
                 versions = [int(row[0]) for row in conn.execute(
@@ -1225,8 +1225,8 @@ class ProcessSchemaMigrationTests(unittest.TestCase):
                 journal_mode = str(
                     conn.execute("PRAGMA journal_mode").fetchone()[0])
 
-            self.assertEqual(versions, list(range(1, 15)))
-            self.assertEqual(user_version, 14)
+            self.assertEqual(versions, list(range(1, 16)))
+            self.assertEqual(user_version, 15)
             self.assertEqual(task, ("preserve me", "running"))
             self.assertEqual(
                 lease,

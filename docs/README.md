@@ -5,6 +5,8 @@
 - [Architecture](architecture.md): processes, trust boundaries, and current debt
 - [Installer](installer.md): transaction, rollback, and supply-chain contract
 - [Privacy](privacy.md): stored data, retention, and network access
+- [Roadmap closure ledger](roadmap-closure.md): verified evidence, open work,
+  and external release gates
 - [Runtime profiles](runtime-profiles.md): GPU, context, speech, browser, and control-plane behavior
 - [Releasing](releasing.md): gates for tags, artifacts, and repository settings
 

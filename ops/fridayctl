@@ -34,6 +34,10 @@ Usage: friday <command>
   open        Start Friday and open its desktop window
   update      Install the newest configured Friday release
   repair      Rebuild the installed release from its local source
+  export PATH Create a private, hash-bound data export at a new path
+  verify-export PATH
+              Verify a Friday private export without importing it
+  delete ...  Preview or confirm selective private-data deletion
   uninstall   Remove Friday's app/runtime; preserve personal data
   version     Print the installed release identity
 EOF
@@ -144,6 +148,26 @@ PY
     [[ -z "${FRIDAY_STATE_DIR:-}" ]] || repair_args+=(--state-root "$FRIDAY_STATE_DIR")
     [[ -z "${FRIDAY_LLM_REPO:-}" ]] || repair_args+=(--llm-root "$FRIDAY_LLM_REPO")
     exec "$CURRENT/install.sh" "${repair_args[@]}"
+    ;;
+  export)
+    need_install
+    [[ $# -eq 2 ]] || { echo "Usage: friday export PATH" >&2; exit 2; }
+    exec "$CURRENT/venv/bin/python" "$CURRENT/ops/friday_data.py" \
+      --state-dir "${FRIDAY_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/friday}" \
+      export "$2"
+    ;;
+  verify-export)
+    need_install
+    [[ $# -eq 2 ]] || { echo "Usage: friday verify-export PATH" >&2; exit 2; }
+    exec "$CURRENT/venv/bin/python" "$CURRENT/ops/friday_data.py" \
+      verify-export "$2"
+    ;;
+  delete)
+    need_install
+    shift
+    exec "$CURRENT/venv/bin/python" "$CURRENT/ops/friday_data.py" \
+      --state-dir "${FRIDAY_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/friday}" \
+      delete "$@"
     ;;
   uninstall)
     need_install
