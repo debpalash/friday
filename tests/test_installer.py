@@ -4,6 +4,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -41,6 +42,22 @@ class AsrInstallerTests(unittest.TestCase):
         )
 
 
+class PortableRuntimeTests(unittest.TestCase):
+    def test_supervisor_uses_configured_state_root_not_release_symlink(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            configured = Path(temporary) / "private-state"
+            result = subprocess.run(
+                [sys.executable, "-c", "import supervisor; print(supervisor.STATE)"],
+                cwd=ROOT,
+                env=os.environ | {"FRIDAY_STATE_DIR": str(configured)},
+                text=True,
+                capture_output=True,
+                timeout=20,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), str(configured.resolve()))
+
+
 class InstallerLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -49,10 +66,12 @@ class InstallerLifecycleTests(unittest.TestCase):
         self.home.mkdir()
         self.fake_bin = self.root / "bin"
         self.fake_bin.mkdir()
+        self.systemctl_log = self.root / "systemctl.log"
         self._write_executable(self.fake_bin / "bwrap", "#!/bin/sh\nexit 0\n")
         self._write_executable(
             self.fake_bin / "systemctl",
             """#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${SYSTEMCTL_LOG:?}"
 if [[ "$*" == *"show-environment"* ]]; then exit 0; fi
 if [[ "$*" == *"is-active"* || "$*" == *"is-enabled"* ]]; then exit 1; fi
 exit 0
@@ -66,6 +85,7 @@ exit 0
             "XDG_CONFIG_HOME": str(self.root / "config"),
             "XDG_CACHE_HOME": str(self.root / "cache"),
             "XDG_BIN_HOME": str(self.root / "user-bin"),
+            "SYSTEMCTL_LOG": str(self.systemctl_log),
             "PATH": str(self.fake_bin) + os.pathsep + self.env["PATH"],
         })
         self.source = self.root / "source"
@@ -169,6 +189,13 @@ exit 0
         self.assertFalse(
             (self.home / ".config" / "systemd" / "user" / "friday.service").exists()
         )
+        install_root = self.root / "data" / "friday"
+        self.assertEqual(list((install_root / "releases").iterdir()), [])
+        self.assertEqual(list(install_root.glob(".rollback-*")), [])
+        calls = self.systemctl_log.read_text().splitlines()
+        enabled = calls.index("--user enable friday.service")
+        quiesced = calls.index("--user stop friday.service", enabled + 1)
+        self.assertLess(enabled, quiesced)
 
     def test_refuses_home_as_install_root(self):
         result = subprocess.run(

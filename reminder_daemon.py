@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 from pathlib import Path
 
@@ -11,6 +12,9 @@ from friday_core import GraphStore, ReminderService, ReminderWorker
 
 
 REPO = Path(__file__).resolve().parent
+STATE = Path(
+    os.environ.get("FRIDAY_STATE_DIR", str(REPO / "state"))
+).expanduser().resolve()
 
 
 async def deliver(receipt: dict) -> None:
@@ -21,7 +25,7 @@ async def deliver(receipt: dict) -> None:
 
 
 async def main() -> None:
-    graph = GraphStore(REPO / "state" / "friday.db")
+    graph = GraphStore(STATE / "friday.db")
     worker = ReminderWorker(ReminderService(graph), deliver)
     await worker.start()
     try:

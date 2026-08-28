@@ -43,7 +43,9 @@ from friday_core.vision_evals import (NativeVisionEvalRunner,
                                       has_qualified_native_vision_score)
 
 REPO = Path(__file__).resolve().parent
-STATE = REPO / "state"
+STATE = Path(
+    os.environ.get("FRIDAY_STATE_DIR", str(REPO / "state"))
+).expanduser().resolve()
 DEFAULT_INSTALL_ROOT = Path(
     os.environ.get(
         "XDG_DATA_HOME", str(Path.home() / ".local" / "share"))

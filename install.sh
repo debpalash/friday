@@ -201,7 +201,12 @@ EOF
     local status=$?
     trap - EXIT HUP INT TERM
     if (( status != 0 )); then
+      # Rollback must keep going even if one cleanup step is racing or damaged.
+      set +e
       printf '\n  rollback       restoring the previous Friday release\n' >&2
+      # The failed release may still be the service working directory and may
+      # recreate state while it is being removed. Quiesce it first.
+      systemctl --user stop friday.service >/dev/null 2>&1
       if (( switched )); then
         rm -f -- "$install_root/current"
         if [[ -n "$previous_target" && -d "$previous_target" ]]; then
