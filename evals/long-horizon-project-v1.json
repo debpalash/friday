@@ -1,0 +1,23 @@
+{
+  "name": "friday-long-horizon-project",
+  "version": 1,
+  "gates": {
+    "minimum_files": 3,
+    "minimum_tests": 3,
+    "maximum_recovery_ms": 5000
+  },
+  "files": [
+    {
+      "path": "calculator.py",
+      "content": "def add(left, right):\n    return left + right\n\ndef multiply(left, right):\n    return left * right\n"
+    },
+    {
+      "path": "test_calculator.py",
+      "content": "import unittest\n\nfrom calculator import add, multiply\n\n\nclass CalculatorTests(unittest.TestCase):\n    def test_adds_signed_values(self):\n        self.assertEqual(add(-2, 5), 3)\n\n    def test_multiplies_values(self):\n        self.assertEqual(multiply(6, 7), 42)\n\n    def test_operations_do_not_share_state(self):\n        self.assertEqual((add(1, 2), multiply(1, 2)), (3, 2))\n\n\nif __name__ == '__main__':\n    unittest.main()\n"
+    },
+    {
+      "path": "README.md",
+      "content": "# Calculator\n\nA small deterministic project used to qualify Friday's durable project workflow.\n"
+    }
+  ]
+}

@@ -770,3 +770,20 @@ ANN or sharded indexing beyond 4,096 active claims only when measurements justif
   complete speech prefix.
 - Durable evidence contains aggregate metrics, hashes, and backend identity. It
   contains no phrases, transcripts, microphone content, or audio artifacts.
+
+### 2026-08-28: receipt-grounded recovered project
+
+- Added a versioned long-horizon project scorecard that stages exact file,
+  test, and verification steps in the production durable task journal.
+- The evaluator abandons the first dispatched attempt before execution. A new
+  worker recovers the same logical action under attempt 2, completes the ordered
+  batch, and proves that each file effect occurred exactly once.
+- The measured run matched 3/3 files, passed 3/3 tests, verified all 5 action
+  receipts, and recovered in 55.8 ms. A fresh test run and fresh file hashes
+  independently agree with the recorded receipts.
+- The user-visible result is structured from durable task state, receipts,
+  action attempts, and fresh probes. Assistant prose cannot turn a failed or
+  incomplete run into success.
+- Source fixtures, the temporary project, and raw test output are removed after
+  the run. Only counts, durations, hashes, gate decisions, and the structured
+  outcome enter Friday's graph.

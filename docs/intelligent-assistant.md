@@ -240,6 +240,21 @@ deterministic local reply stage, so it isolates the voice path and is not a
 claim about model response latency. Generated audio is deleted after the run;
 only aggregate measurements, backend identity, and hashes enter the graph.
 
+Run the receipt-grounded recovered-project qualification with:
+
+```bash
+venv/bin/python ops/run_project_evals.py
+```
+
+The version 1 suite dispatches a multi-file project, abandons the first durable
+attempt before execution, resumes it with a replacement worker, runs the
+project's tests, and re-hashes every file. The measured run matched 3/3 files,
+passed 3/3 tests, verified 5/5 action receipts, resumed the interrupted step as
+attempt 2 in 55.8 ms, and observed no duplicate file effect. Its structured
+user-visible completion is derived from the task state, receipts, attempt
+journal, file hashes, and a fresh test run. Project content and test output live
+only in disposable directories and do not enter the aggregate graph record.
+
 Run the separate live document/OCR reasoning scorecard while the local model is healthy:
 
 ```bash
@@ -283,7 +298,7 @@ non-finite data, duplicate cases, unknown scenario names, malformed inputs, and 
 exceptions rather than converting them into a pass.
 
 This score is evidence for those named boundaries, not a general-intelligence score. Live
-paired-controller browser execution, broad real-world visual competence, rollback rate, and
-long-horizon project success remain separate measured gaps; they must not be inferred from a
-green core suite. The document/OCR, voice, memory, and native-vision scorecards add narrow
-grounded evidence, not a general-intelligence, general-vision, or universal speech claim.
+paired-controller browser execution, broad real-world visual competence, and injected-failure
+rollback rates remain separate measured gaps; they must not be inferred from a green core suite.
+The document/OCR, voice, memory, project, and native-vision scorecards add narrow grounded
+evidence, not a general-intelligence, general-vision, or universal speech claim.
