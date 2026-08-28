@@ -24,6 +24,7 @@ required=(
   CODE_OF_CONDUCT.md THIRD_PARTY.md VERSION .gitleaks.toml
   docs/README.md docs/architecture.md docs/privacy.md docs/releasing.md
   docs/compatibility.md compatibility/v1.json frontend/index.html
+  docs/threat-model.md compliance/dependency-review-v1.json
 )
 for path in "${required[@]}"; do
   [[ -s "$path" ]] || fail "missing required file: $path"
@@ -79,6 +80,9 @@ bash -n install.sh ops/fridayctl ops/provision_qwen_runtime.sh \
 git diff --check || fail "Git reports whitespace errors"
 python3 scripts/check_architecture.py >/dev/null \
   || fail "architecture boundary check failed"
+python3 -m py_compile ops/friday_release_candidate.py \
+  ops/review_release_dependencies.py \
+  || fail "release candidate entrypoints do not compile"
 
 if (( failures )); then
   printf '%d release-tree check(s) failed\n' "$failures" >&2

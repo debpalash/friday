@@ -8,8 +8,23 @@ releases. Migrations must preserve user state.
 
 ### Changed
 
-- Prepared the repository, installer, documentation, and automation for its
-  first public developer preview.
+- Split the control plane into explicit frontend, transport, controller,
+  conversation, voice-session, speech, and recovered-task boundaries.
+- Added a forward-only alpha compatibility contract for graph schema 15,
+  receipts, runtime manifests, skills, extensions, and controllers.
+- Added verified local source-archive installation with pre-mutation digest
+  checks and bounded no-link tar extraction.
+
+### Added
+
+- Private export and selective deletion across conversations, tasks, artifacts,
+  memory claims, and time ranges.
+- Artifact-backed voice, semantic-scale, long-horizon project,
+  controller-browser, injected-recovery, and adversarial scorecards.
+- A private release-candidate command covering full tests, full-history secret
+  scanning, live scorecards, exact dependency review, and installer rehearsal.
+- A complete threat-model checklist and 321-package plus model engineering
+  license inventory.
 
 ## 0.1.0-alpha.1
 

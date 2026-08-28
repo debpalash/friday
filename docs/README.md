@@ -6,6 +6,7 @@
 - [Compatibility](compatibility.md): alpha data, protocol, receipt, runtime, and extension policy
 - [Installer](installer.md): transaction, rollback, and supply-chain contract
 - [Privacy](privacy.md): stored data, retention, and network access
+- [Threat model](threat-model.md): assets, attacks, controls, evidence, and response
 - [Roadmap closure ledger](roadmap-closure.md): verified evidence, open work,
   and external release gates
 - [Runtime profiles](runtime-profiles.md): GPU, context, speech, browser, and control-plane behavior

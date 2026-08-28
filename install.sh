@@ -9,6 +9,7 @@ friday_install() {
   local install_ref="${FRIDAY_INSTALL_REF:-main}"
   local source_sha256="${FRIDAY_SOURCE_SHA256:-}"
   local source_dir=""
+  local source_archive=""
   install_root="${FRIDAY_INSTALL_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/friday}"
   local state_root="${FRIDAY_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/friday}"
   local config_root="${FRIDAY_CONFIG_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/friday}"
@@ -42,6 +43,8 @@ Usage:
 
 Options:
   --local PATH          Install an exact local Git checkout
+  --archive PATH        Install a release-style source tarball from disk
+  --source-sha256 HASH  Required SHA-256 for --archive; optional for --ref
   --ref REF             Install a GitHub branch, tag, or commit (default: main)
   --root PATH           App/runtime root (default: ~/.local/share/friday)
   --state-root PATH     Personal state root (default: ~/.local/state/friday)
@@ -66,6 +69,8 @@ EOF
   while (($#)); do
     case "$1" in
       --local) [[ $# -ge 2 ]] || fail "--local needs a path"; source_dir="$2"; shift 2 ;;
+      --archive) [[ $# -ge 2 ]] || fail "--archive needs a path"; source_archive="$2"; shift 2 ;;
+      --source-sha256) [[ $# -ge 2 ]] || fail "--source-sha256 needs a value"; source_sha256="$2"; shift 2 ;;
       --ref) [[ $# -ge 2 ]] || fail "--ref needs a value"; install_ref="$2"; shift 2 ;;
       --root) [[ $# -ge 2 ]] || fail "--root needs a path"; install_root="$2"; shift 2 ;;
       --state-root) [[ $# -ge 2 ]] || fail "--state-root needs a path"; state_root="$2"; shift 2 ;;
@@ -82,6 +87,14 @@ EOF
     esac
   done
 
+  [[ -z "$source_dir" || -z "$source_archive" ]] \
+    || fail "--local and --archive are mutually exclusive"
+  if [[ -n "$source_sha256" && ! "$source_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+    fail "source SHA-256 must be 64 lowercase hexadecimal characters"
+  fi
+  [[ -z "$source_archive" || -n "$source_sha256" ]] \
+    || fail "--archive requires --source-sha256"
+
   command -v realpath >/dev/null || fail "realpath is required"
   install_root="$(realpath -m "$install_root")"
   state_root="$(realpath -m "$state_root")"
@@ -90,6 +103,7 @@ EOF
   bin_root="$(realpath -m "$bin_root")"
   data_home="$(realpath -m "$data_home")"
   [[ -z "$source_dir" ]] || source_dir="$(realpath -m "$source_dir")"
+  [[ -z "$source_archive" ]] || source_archive="$(realpath -m "$source_archive")"
   [[ -z "$llm_root" ]] || llm_root="$(realpath -m "$llm_root")"
 
   validate_root() {
@@ -107,6 +121,13 @@ EOF
   validate_root "$bin_root" "binary root"
   validate_root "$data_home" "data root"
   [[ -z "$llm_root" ]] || validate_root "$llm_root" "Qwen runtime root"
+  if [[ -n "$source_archive" ]]; then
+    [[ -f "$source_archive" && ! -L "$source_archive" ]] \
+      || fail "source archive must be a regular non-symlink file"
+    printf '%s  %s\n' "$source_sha256" "$source_archive" \
+      | sha256sum -c - >/dev/null \
+      || fail "source archive SHA-256 does not match"
+  fi
   [[ "$owner_name" =~ ^[[:alnum:]_.[:space:]-]{1,64}$ ]] \
     || fail "owner name must be 1-64 letters, numbers, spaces, '.', '_' or '-'"
 
@@ -258,6 +279,8 @@ EOF
     else
       source_revision="local"
     fi
+  elif [[ -n "$source_archive" ]]; then
+    source_revision="archive-${source_sha256:0:12}"
   else
     source_revision="${install_ref//[^A-Za-z0-9._-]/_}"
   fi
@@ -276,27 +299,61 @@ EOF
         -C "$source_dir" -cf - . | tar -xf - -C "$release_dir"
     fi
   else
-    step source "GitHub $repository@$install_ref"
-    archive="$cache_root/friday-source-${release_id}.tar.gz"
-    local auth_args=()
-    [[ -z "${GH_TOKEN:-}" ]] || auth_args=(-H "Authorization: Bearer $GH_TOKEN")
-    curl --fail --location --retry 5 --retry-all-errors \
-      "${auth_args[@]}" --output "$archive.part" \
-      "https://codeload.github.com/$repository/tar.gz/$install_ref"
-    mv "$archive.part" "$archive"
+    if [[ -n "$source_archive" ]]; then
+      step source "verified local release archive ${source_sha256:0:12}"
+      archive="$cache_root/friday-source-${release_id}.tar.gz"
+      cp --reflink=auto -- "$source_archive" "$archive.part"
+      chmod 0400 "$archive.part"
+      mv "$archive.part" "$archive"
+    else
+      step source "GitHub $repository@$install_ref"
+      archive="$cache_root/friday-source-${release_id}.tar.gz"
+      local auth_args=()
+      [[ -z "${GH_TOKEN:-}" ]] || auth_args=(-H "Authorization: Bearer $GH_TOKEN")
+      curl --fail --location --retry 5 --retry-all-errors \
+        "${auth_args[@]}" --output "$archive.part" \
+        "https://codeload.github.com/$repository/tar.gz/$install_ref"
+      mv "$archive.part" "$archive"
+    fi
     if [[ -n "$source_sha256" ]]; then
       printf '%s  %s\n' "$source_sha256" "$archive" | sha256sum -c -
     fi
-    top="$(tar -tzf "$archive" | head -n1 | cut -d/ -f1)"
-    [[ -n "$top" ]] || fail "downloaded source archive is empty"
-    tar -tzf "$archive" | python3 -c '
+    top="$(python3 - "$archive" <<'PY'
+import pathlib
 import sys
-for raw in sys.stdin:
-    name = raw.rstrip("\n")
-    parts = name.split("/")
-    if name.startswith("/") or ".." in parts:
-        raise SystemExit("unsafe source archive path: " + name)
-'
+import tarfile
+
+archive = pathlib.Path(sys.argv[1])
+members = 0
+total = 0
+root = None
+with tarfile.open(archive, "r:gz") as source:
+    for item in source:
+        members += 1
+        if members > 20_000:
+            raise SystemExit("source archive has too many members")
+        path = pathlib.PurePosixPath(item.name)
+        parts = path.parts
+        if (not parts or item.name.startswith("/") or ".." in parts
+                or any(part in {"", "."} for part in parts)):
+            raise SystemExit("unsafe source archive member path")
+        if root is None:
+            root = parts[0]
+        if parts[0] != root:
+            raise SystemExit("source archive has multiple top-level roots")
+        if not (item.isdir() or item.isreg()):
+            raise SystemExit("source archive contains a link or special member")
+        if item.size < 0 or item.size > 128 * 1024 * 1024:
+            raise SystemExit("source archive member exceeds the size limit")
+        total += item.size
+        if total > 1024 * 1024 * 1024:
+            raise SystemExit("source archive exceeds the expansion limit")
+if not root or members < 2:
+    raise SystemExit("source archive is empty")
+print(root)
+PY
+)" || fail "source archive failed structural validation"
+    [[ -n "$top" ]] || fail "source archive is empty"
     tar -xzf "$archive" --strip-components=1 -C "$release_dir"
   fi
   [[ -f "$release_dir/install.sh" && -f "$release_dir/server.py" \

@@ -54,3 +54,11 @@ Friday intentionally excludes user voice clips from version control.
 
 Release maintainers must recheck upstream model cards, package metadata, and
 license files whenever a pin changes.
+
+The exact lock digests, package counts, manual metadata resolutions, model
+pins, and copyleft disposition are recorded in
+[`compliance/dependency-review-v1.json`](compliance/dependency-review-v1.json).
+`ops/review_release_dependencies.py` compares both installed environments with
+all 321 exact lock entries and requires license evidence for each package. The
+engineering inventory is complete; distribution remains blocked on the owner
+decision about Friday's license and Piper's GPL-3.0-or-later compatibility.

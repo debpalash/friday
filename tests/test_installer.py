@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -84,6 +85,22 @@ class InstallerLifecycleTests(unittest.TestCase):
         self.systemctl_log = self.root / "systemctl.log"
         self._write_executable(self.fake_bin / "bwrap", "#!/bin/sh\nexit 0\n")
         self._write_executable(
+            self.fake_bin / "uv",
+            """#!/usr/bin/env bash
+set -eu
+if [[ "${1:-}" == venv ]]; then
+  target="${@: -1}"
+  mkdir -p "$target/bin"
+  cat > "$target/bin/python" <<'PY'
+#!/bin/sh
+exit 0
+PY
+  chmod 755 "$target/bin/python"
+fi
+exit 0
+""",
+        )
+        self._write_executable(
             self.fake_bin / "systemctl",
             """#!/usr/bin/env bash
 printf '%s\n' "$*" >> "${SYSTEMCTL_LOG:?}"
@@ -122,6 +139,7 @@ exit 0
             "install.sh", "ops/fridayctl", "ops/friday.service.in",
             "ops/friday.desktop.in", "ops/provision_qwen_runtime.sh",
             "scripts/uninstall.sh", "assets/friday.svg",
+            "requirements/runtime.lock",
         ):
             destination = target / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -164,6 +182,33 @@ exit 0
             cwd=ROOT, env=env, text=True, capture_output=True, timeout=60,
         )
 
+    def _make_archive(self, source: Path, name: str = "candidate") -> tuple[Path, str]:
+        archive = self.root / f"{name}.tar.gz"
+        with tarfile.open(archive, "w:gz") as bundle:
+            for path in sorted(source.rglob("*")):
+                relative = path.relative_to(source)
+                if relative.parts[0] in {"venv", "state"}:
+                    continue
+                bundle.add(path, arcname=str(Path("friday-candidate") / relative),
+                           recursive=False)
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        return archive, digest
+
+    def _install_archive(
+        self, archive: Path, digest: str, *,
+        extra_env: dict[str, str] | None = None,
+    ):
+        return subprocess.run(
+            [
+                "bash", str(ROOT / "install.sh"),
+                "--archive", str(archive), "--source-sha256", digest,
+                "--llm-root", str(self.llm), "--skip-assets",
+                "--skip-hardware-check", "--no-start",
+            ],
+            cwd=ROOT, env=self.env | (extra_env or {}), text=True,
+            capture_output=True, timeout=60,
+        )
+
     def test_clean_local_install_creates_private_loopback_release(self):
         result = self._install(self.source)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -181,6 +226,70 @@ exit 0
         self.assertEqual((self.root / "user-bin" / "friday").stat().st_mode & 0o777, 0o755)
         self.assertEqual((self.root / "config" / "friday" / "friday.env").stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.llm.joinpath("api_key.txt").stat().st_mode & 0o777, 0o600)
+
+    def test_verified_archive_install_uses_no_source_network_and_lifecycle_works(self):
+        archive, digest = self._make_archive(self.source)
+        curl_log = self.root / "curl.log"
+        self._write_executable(
+            self.fake_bin / "curl",
+            """#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${CURL_LOG:?}"
+exit 0
+""",
+        )
+
+        result = self._install_archive(
+            archive, digest, extra_env={"CURL_LOG": str(curl_log)})
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(curl_log.exists())
+        current = self.root / "data" / "friday" / "current"
+        release = (current / "FRIDAY_RELEASE").read_text()
+        self.assertIn(f"revision=archive-{digest[:12]}", release)
+        ca = self.root / "state" / "friday" / "tls" / "friday-local-ca.crt"
+        ca.parent.mkdir(parents=True)
+        ca.write_text("synthetic rehearsal CA\n")
+        cli = self.root / "user-bin" / "friday"
+        for command in ("start", "restart", "stop"):
+            lifecycle = subprocess.run(
+                [str(cli), command], cwd=ROOT,
+                env=self.env | {"CURL_LOG": str(curl_log)}, text=True,
+                capture_output=True, timeout=20)
+            self.assertEqual(
+                lifecycle.returncode, 0,
+                f"{command}: {lifecycle.stdout}{lifecycle.stderr}")
+        calls = self.systemctl_log.read_text().splitlines()
+        self.assertIn("--user start friday.service", calls)
+        self.assertIn("--user restart friday.service", calls)
+        self.assertIn("--user stop friday.service", calls)
+
+    def test_archive_digest_failure_precedes_service_or_install_mutation(self):
+        archive, digest = self._make_archive(self.source)
+
+        result = self._install_archive(archive, "0" * 64)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SHA-256 does not match", result.stdout + result.stderr)
+        self.assertFalse(self.systemctl_log.exists())
+        self.assertFalse((self.root / "data" / "friday").exists())
+
+    def test_archive_link_member_is_rejected_without_escape(self):
+        archive = self.root / "hostile.tar.gz"
+        link = tarfile.TarInfo("friday-candidate/frontend/index.html")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "/etc/passwd"
+        with tarfile.open(archive, "w:gz") as bundle:
+            root = tarfile.TarInfo("friday-candidate")
+            root.type = tarfile.DIRTYPE
+            bundle.addfile(root)
+            bundle.addfile(link)
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+
+        result = self._install_archive(archive, digest)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("link or special member", result.stdout + result.stderr)
+        self.assertFalse((self.root / "data" / "friday" / "current").exists())
 
     def test_failed_post_switch_doctor_restores_previous_release(self):
         first = self._install(self.source)
@@ -217,6 +326,24 @@ exit 0
         enabled = calls.index("--user enable friday.service")
         quiesced = calls.index("--user stop friday.service", enabled + 1)
         self.assertLess(enabled, quiesced)
+
+    def test_uninstall_and_reinstall_preserve_personal_state(self):
+        first = self._install(self.source)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        state = self.root / "state" / "friday" / "friday.db"
+        before = hashlib.sha256(state.read_bytes()).hexdigest()
+        current = self.root / "data" / "friday" / "current"
+        uninstall = subprocess.run(
+            ["bash", str(current / "scripts" / "uninstall.sh")],
+            cwd=ROOT, env=self.env, text=True, capture_output=True, timeout=20)
+        self.assertEqual(uninstall.returncode, 0,
+                         uninstall.stdout + uninstall.stderr)
+        self.assertFalse(current.exists())
+        self.assertEqual(hashlib.sha256(state.read_bytes()).hexdigest(), before)
+
+        second = self._install(self.source)
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertEqual(hashlib.sha256(state.read_bytes()).hexdigest(), before)
 
     def test_refuses_home_as_install_root(self):
         result = subprocess.run(

@@ -16,14 +16,20 @@ Do not change repository visibility until these three decisions are closed.
 
 ## Release gates
 
-Run from a clean checkout:
+Run from a clean checkout with the reviewed Qwen environment available:
 
 ```bash
-venv/bin/python -m unittest discover -v
-scripts/check-release.sh
-scripts/scan-secrets.sh
-git diff --check
+venv/bin/python ops/friday_release_candidate.py \
+  --qwen-python "$FRIDAY_LLM_REPO/venv/bin/python" \
+  --output "$XDG_STATE_HOME/friday/release-candidate.json"
 ```
+
+The command refuses a dirty worktree, builds an exact HEAD source archive,
+runs the release tree, full tests, full-history secret scan, all local
+scorecards including live conversation, the 321-package license inventory, and
+the clean synthetic installer lifecycle. It retains only hashes, counts,
+timings, declared blockers, and privacy-safe summaries in a new mode-0600
+report. It does not tag, publish, or change repository settings.
 
 Then validate a clean install on a supported Linux x86_64 machine with at least
 22 GiB VRAM. The test must cover install, first boot, voice and text turns,

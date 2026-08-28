@@ -1,0 +1,13 @@
+{
+  "name": "friday-adversarial-boundaries",
+  "version": 1,
+  "scenarios": [
+    "paired_controller_theft",
+    "browser_process_replacement",
+    "dns_rebinding",
+    "malicious_document",
+    "archive_bomb",
+    "hostile_skill",
+    "stale_approval_replay"
+  ]
+}

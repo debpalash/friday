@@ -148,6 +148,7 @@ or directory layout.
 | `friday logs` | Follow the private user-service log |
 | `friday update` | Install the configured upstream release through the same transaction |
 | `friday repair` | Rebuild the active release and run its diagnostics |
+| `friday release-candidate PATH` | Run every local gate and write a private hash-bound report |
 | `friday stop` | Stop the service and unload the local model |
 | `friday uninstall` | Remove the app and runtime while preserving personal data and models |
 
@@ -246,6 +247,7 @@ through the private route in [SECURITY.md](SECURITY.md).
 - [Documentation index](docs/README.md)
 - [Architecture and trust boundaries](docs/architecture.md)
 - [Alpha compatibility policy](docs/compatibility.md)
+- [Threat model and incident boundaries](docs/threat-model.md)
 - [Installer and rollback contract](docs/installer.md)
 - [Runtime profiles and resource admission](docs/runtime-profiles.md)
 - [Privacy and data retention](docs/privacy.md)

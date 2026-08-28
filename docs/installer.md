@@ -34,7 +34,10 @@ profiles, browser profile, or downloaded models.
   verifier must pass.
 
 GitHub source archives can additionally be bound with `FRIDAY_SOURCE_SHA256`.
-The published release installer embeds the exact tag and archive digest.
+The published release installer embeds the exact tag and archive digest. An
+already downloaded release-style tarball can be installed with `--archive` and
+the mandatory `--source-sha256`; the installer verifies it before listing or
+extracting any member and performs no source download.
 
 ## Recovery
 

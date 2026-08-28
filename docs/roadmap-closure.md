@@ -57,31 +57,23 @@ profile. They are not a cross-device claim.
 | Service recovery preserves ownership and startup order | closed | Boot calibration, process binding, orphan, and planned-stop tests |
 | Ordinary chat avoids background consolidation | closed | Bounded fast-lane integration tests and live conversation scorecard |
 
-## Open local engineering
-
-### Capability and runtime
-
+## Local engineering closure
 
 ### Installer and release rehearsal
 
-- Run the complete install, first boot, voice turn, text turn, rejection,
-  approved action, stop, restart, failed update rollback, uninstall, and
-  state-preserving reinstall sequence from published-style assets on a clean
-  supported host.
-- Record installer duration, download size, disk use, rollback time, and every
-  contacted host from that clean rehearsal.
-- Add a release-candidate command that runs the exact local gates and emits one
-  private, hash-bound rehearsal report without user content.
+The verified-archive installer and private release-candidate command now cover
+install, first boot, live voice/text scorecards, rejection, one exact approved
+action, stop, restart, failed-update rollback, uninstall, and state-preserving
+reinstall. The clean isolated-host report records source bytes, disk use,
+per-stage duration, rollback time, contacted hosts, output hashes, and no user
+content. Cross-device physical-host coverage remains an external gate.
 
 ### Security hardening
 
-- Add adversarial end-to-end tests for paired-controller theft, browser process
-  replacement, DNS rebinding, malicious documents, archive bombs, hostile
-  skills, and stale approval replay.
-- Produce a threat-model checklist that maps every network, process, storage,
-  key, model, and UI boundary to code, tests, and incident response.
-- Complete dependency and model-license review against `THIRD_PARTY.md` for the
-  exact release candidate.
+The seven-scenario adversarial scorecard, complete boundary-to-response threat
+model, and exact 321-package plus model engineering license inventory are
+closed. Distribution remains gated on the owner's Friday/Piper license
+compatibility decision below.
 
 ## External and owner gates
 
@@ -95,10 +87,7 @@ profile. They are not a cross-device claim.
 | Public repository protections | external | After visibility changes: protected `main`, required CI and CodeQL, secret scanning, push protection, and private vulnerability reporting |
 | Public release and announcement | owner | Explicit approval after every applicable gate above is closed |
 
-## Closure order
+## Remaining closure order
 
-1. Voice and long-horizon capability evidence.
-2. Server boundary split and compatibility policy.
-3. Paired-controller, browser, installer, and adversarial release rehearsal.
-4. External hardware, legal, and independent security gates.
-5. Owner-approved public release.
+1. External hardware, legal, and independent security gates.
+2. Owner-approved public release.
