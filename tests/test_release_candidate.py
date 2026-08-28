@@ -1,16 +1,39 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
 from friday_core.release_candidate import (
+    ReleaseCandidateRunner,
     canonical_sha256,
     evaluation_passed,
     write_private_candidate_report,
 )
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 class ReleaseCandidateTests(unittest.TestCase):
+    def test_virtualenv_python_launcher_path_is_not_resolved(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = root / "base-python"
+            base.write_text("#!/bin/sh\nexit 0\n")
+            base.chmod(0o755)
+            app = root / "app-python"
+            qwen = root / "qwen-python"
+            app.symlink_to(base)
+            qwen.symlink_to(base)
+
+            runner = ReleaseCandidateRunner(
+                ROOT, app_python=app, qwen_python=qwen)
+
+            self.assertEqual(runner.app_python, Path(os.path.abspath(app)))
+            self.assertEqual(runner.qwen_python, Path(os.path.abspath(qwen)))
+            self.assertNotEqual(runner.app_python, base.resolve())
+
     def test_evaluation_results_require_exact_boolean_or_complete_count(self):
         self.assertTrue(evaluation_passed({"passed": True}))
         self.assertTrue(evaluation_passed({"passed": 8, "total": 8}))

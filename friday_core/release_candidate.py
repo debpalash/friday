@@ -83,8 +83,11 @@ class ReleaseCandidateRunner:
         self, repo: str | Path, *, app_python: Path, qwen_python: Path,
     ) -> None:
         self.repo = Path(repo).resolve()
-        self.app_python = app_python.resolve()
-        self.qwen_python = qwen_python.resolve()
+        # A virtualenv's Python is commonly a symlink to the base interpreter.
+        # Preserve the launcher path so Python retains the virtualenv prefix and
+        # site-packages when a gate executes it.
+        self.app_python = Path(os.path.abspath(app_python))
+        self.qwen_python = Path(os.path.abspath(qwen_python))
 
     def _command(
         self, name: str, command: list[str], *, environment: dict[str, str],
@@ -159,22 +162,23 @@ class ReleaseCandidateRunner:
                 f"--prefix=friday-{commit[:12]}/", "-o", str(archive), commit,
             ], cwd=self.repo, timeout=60, check=True)
             source_sha256 = hashlib.sha256(archive.read_bytes()).hexdigest()
-            environment = os.environ.copy()
+            gate_environment = os.environ.copy()
+            gate_environment["PYTHONHASHSEED"] = "0"
+            evaluation_environment = gate_environment.copy()
             evaluation_state = temporary / "evaluation-state"
             evaluation_state.mkdir(mode=0o700)
-            environment["FRIDAY_STATE_DIR"] = str(evaluation_state)
-            environment["PYTHONHASHSEED"] = "0"
+            evaluation_environment["FRIDAY_STATE_DIR"] = str(evaluation_state)
             gates = [
                 self._command(
                     "release_tree", ["scripts/check-release.sh"],
-                    environment=environment, timeout=120),
+                    environment=gate_environment, timeout=120),
                 self._command(
                     "full_tests",
                     [str(self.app_python), "-m", "unittest", "discover", "-v"],
-                    environment=environment, timeout=1200),
+                    environment=gate_environment, timeout=1200),
                 self._command(
                     "full_history_secret_scan", ["scripts/scan-secrets.sh"],
-                    environment=environment, timeout=300),
+                    environment=gate_environment, timeout=300),
             ]
             installer = InstallerRehearsalRunner(
                 self.repo).run(archive, source_sha256)
@@ -183,7 +187,7 @@ class ReleaseCandidateRunner:
                 qwen_python=self.qwen_python)
             evaluations = [
                 self._evaluation(
-                    name, script, environment=environment)
+                    name, script, environment=evaluation_environment)
                 for name, script in EVALUATION_COMMANDS
             ]
             local_passed = bool(
