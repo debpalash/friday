@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
@@ -16,6 +17,7 @@ class FakeEmbedder:
         self.fail = fail
         self.passage_calls = 0
         self.query_calls = 0
+        self.max_passage_batch = 0
 
     def encode(self, texts, *, kind):
         if self.fail:
@@ -24,6 +26,9 @@ class FakeEmbedder:
             self.query_calls += 1
         else:
             self.passage_calls += 1
+            self.max_passage_batch = max(self.max_passage_batch, len(texts))
+            if len(texts) > 512:
+                raise RuntimeError("embedding request exceeded provider bound")
         output = []
         for text in texts:
             lowered = text.casefold()
@@ -227,7 +232,7 @@ class MemoryPolicyTests(unittest.TestCase):
         self.assertEqual(first[0]["claim_id"], target)
         self.assertEqual(first[0]["retrieval_mode"], "semantic_fallback")
         self.assertEqual(second[0]["claim_id"], target)
-        self.assertEqual(embedder.passage_calls, 1)
+        self.assertEqual(embedder.passage_calls, 2)
         self.assertEqual(embedder.query_calls, 2)
         self.assertEqual(self.graph.count("memory_embedding_index"), 3)
         self.assertEqual(memory.retrieve(
@@ -251,7 +256,7 @@ class MemoryPolicyTests(unittest.TestCase):
                 "UPDATE memory_embedding_index SET vector=? WHERE claim_id=?",
                 (bytes(12), old))
         self.assertEqual(memory.retrieve(query)[0]["claim_id"], old)
-        self.assertEqual(embedder.passage_calls, 2)
+        self.assertEqual(embedder.passage_calls, 3)
 
         new_source = self.graph.record_node(
             "utterance", {"text": "audio progress announcements"}, actor="user")
@@ -283,6 +288,64 @@ class MemoryPolicyTests(unittest.TestCase):
         self.assertEqual(memory.retrieve("visible progress")[0]["claim_id"],
                          claim_id)
         self.assertEqual(memory.retrieve("¿Cómo debo informarte?"), [])
+
+    def test_sharded_semantic_index_recovers_claim_older_than_4096_rows(self):
+        embedder = FakeEmbedder()
+        memory = MemoryCurator(self.graph, embedder=embedder)
+        target = "claim_scale_target"
+        with self.graph.transaction() as conn:
+            for index in range(4_105):
+                claim_id = target if index == 0 else f"claim_scale_{index:05d}"
+                value = (
+                    "visible progress updates" if index == 0
+                    else f"synthetic archive marker {index:05d}")
+                occurred_at = (
+                    "2026-01-01T00:00:00.000000Z" if index == 0
+                    else "2026-02-01T00:00:00.000000Z")
+                event_id, seq = self.graph.append_event(
+                    conn,
+                    "memory.scale_fixture",
+                    {"claim_id": claim_id},
+                    occurred_at=occurred_at,
+                )
+                self.graph.append_node(
+                    conn,
+                    "memory_claim",
+                    {"value": value},
+                    event_id=event_id,
+                    node_id=claim_id,
+                )
+                conn.execute(
+                    """INSERT INTO claim_state
+                       (claim_id,subject,predicate,object_json,scope,lifecycle,
+                        confidence,evidence_class,retention_reason,valid_until,
+                        created_at,updated_at,last_event_seq)
+                       VALUES (?,?,?,?,?,'active',1.0,'deterministic_test',?,NULL,
+                               ?,?,?)""",
+                    (
+                        claim_id,
+                        "user",
+                        "progress_style" if index == 0 else "archive_label",
+                        json.dumps(value),
+                        "user_preference",
+                        "semantic scale fixture",
+                        occurred_at,
+                        occurred_at,
+                        seq,
+                    ),
+                )
+                conn.execute(
+                    "INSERT INTO memory_fts(claim_id,text) VALUES (?,?)",
+                    (claim_id, f"user {value}"),
+                )
+
+        hits = memory.retrieve("notify me as work advances", limit=1)
+
+        self.assertEqual(hits[0]["claim_id"], target)
+        self.assertEqual(hits[0]["retrieval_mode"], "semantic_fallback")
+        self.assertEqual(self.graph.count("memory_embedding_index"), 4_105)
+        self.assertEqual(embedder.max_passage_batch, 512)
+        self.assertEqual(embedder.passage_calls, 10)
 
     def test_new_user_preference_supersedes_old_without_deleting_it(self):
         old_source = self.graph.record_node(

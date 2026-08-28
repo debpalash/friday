@@ -32,9 +32,25 @@ MAX_MEMORY_OBJECT_BYTES = 32_000
 MAX_MEMORY_SOURCES = 32
 MAX_RETRIEVAL_QUERY_CHARS = 2_000
 MAX_RETRIEVAL_TERMS = 24
-MAX_SEMANTIC_CLAIMS = 4_096
+MAX_SEMANTIC_INDEX_CLAIMS = 65_536
+SEMANTIC_EMBEDDING_REQUEST_SIZE = 512
+SEMANTIC_SCORE_SHARD_SIZE = 1_024
 MIN_SEMANTIC_SCORE = 0.775
-MIN_SEMANTIC_MARGIN = 0.010
+MIN_SEMANTIC_CENTERED_MARGIN = 0.010
+MIN_SEMANTIC_NULL_MARGIN = 0.005
+SEMANTIC_NULL_PASSAGES = (
+    "The request asks for current weather information, not a stored memory.",
+    "The request asks for a sports result, not a stored memory.",
+    "The request asks for a currency conversion or market price, not a stored "
+    "memory.",
+    "The request asks for a recipe or cooking instructions, not a stored memory.",
+    "The request asks a geography fact, not a stored memory.",
+    "The request asks for current computer status, not a stored memory.",
+    "The request asks for travel search or booking, not a stored memory.",
+    "The request asks for a scientific explanation of the natural world, not "
+    "a stored memory.",
+    "The request asks for current news or public information, not a stored memory.",
+)
 _WORD = re.compile(r"[^\W_]+", re.UNICODE)
 _STOP_WORDS = frozenset({
     "a", "an", "and", "are", "as", "at", "be", "by", "do", "for", "from",
@@ -122,6 +138,7 @@ class MemoryCurator:
                  embedder: LocalTextEmbedder | None = None):
         self.graph = graph
         self.embedder = embedder
+        self._semantic_null_vectors: np.ndarray | None = None
 
     def propose(
         self,
@@ -304,13 +321,10 @@ class MemoryCurator:
                 """SELECT * FROM claim_state
                    WHERE lifecycle='active'
                    ORDER BY updated_at DESC,claim_id
-                   LIMIT ?""", (MAX_SEMANTIC_CLAIMS,)).fetchall()
-            cached = {row["claim_id"]: row for row in conn.execute(
-                """SELECT claim_id,content_sha256,dimension,vector
-                   FROM memory_embedding_index WHERE model_fingerprint=?""",
-                (fingerprint,)).fetchall()}
+                   LIMIT ?""", (MAX_SEMANTIC_INDEX_CLAIMS + 1,)).fetchall()
+        if len(rows) > MAX_SEMANTIC_INDEX_CLAIMS:
+            raise RuntimeError("semantic memory index exceeds its bounded capacity")
         candidates: list[tuple[dict[str, Any], str, str]] = []
-        vectors: dict[str, np.ndarray] = {}
         missing: list[tuple[str, str, str]] = []
         for row in rows:
             try:
@@ -327,7 +341,26 @@ class MemoryCurator:
             content_sha256 = hashlib.sha256(passage.encode("utf-8")).hexdigest()
             item = dict(row) | {"object": object_value}
             candidates.append((item, passage, content_sha256))
-            record = cached.get(row["claim_id"])
+        if not candidates:
+            return []
+
+        cached: dict[str, Any] = {}
+        candidate_ids = [item[0]["claim_id"] for item in candidates]
+        with self.graph._connect() as conn:
+            for offset in range(0, len(candidate_ids), 400):
+                batch = candidate_ids[offset:offset + 400]
+                placeholders = ",".join("?" for _ in batch)
+                for record in conn.execute(
+                    "SELECT claim_id,content_sha256,dimension,vector "
+                    "FROM memory_embedding_index WHERE model_fingerprint=? "
+                    f"AND claim_id IN ({placeholders})",
+                    (fingerprint, *batch),
+                ):
+                    cached[record["claim_id"]] = record
+
+        vectors: dict[str, np.ndarray] = {}
+        for item, passage, content_sha256 in candidates:
+            record = cached.get(item["claim_id"])
             try:
                 vector = np.frombuffer(
                     record["vector"], dtype="<f4").copy() if record else None
@@ -340,60 +373,118 @@ class MemoryCurator:
             except (TypeError, ValueError):
                 valid = False
             if valid:
-                vectors[row["claim_id"]] = vector
+                vectors[item["claim_id"]] = vector
             else:
-                missing.append((row["claim_id"], passage, content_sha256))
-        if not candidates:
-            return []
-        if missing:
+                missing.append((item["claim_id"], passage, content_sha256))
+        for offset in range(0, len(missing), SEMANTIC_EMBEDDING_REQUEST_SIZE):
+            batch = missing[offset:offset + SEMANTIC_EMBEDDING_REQUEST_SIZE]
             encoded = embedder.encode(
-                [item[1] for item in missing], kind="passage")
-            if encoded.shape != (len(missing), dimension):
+                [item[1] for item in batch], kind="passage")
+            if encoded.shape != (len(batch), dimension):
                 raise RuntimeError("semantic memory index shape is invalid")
+            prepared: list[tuple[str, str, bytes]] = []
+            for (claim_id, _passage, content_sha256), vector in zip(
+                    batch, encoded, strict=True):
+                normalized = np.asarray(vector, dtype="<f4")
+                if (normalized.shape != (dimension,)
+                        or not np.isfinite(normalized).all()
+                        or not 0.99 <= float(
+                            np.linalg.norm(normalized)) <= 1.01):
+                    raise RuntimeError("semantic memory vector is invalid")
+                prepared.append((
+                    claim_id, content_sha256, normalized.tobytes(order="C")))
+                vectors[claim_id] = normalized
             with self.graph.transaction() as conn:
-                for (claim_id, _passage, content_sha256), vector in zip(
-                        missing, encoded, strict=True):
-                    normalized = np.asarray(vector, dtype="<f4")
-                    if (normalized.shape != (dimension,)
-                            or not np.isfinite(normalized).all()
-                            or not 0.99 <= float(
-                                np.linalg.norm(normalized)) <= 1.01):
-                        raise RuntimeError("semantic memory vector is invalid")
-                    value = normalized.tobytes(order="C")
-                    conn.execute(
-                        """INSERT INTO memory_embedding_index
-                           (claim_id,model_fingerprint,content_sha256,dimension,
-                            vector,indexed_at) VALUES (?,?,?,?,?,?)
-                           ON CONFLICT(claim_id,model_fingerprint) DO UPDATE SET
-                             content_sha256=excluded.content_sha256,
-                             dimension=excluded.dimension,
-                             vector=excluded.vector,indexed_at=excluded.indexed_at""",
+                conn.executemany(
+                    """INSERT INTO memory_embedding_index
+                       (claim_id,model_fingerprint,content_sha256,dimension,
+                        vector,indexed_at) VALUES (?,?,?,?,?,?)
+                       ON CONFLICT(claim_id,model_fingerprint) DO UPDATE SET
+                         content_sha256=excluded.content_sha256,
+                         dimension=excluded.dimension,
+                         vector=excluded.vector,indexed_at=excluded.indexed_at""",
+                    [
                         (claim_id, fingerprint, content_sha256, dimension,
-                         value, utc_now()))
-                    vectors[claim_id] = normalized
+                         vector, utc_now())
+                        for claim_id, content_sha256, vector in prepared
+                    ],
+                )
         query_vector = embedder.encode([query], kind="query")[0]
-        scored = []
-        for item, _passage, _content_sha256 in candidates:
-            vector = vectors.get(item["claim_id"])
-            if vector is None:
+        null_vectors = self._semantic_null_vectors
+        if null_vectors is None:
+            null_vectors = embedder.encode(
+                SEMANTIC_NULL_PASSAGES, kind="passage")
+            if (null_vectors.shape
+                    != (len(SEMANTIC_NULL_PASSAGES), dimension)
+                    or not np.isfinite(null_vectors).all()
+                    or not np.allclose(
+                        np.linalg.norm(null_vectors, axis=1), 1.0,
+                        atol=0.01)):
+                raise RuntimeError("semantic null calibration is invalid")
+            self._semantic_null_vectors = np.asarray(
+                null_vectors, dtype="<f4")
+        null_score = float(np.max(null_vectors @ query_vector))
+
+        ordered_vectors = [
+            vectors[item[0]["claim_id"]]
+            for item in candidates if item[0]["claim_id"] in vectors
+        ]
+        if not ordered_vectors:
+            return []
+        centroid = np.zeros(dimension, dtype=np.float64)
+        for vector in ordered_vectors:
+            centroid += vector
+        centroid = (centroid / len(ordered_vectors)).astype("<f4")
+        centered_query = query_vector - centroid
+        centered_query_norm = float(np.linalg.norm(centered_query))
+        use_centered = centered_query_norm > 1e-6 and len(ordered_vectors) > 1
+        if use_centered:
+            centered_query = centered_query / centered_query_norm
+
+        scored: list[tuple[float, float, dict[str, Any]]] = []
+        for offset in range(0, len(candidates), SEMANTIC_SCORE_SHARD_SIZE):
+            shard = candidates[offset:offset + SEMANTIC_SCORE_SHARD_SIZE]
+            present = [
+                (item, vectors[item["claim_id"]])
+                for item, _passage, _content_sha256 in shard
+                if item["claim_id"] in vectors
+            ]
+            if not present:
                 continue
-            score = float(np.dot(query_vector, vector))
-            if math.isfinite(score):
-                scored.append((score, item))
-        scored.sort(key=lambda value: (-value[0], value[1]["claim_id"]))
-        if not scored or scored[0][0] < MIN_SEMANTIC_SCORE:
+            matrix = np.stack([vector for _item, vector in present])
+            raw_scores = matrix @ query_vector
+            if use_centered:
+                centered = matrix - centroid
+                norms = np.linalg.norm(centered, axis=1)
+                valid = norms > 1e-6
+                centered_scores = np.full(len(present), -1.0, dtype=np.float32)
+                centered_scores[valid] = (
+                    centered[valid] / norms[valid, None]) @ centered_query
+            else:
+                centered_scores = raw_scores
+            for (item, _vector), centered_value, raw_value in zip(
+                    present, centered_scores, raw_scores, strict=True):
+                centered_score = float(centered_value)
+                raw_score = float(raw_value)
+                if math.isfinite(centered_score) and math.isfinite(raw_score):
+                    scored.append((centered_score, raw_score, item))
+        scored.sort(key=lambda value: (-value[0], value[2]["claim_id"]))
+        if (not scored or scored[0][1] < MIN_SEMANTIC_SCORE
+                or scored[0][1] - null_score < MIN_SEMANTIC_NULL_MARGIN):
             return []
         if (len(scored) > 1
-                and scored[0][0] - scored[1][0] < MIN_SEMANTIC_MARGIN):
+                and scored[0][0] - scored[1][0]
+                < MIN_SEMANTIC_CENTERED_MARGIN):
             return []
         selected = []
-        cutoff = max(MIN_SEMANTIC_SCORE, scored[0][0] - 0.01)
-        for score, item in scored:
-            if score < cutoff or len(selected) >= limit:
+        cutoff = scored[0][0] - 0.01
+        for centered_score, raw_score, item in scored:
+            if centered_score < cutoff or len(selected) >= limit:
                 break
             selected.append(item | {
-                "semantic_score": round(score, 6),
-                "relevance_score": round(score, 6),
+                "semantic_score": round(raw_score, 6),
+                "semantic_centered_score": round(centered_score, 6),
+                "relevance_score": round(raw_score, 6),
                 "matched_terms": [],
                 "retrieval_mode": "semantic_fallback",
             })
@@ -479,6 +570,7 @@ class MemoryCurator:
                 semantic = []
             if semantic:
                 return semantic
+            return []
         for item in ranked:
             item["retrieval_mode"] = "lexical"
         return ranked[:limit]

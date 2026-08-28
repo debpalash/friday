@@ -1,0 +1,134 @@
+{
+  "name": "friday-semantic-scale",
+  "version": 1,
+  "gates": {
+    "precision": 0.95,
+    "recall": 0.85,
+    "abstention": 0.95,
+    "corrected_task_lift": 0.75,
+    "warm_p95_ms": 1000,
+    "maximum_corpus_minimum": 5000
+  },
+  "scale_sizes": [128, 1024, 5000],
+  "memories": [
+    {
+      "id": "finish_notice",
+      "predicate": "finish_notice",
+      "value": "send a desktop notification when a long task finishes",
+      "queries": [
+        "Alert me upon completion of lengthy work.",
+        "Avísame cuando termine una tarea larga.",
+        "लंबा काम पूरा होने पर मुझे सूचित करें।"
+      ]
+    },
+    {
+      "id": "answer_style",
+      "predicate": "answer_style",
+      "value": "give short direct answers",
+      "queries": ["Recuerda que prefiero respuestas breves y directas."]
+    },
+    {
+      "id": "interface_color",
+      "predicate": "interface_color",
+      "value": "use dark blue controls",
+      "queries": ["Make the interface switches navy coloured."]
+    },
+    {
+      "id": "backup_schedule",
+      "predicate": "backup_schedule",
+      "value": "back up the project every Friday evening",
+      "queries": ["Sichert das Projekt jeden Freitagabend."]
+    },
+    {
+      "id": "voice_style",
+      "predicate": "voice_style",
+      "value": "speak softly at a calm pace",
+      "queries": ["Use a gentle unhurried speaking style."]
+    },
+    {
+      "id": "meeting_notice",
+      "predicate": "meeting_notice",
+      "value": "remind me ten minutes before meetings",
+      "queries": [
+        "Give me a heads-up shortly before appointments.",
+        "बैठक से दस मिनट पहले याद दिलाएं।"
+      ]
+    },
+    {
+      "id": "measurement_units",
+      "predicate": "measurement_units",
+      "value": "show distances in kilometers and temperatures in Celsius",
+      "queries": ["Use metric distance and temperature measurements."]
+    },
+    {
+      "id": "code_examples",
+      "predicate": "code_examples",
+      "value": "include a small runnable example with technical explanations",
+      "queries": ["Show executable samples when explaining programming."]
+    },
+    {
+      "id": "spoiler_policy",
+      "predicate": "spoiler_policy",
+      "value": "never reveal story spoilers unless I ask",
+      "queries": ["Remember that I do not want plot twists revealed without permission."]
+    },
+    {
+      "id": "document_format",
+      "predicate": "document_format",
+      "value": "save generated reports as PDF files",
+      "queries": ["Export the reports in a portable document format."]
+    },
+    {
+      "id": "focus_mode",
+      "predicate": "focus_mode",
+      "value": "silence nonessential alerts while I am coding",
+      "queries": ["Remember my preference to suppress unimportant alerts while I write software."]
+    },
+    {
+      "id": "morning_summary",
+      "predicate": "morning_summary",
+      "value": "read my calendar summary after breakfast",
+      "queries": ["Tell me what is on my schedule after my first meal."]
+    }
+  ],
+  "negative_queries": [
+    "What will the weather be tomorrow?",
+    "Who won the football match?",
+    "How many dollars equal one euro?",
+    "Give me a pasta recipe.",
+    "What is the capital of Peru?",
+    "How much memory is free on this computer?",
+    "Find the cheapest train ticket for next week.",
+    "Explain how volcanoes form."
+  ],
+  "corrections": [
+    {
+      "id": "completion_signal",
+      "predicate": "correction_completion_signal",
+      "initial": "send an email after extended work completes",
+      "corrected": "play a chime after extended work completes",
+      "query": "Make a noise once a lengthy operation is done."
+    },
+    {
+      "id": "response_detail",
+      "predicate": "correction_response_detail",
+      "initial": "give terse one-line explanations",
+      "corrected": "give thorough step-by-step explanations",
+      "query": "How much detail should your explanations contain?"
+    },
+    {
+      "id": "interface_accent",
+      "predicate": "correction_interface_accent",
+      "initial": "use blue interface accents",
+      "corrected": "use amber interface accents",
+      "query": "Which colour should the interface highlights use?"
+    },
+    {
+      "id": "report_file",
+      "predicate": "correction_report_file",
+      "initial": "save reports as plain text files",
+      "corrected": "save reports as PDF documents",
+      "query": "Which file format should generated reports use?"
+    }
+  ]
+}

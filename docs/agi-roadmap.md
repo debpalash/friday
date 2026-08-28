@@ -730,3 +730,24 @@ large-corpus held-out sets before allowing it to influence normal prompt context
 Next milestone: deploy the change in an intentional maintenance window, retain the live semantic
 scorecard after restart, measure retrieval p50/p95 and real corrected-memory task lift, and add
 ANN or sharded indexing beyond 4,096 active claims only when measurements justify it.
+
+### 2026-08-28: measured semantic scale and correction lift
+
+- Added a versioned held-out scorecard spanning English paraphrases, Spanish,
+  Hindi, German, irrelevant requests, and four correction tasks. Synthetic
+  claims live only in disposable graphs; the durable run contains aggregate
+  metrics, suite identity, and model identity.
+- The first 5,000-claim run exposed ranking degradation from embedding hubness
+  and the fixed 4,096-claim cap. That run remained failed evidence.
+- Replaced the cap with a complete 65,536-claim bounded index. Missing vectors
+  are encoded in requests of at most 512, and exact scoring runs in 1,024-vector
+  shards. Corpus-centred ranking reduces embedding hubness. Static local null
+  passages and weak-lexical rejection preserve abstention.
+- The final pinned-model run passed every gate. At 5,000 active claims,
+  precision was 1.000, recall 0.867, irrelevant-query abstention 1.000, warm
+  p50 66.6 ms, warm p95 178.7 ms, and corrected-memory task lift 1.000. Every
+  checkpoint indexed all claims and recovered the oldest target. Superseded
+  claims and vectors did not reappear.
+- Sharded exact search meets the current 1,000 ms p95 gate, so an approximate
+  nearest-neighbour dependency is not justified by this measurement. Revisit
+  that decision if a qualified corpus or machine breaches the gate.

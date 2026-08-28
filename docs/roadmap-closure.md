@@ -25,6 +25,7 @@ not authorized by this ledger.
 | Capability-core governance | closed | 13/13 deterministic cases |
 | Lexical memory retrieval | closed | 7/7 isolated cases |
 | Multilingual semantic fallback | closed | 8/8 isolated cases on the pinned CPU model |
+| Semantic scale and correction lift | closed | At 5,000 active claims: precision 1.000, recall 0.867, abstention 1.000, warm p50 66.6 ms, warm p95 178.7 ms, corrected-task lift 1.000, complete oldest-claim recall, and no retained superseded vectors |
 | Document and OCR reasoning | closed | 5/5 live artifact-backed cases |
 | Installed evaluation authority | closed | Commands resolve owner-only installer config, state, assets, loopback authority, and credentials; unsafe inputs fail closed |
 | Runtime performance | closed | Five samples: 59.3 ms median first token, 106.2 decode tokens/s, and 22,546 MiB Qwen VRAM on the qualified RTX 4090 profile |
@@ -66,13 +67,6 @@ profile. They are not a cross-device claim.
   controller revocation.
 - Measure rollback rate and recovery time under injected model, worker,
   browser, and filesystem failures.
-
-### Memory and data lifecycle
-
-- Measure semantic retrieval precision, recall, p50, p95, and corrected-memory
-  task lift on larger paraphrased and multilingual held-out sets.
-- Replace the bounded 4,096-claim scan with an ANN or sharded index only if the
-  measured corpus and latency gates require it.
 
 ### Architecture and compatibility
 
@@ -119,8 +113,7 @@ profile. They are not a cross-device claim.
 ## Closure order
 
 1. Voice and long-horizon capability evidence.
-2. Export, selective deletion, and semantic-scale measurement.
-3. Server boundary split and compatibility policy.
-4. Paired-controller, browser, installer, and adversarial release rehearsal.
-5. External hardware, legal, and independent security gates.
-6. Owner-approved public release.
+2. Server boundary split and compatibility policy.
+3. Paired-controller, browser, installer, and adversarial release rehearsal.
+4. External hardware, legal, and independent security gates.
+5. Owner-approved public release.

@@ -210,6 +210,20 @@ German retrieval, unrelated-query abstention, expiry, correction propagation wit
 removal, and a bounded 129-claim corpus. Passing them does not establish arbitrary paraphrase
 quality, production-scale nearest-neighbor latency, or downstream long-horizon task lift.
 
+Run the larger held-out scale and correction qualification separately:
+
+```bash
+venv/bin/python ops/run_semantic_scale_evals.py
+```
+
+The scorecard grows a disposable graph through 128, 1,024, and 5,000 active
+claims, then measures paraphrased and multilingual precision, recall,
+irrelevant-query abstention, warm p50 and p95, oldest-claim recall, projection
+completeness, and corrected-memory task lift. The real pinned CPU model passed
+the version 1 gates with precision 1.000, recall 0.867, abstention 1.000, warm
+p95 178.7 ms, and corrected-task lift 1.000. Those figures describe this exact
+model and machine profile, not every future corpus or host.
+
 Run the separate live document/OCR reasoning scorecard while the local model is healthy:
 
 ```bash
