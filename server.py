@@ -169,8 +169,16 @@ OWNER_NAME = (
     os.environ.get("FRIDAY_OWNER_NAME", "").strip()
     or Path.home().name
 )
-SESSION_FILE = REPO / "session.json"
-SERVER_LOG_FILE = REPO / "server.log"
+_CONFIGURED_STATE_DIR = os.environ.get("FRIDAY_STATE_DIR", "").strip()
+STATE_DIR = Path(_CONFIGURED_STATE_DIR or str(REPO / "state")).expanduser().resolve()
+SESSION_FILE = (
+    STATE_DIR / "session.json"
+    if _CONFIGURED_STATE_DIR else REPO / "session.json"
+)
+SERVER_LOG_FILE = (
+    STATE_DIR / "logs" / "server.log"
+    if _CONFIGURED_STATE_DIR else REPO / "server.log"
+)
 PROMPT_FILE = REPO / "system_prompt.md"
 
 
@@ -1786,9 +1794,6 @@ if not KEY:
         # OpenAI-compatible servers without authentication still require the
         # client to receive a non-empty placeholder.
         KEY = "friday-local"
-STATE_DIR = Path(
-    os.environ.get("FRIDAY_STATE_DIR", str(REPO / "state"))
-).expanduser().resolve()
 PROCESS_WORK_DIR = STATE_DIR / "process-work"
 DESKTOP_STATE_DIR = STATE_DIR / "desktop-runtime"
 MANAGED_BROWSER_PROFILE_DIR = STATE_DIR / "browser-profile"

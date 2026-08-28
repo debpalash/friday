@@ -346,8 +346,6 @@ for raw in sys.stdin:
   touch "$state_root/session.json" "$state_root/logs/server.log"
   chmod 600 "$state_root/session.json" "$state_root/logs/server.log"
   rm -f -- "$release_dir/session.json" "$release_dir/server.log"
-  ln -s "$state_root/session.json" "$release_dir/session.json"
-  ln -s "$state_root/logs/server.log" "$release_dir/server.log"
 
   local uv_bin
   ensure_uv() {

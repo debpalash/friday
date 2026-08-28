@@ -43,11 +43,18 @@ class AsrInstallerTests(unittest.TestCase):
 
 
 class PortableRuntimeTests(unittest.TestCase):
-    def test_supervisor_uses_configured_state_root_not_release_symlink(self):
+    def test_runtime_uses_configured_state_root_not_release_symlinks(self):
         with tempfile.TemporaryDirectory() as temporary:
             configured = Path(temporary) / "private-state"
             result = subprocess.run(
-                [sys.executable, "-c", "import supervisor; print(supervisor.STATE)"],
+                [
+                    sys.executable,
+                    "-c",
+                    "import server, supervisor; "
+                    "print(supervisor.STATE); print(supervisor.SERVER_LOG_FILE); "
+                    "print(server.STATE_DIR); print(server.SESSION_FILE); "
+                    "print(server.SERVER_LOG_FILE)",
+                ],
                 cwd=ROOT,
                 env=os.environ | {"FRIDAY_STATE_DIR": str(configured)},
                 text=True,
@@ -55,7 +62,15 @@ class PortableRuntimeTests(unittest.TestCase):
                 timeout=20,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), str(configured.resolve()))
+            lines = result.stdout.strip().splitlines()
+            expected = str(configured.resolve())
+            self.assertEqual(lines, [
+                expected,
+                str(configured.resolve() / "logs" / "server.log"),
+                expected,
+                str(configured.resolve() / "session.json"),
+                str(configured.resolve() / "logs" / "server.log"),
+            ])
 
 
 class InstallerLifecycleTests(unittest.TestCase):
@@ -154,6 +169,8 @@ exit 0
         current = install_root / "current"
         self.assertTrue(current.is_symlink())
         self.assertTrue((current / "models").is_symlink())
+        self.assertFalse((current / "session.json").exists())
+        self.assertFalse((current / "server.log").exists())
         self.assertEqual((self.root / "state" / "friday" / "friday.db").read_bytes(), b"personal-state")
         environment = (self.root / "config" / "friday" / "friday.env").read_text()
         self.assertIn("FRIDAY_BIND_HOST='127.0.0.1'", environment)

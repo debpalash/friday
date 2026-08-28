@@ -43,9 +43,12 @@ from friday_core.vision_evals import (NativeVisionEvalRunner,
                                       has_qualified_native_vision_score)
 
 REPO = Path(__file__).resolve().parent
-STATE = Path(
-    os.environ.get("FRIDAY_STATE_DIR", str(REPO / "state"))
-).expanduser().resolve()
+_CONFIGURED_STATE_DIR = os.environ.get("FRIDAY_STATE_DIR", "").strip()
+STATE = Path(_CONFIGURED_STATE_DIR or str(REPO / "state")).expanduser().resolve()
+SERVER_LOG_FILE = (
+    STATE / "logs" / "server.log"
+    if _CONFIGURED_STATE_DIR else REPO / "server.log"
+)
 DEFAULT_INSTALL_ROOT = Path(
     os.environ.get(
         "XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
@@ -1761,7 +1764,7 @@ def start_friday(*, activate_voice: str | None = None,
         # Bootstrap before launch so the HTTPS readiness probe has a trusted
         # local CA and a malformed/tampered identity prevents any listener.
         ensure_tls_material(STATE, tls_hosts)
-        log = _private_log(REPO / "server.log")
+        log = _private_log(SERVER_LOG_FILE)
         try:
             proc = subprocess.Popen(
                 [str(REPO / "venv/bin/python"), "server.py"], cwd=REPO, env=env,
