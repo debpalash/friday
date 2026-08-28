@@ -1,0 +1,27 @@
+{
+  "name": "friday-voice",
+  "version": 1,
+  "gates": {
+    "maximum_word_error_rate": 0.1,
+    "minimum_exact_rate": 0.8,
+    "maximum_asr_rtf_p95": 0.5,
+    "maximum_tts_rtf_p95": 0.5,
+    "maximum_first_audio_p95_ms": 500,
+    "minimum_rms": 0.01,
+    "maximum_clipped_ratio": 0.001,
+    "minimum_barge_capture_ratio": 1.0
+  },
+  "utterances": [
+    "Friday is ready to help.",
+    "Open the project notes.",
+    "Set a reminder for tomorrow morning.",
+    "Stop speaking and listen to me.",
+    "The quick brown fox jumps over the lazy dog.",
+    "What speech engine is active right now?",
+    "Cancel that action before it changes anything.",
+    "Summarize the verified result in one sentence."
+  ],
+  "reply": "Ready.",
+  "echo_tail_ms": 650,
+  "barge_in_ms": 220
+}

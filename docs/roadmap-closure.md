@@ -21,7 +21,7 @@ not authorized by this ledger.
 |---|---|---|
 | Receipt-grounded model, ASR, speech, voice, and device identity | closed | Deterministic runtime receipts and server integration tests |
 | Ordinary conversation fast lane | closed | No tool schema, task ceremony, or tokenization preflight; durable actions retain the full worker path |
-| Voice and text output quality | closed | Three consecutive 8/8 live runs on one exact Qwen runtime fingerprint, with identical answer hashes |
+| Voice and text output quality | closed | Three consecutive 8/8 live answer runs plus the artifact-backed voice v1 scorecard: 3.9% WER, 7/8 exact, 91.4 ms ASR p95, 68.9 ms TTS p95, and 95.6 ms first-audio p95 |
 | Capability-core governance | closed | 13/13 deterministic cases |
 | Lexical memory retrieval | closed | 7/7 isolated cases |
 | Multilingual semantic fallback | closed | 8/8 isolated cases on the pinned CPU model |
@@ -57,9 +57,6 @@ profile. They are not a cross-device claim.
 
 ### Capability and runtime
 
-- Add an artifact-backed ASR, speech synthesis, echo rejection, interruption,
-  and end-to-end voice latency scorecard. Report p50 and p95 without retaining
-  microphone content.
 - Add long-horizon project scorecards that grade files, tests, recovery, and
   user-visible outcomes from receipts rather than assistant claims.
 - Exercise the signed paired-controller and managed-browser workflow end to

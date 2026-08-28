@@ -18,6 +18,17 @@ The expected model directory is
 `models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/` and must contain
 `encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx`, and `tokens.txt`.
 
+Run the private artifact-backed voice scorecard with:
+
+```bash
+venv/bin/python ops/run_voice_evals.py
+```
+
+It grades real Parakeet recognition, Piper signal quality, ASR/TTS p50 and p95,
+time to first response audio, playback echo rejection, and interruption. Inputs
+are generated locally in a mode-0700 temporary directory, each WAV is mode
+0600, and all audio is removed before the aggregate result is recorded.
+
 Environment controls:
 
 - `FRIDAY_ASR=parakeet` selects the default backend.

@@ -224,6 +224,22 @@ the version 1 gates with precision 1.000, recall 0.867, abstention 1.000, warm
 p95 178.7 ms, and corrected-task lift 1.000. Those figures describe this exact
 model and machine profile, not every future corpus or host.
 
+Run the artifact-backed voice qualification while Friday is stopped:
+
+```bash
+venv/bin/python ops/run_voice_evals.py
+```
+
+It creates owner-only, disposable Piper WAV artifacts, sends them through the
+real Parakeet path, and exercises the production echo gate and interruption
+buffer. The version 1 run measured 3.9% word error rate, 7/8 exact utterances,
+91.4 ms ASR p95, 68.9 ms TTS p95, and 95.6 ms first-response-audio p95. Every
+playback frame and the 650 ms tail were rejected before VAD; barge-in fired at
+220 ms and retained the speech prefix. The first-audio figure uses a declared
+deterministic local reply stage, so it isolates the voice path and is not a
+claim about model response latency. Generated audio is deleted after the run;
+only aggregate measurements, backend identity, and hashes enter the graph.
+
 Run the separate live document/OCR reasoning scorecard while the local model is healthy:
 
 ```bash
@@ -267,8 +283,7 @@ non-finite data, duplicate cases, unknown scenario names, malformed inputs, and 
 exceptions rather than converting them into a pass.
 
 This score is evidence for those named boundaries, not a general-intelligence score. Live
-paired-controller browser execution, broad real-world visual competence, ASR/TTS latency,
-memory retrieval precision, rollback rate, and long-horizon project success remain separate
-measured gaps; they must not be inferred from a green core suite. The document/OCR and native-
-vision scorecards add narrow grounded evidence, not a general-intelligence or general-vision
-claim.
+paired-controller browser execution, broad real-world visual competence, rollback rate, and
+long-horizon project success remain separate measured gaps; they must not be inferred from a
+green core suite. The document/OCR, voice, memory, and native-vision scorecards add narrow
+grounded evidence, not a general-intelligence, general-vision, or universal speech claim.

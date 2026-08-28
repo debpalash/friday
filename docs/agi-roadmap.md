@@ -751,3 +751,22 @@ ANN or sharded indexing beyond 4,096 active claims only when measurements justif
 - Sharded exact search meets the current 1,000 ms p95 gate, so an approximate
   nearest-neighbour dependency is not justified by this measurement. Revisit
   that decision if a qualified corpus or machine breaches the gate.
+
+### 2026-08-28: artifact-backed private voice qualification
+
+- Added a versioned eight-utterance voice scorecard using the exact pinned CPU
+  Piper and Parakeet runtimes. It writes real WAV artifacts into an owner-only
+  temporary directory, verifies their mode and hashes, then removes them before
+  recording a result.
+- The real run passed at 3.9% word error rate and 7/8 exact utterances. ASR p50
+  was 59.6 ms and p95 was 91.4 ms; TTS p50 was 46.8 ms and p95 was 68.9 ms.
+  Both backends stayed far below real time.
+- Speech-to-first-response-audio measured 72.7 ms p50 and 95.6 ms p95 with an
+  explicitly declared deterministic local reply stage. Language-model latency
+  remains separately measured by the live conversation scorecard.
+- The production playback gate rejected every synthesized playback frame before
+  VAD, held the full 650 ms acoustic tail, and reopened at the boundary. The
+  production utterance buffer triggered barge-in at 220 ms and retained the
+  complete speech prefix.
+- Durable evidence contains aggregate metrics, hashes, and backend identity. It
+  contains no phrases, transcripts, microphone content, or audio artifacts.
