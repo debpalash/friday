@@ -1,0 +1,37 @@
+{
+  "policy_version": 1,
+  "release_stage": "alpha",
+  "release_line": "0.1.x",
+  "graph": {
+    "current_schema": 15,
+    "migration_direction": "forward_only",
+    "downgrade_supported": false,
+    "pre_update_export_required": true
+  },
+  "tool_contracts": {
+    "current_version": 1,
+    "unknown_fields": "reject_at_authority_boundaries",
+    "receipts": "exact_action_and_argument_bound",
+    "breaking_change": "new_contract_version"
+  },
+  "runtime_manifests": {
+    "current_schema": 1,
+    "unknown_schema": "reject",
+    "profile_identity": "fingerprint_bound"
+  },
+  "skills": {
+    "versioning": "immutable_versions",
+    "activation": "explicit_or_verified_promotion",
+    "changed_permissions": "new_version_and_reapproval"
+  },
+  "extension_apis": {
+    "stability": "experimental",
+    "compatibility_window": "none_during_alpha",
+    "authority": "allowlisted_and_version_bound"
+  },
+  "controller_protocol": {
+    "websocket_subprotocol": "friday.v1",
+    "sessions": "origin_and_tls_binding_bound",
+    "breaking_change": "new_protocol_version"
+  }
+}

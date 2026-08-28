@@ -173,9 +173,9 @@ loopback HTTPS controller
 ```
 
 `supervisor.py` owns the model process, listener identity, health probes, and
-runtime profile. `server.py` owns the controller, speech pipeline, planner,
-approvals, tools, and embedded interface. SQLite is authoritative for durable
-task state.
+runtime profile. `server.py` composes explicit controller, transport,
+conversation, voice-session, task, speech, and external frontend boundaries.
+SQLite is authoritative for durable task state.
 
 State-changing work follows a typed tool contract, resource admission, policy,
 an exact approval when required, a bounded executor, and an independent receipt
@@ -215,7 +215,8 @@ runtime network tools, and current deletion limits.
 
 | Path | Responsibility |
 |---|---|
-| `server.py` | HTTPS API, WebSocket session, orchestration, and embedded client |
+| `server.py` | FastAPI composition root and WebSocket request lifecycle |
+| `frontend/` | Static controller interface, released independently from Python composition |
 | `supervisor.py` | Qwen/vLLM lifecycle, runtime profile, identity, and readiness |
 | `friday_core/` | Tasks, policy, memory, speech, tools, processes, evidence, and evals |
 | `ops/` | Asset installers, diagnostics, service templates, and runtime provisioning |
@@ -230,10 +231,11 @@ Friday is preparing its first alpha release. The current scope assumes one
 trusted local OS user and one workstation. It is not a multi-tenant service, a
 remote administration plane, or a safety authority.
 
-Known release constraints include the large coupled `server.py` surface, a
-narrow hardware matrix, and no independent penetration test. Private export and
-offline selective deletion cover the durable graph and its projections. Alpha
-schemas and extension APIs do not have a published compatibility window yet.
+Known release constraints include a narrow hardware matrix and no independent
+penetration test. Private export and offline selective deletion cover the
+durable graph and its projections. Durable data and authority follow the
+[alpha compatibility policy](docs/compatibility.md); experimental extension
+APIs intentionally have no compatibility window yet.
 
 For setup and design questions, use GitHub Discussions. File reproducible bugs
 through Issues with synthetic data and redacted logs. Report vulnerabilities
@@ -243,6 +245,7 @@ through the private route in [SECURITY.md](SECURITY.md).
 
 - [Documentation index](docs/README.md)
 - [Architecture and trust boundaries](docs/architecture.md)
+- [Alpha compatibility policy](docs/compatibility.md)
 - [Installer and rollback contract](docs/installer.md)
 - [Runtime profiles and resource admission](docs/runtime-profiles.md)
 - [Privacy and data retention](docs/privacy.md)

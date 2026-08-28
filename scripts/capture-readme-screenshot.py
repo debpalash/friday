@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import ast
 import os
 import shutil
 from pathlib import Path
@@ -12,21 +11,15 @@ from playwright.sync_api import sync_playwright
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "server.py"
+SOURCE = ROOT / "frontend" / "index.html"
 OUTPUT = ROOT / "assets" / "friday-interface.png"
 
 
 def interface_html() -> str:
-    tree = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
-    for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        if not any(isinstance(target, ast.Name) and target.id == "HTML"
-                   for target in node.targets):
-            continue
-        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-            return node.value.value
-    raise RuntimeError("server.py does not contain a static HTML interface")
+    html = SOURCE.read_text(encoding="utf-8")
+    if not html.lstrip().lower().startswith("<!doctype html>"):
+        raise RuntimeError("frontend/index.html is not an HTML document")
+    return html
 
 
 def main() -> int:

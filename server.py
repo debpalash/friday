@@ -15,7 +15,6 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import asyncio
 import base64
 import hashlib
-import hmac
 import json
 import math
 import re
@@ -25,7 +24,6 @@ import subprocess
 import threading
 import time
 import urllib.request
-import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -49,15 +47,15 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          Planner, PolicyEngine, ReflectionService, ReminderService,
                          ReminderWorker, SkillManager, StepExecutionResult,
                          PublicWebProxy, ResourceAdmissionController, ResourceSnapshot,
-                         PiperSpeechSynthesizer, PlaybackEchoGate,
+                         PiperSpeechSynthesizer,
                          TaskContract, TaskService,
-                         SkillsShRegistry, UtteranceBuffer, VoiceManager, WebOperator, fetch_news,
+                         SkillsShRegistry, VoiceManager, WebOperator, fetch_news,
                          choose_speech_backend,
                          FAST_CONVERSATION_TEMPERATURE,
                          FAST_CONVERSATION_TOP_P,
                          fast_system_prompt, format_runtime_answer,
                          load_asr,
-                         migrate_session_json, normalize_https_origin,
+                         migrate_session_json,
                          resource_claim_for, runtime_topics,
                          safe_for_fast_conversation)
 from friday_core.processes import (
@@ -79,6 +77,28 @@ from friday_core.tasks import (tool_arguments_are_private,
 from friday_core.tls import ensure_tls_material
 from friday_core.local_http import (normalize_loopback_model_base_url,
                                     open_loopback_request)
+from friday_core.frontend import load_frontend
+from friday_core.controller_api import ControllerAPI, ControllerAPIError
+from friday_core.conversation_runtime import (
+    canonical_chat_turn,
+    compile_chat_messages,
+    compile_fast_chat_messages,
+    drop_repeated_echo_messages,
+    drop_repeated_echo_turns,
+    echo_turn_signature,
+    is_action_request,
+    latest_user_only,
+)
+from friday_core.transport import (
+    bearer_session_token,
+    controller_origin,
+    valid_control_token,
+    valid_host,
+    valid_origin,
+    websocket_session_token,
+)
+from friday_core.voice_transport import VoiceTransportSession
+from friday_core.task_orchestration import RecoveredBatchFinalizer
 from friday_core.builtin_tools import (
     BLOCKING_IO_TOOLS, BUILTIN_TOOL_NAMES, BUILTIN_TOOL_SCHEMAS,
     DESKTOP_TOOL_NAMES, EXACT_STEP_APPROVAL_TOOLS, PROCESS_TOOL_NAMES,
@@ -678,243 +698,49 @@ class Friday:
 
     @staticmethod
     def _canonical_chat_turn(turn: list[dict]) -> list[dict] | None:
-        """Return a model-safe user turn, or omit the complete damaged turn."""
-        if (not turn or turn[0].get("role") != "user"
-                or not isinstance(turn[0].get("content"), str)):
-            return None
-        canonical = [{"role": "user", "content": turn[0]["content"]}]
-        pending_calls: set[str] = set()
-        seen_calls: set[str] = set()
-        for message in turn[1:]:
-            role = message.get("role")
-            if role == "assistant":
-                calls = message.get("tool_calls") or []
-                if calls:
-                    if pending_calls or not isinstance(calls, list):
-                        return None
-                    normalized_calls = []
-                    for call in calls:
-                        if not isinstance(call, dict):
-                            return None
-                        function = call.get("function")
-                        call_id = call.get("id")
-                        if (not isinstance(function, dict)
-                                or not isinstance(call_id, str) or not call_id
-                                or call_id in seen_calls):
-                            return None
-                        name = function.get("name")
-                        arguments = function.get("arguments")
-                        if (not isinstance(name, str) or not name
-                                or not isinstance(arguments, str)):
-                            return None
-                        try:
-                            parsed_arguments = json.loads(arguments)
-                        except json.JSONDecodeError:
-                            return None
-                        if (not isinstance(parsed_arguments, dict)
-                                or parsed_arguments.get("_FRIDAY_REDACTED") is True):
-                            return None
-                        pending_calls.add(call_id)
-                        seen_calls.add(call_id)
-                        normalized_calls.append({
-                            "id": call_id,
-                            "type": "function",
-                            "function": {
-                                "name": name,
-                                "arguments": json.dumps(
-                                    parsed_arguments, ensure_ascii=False,
-                                    separators=(",", ":")),
-                            },
-                        })
-                    content = message.get("content")
-                    if content is not None and not isinstance(content, str):
-                        return None
-                    canonical.append({
-                        "role": "assistant", "content": content,
-                        "tool_calls": normalized_calls,
-                    })
-                else:
-                    if pending_calls or not isinstance(
-                            message.get("content"), str):
-                        return None
-                    canonical.append({
-                        "role": "assistant", "content": message["content"]})
-            elif role == "tool":
-                call_id = message.get("tool_call_id")
-                content = message.get("content")
-                if (not isinstance(call_id, str) or call_id not in pending_calls
-                        or not isinstance(content, str)
-                        or content == REDACTED_TOOL_RECEIPT):
-                    return None
-                pending_calls.remove(call_id)
-                canonical.append({
-                    "role": "tool", "tool_call_id": call_id,
-                    "content": content,
-                })
-            else:
-                return None
-        if pending_calls:
-            return None
-        return canonical
+        return canonical_chat_turn(
+            turn, redacted_tool_receipt=REDACTED_TOOL_RECEIPT)
 
     @staticmethod
     def _echo_turn_signature(turn: list[dict]) -> str | None:
-        if (len(turn) != 2 or turn[0].get("role") != "user"
-                or turn[1].get("role") != "assistant"
-                or turn[1].get("tool_calls")):
-            return None
-        user = turn[0].get("content")
-        assistant = turn[1].get("content")
-        if not isinstance(user, str) or not isinstance(assistant, str):
-            return None
-        user = re.sub(r"[^\w]+", " ", user.casefold()).strip()
-        assistant = re.sub(r"[^\w]+", " ", assistant.casefold()).strip()
-        if not user or len(user) > 80 or user != assistant:
-            return None
-        return user
+        return echo_turn_signature(turn)
 
     @classmethod
     def _drop_repeated_echo_turns(cls, turns: list[list[dict]]) -> list[list[dict]]:
-        """Remove only sustained identical user/assistant feedback cycles."""
-        kept: list[list[dict]] = []
-        index = 0
-        while index < len(turns):
-            signature = cls._echo_turn_signature(turns[index])
-            end = index + 1
-            if signature is not None:
-                while (end < len(turns)
-                       and cls._echo_turn_signature(turns[end]) == signature):
-                    end += 1
-            if signature is None or end - index < 3:
-                kept.extend(turns[index:end])
-            index = end
-        return kept
+        return drop_repeated_echo_turns(turns)
 
     @classmethod
     def _drop_repeated_echo_messages(cls, messages: list[dict]) -> list[dict]:
-        prefix: list[dict] = []
-        turns: list[list[dict]] = []
-        for message in messages:
-            if message.get("role") == "user":
-                turns.append([message])
-            elif turns:
-                turns[-1].append(message)
-            else:
-                prefix.append(message)
-        turns = cls._drop_repeated_echo_turns(turns)
-        return prefix + [message for turn in turns for message in turn]
+        return drop_repeated_echo_messages(messages)
 
     def _chat_messages(self, context_sections: list[str] | None = None) -> list[dict]:
-        """Build a Qwen-compatible prompt with exactly one leading system message."""
-        base_prompt = str(self.history[0].get("content", DEFAULT_PROMPT))
-        base_prompt += ("\n\nCurrent local time: " +
-                        datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(timespec="seconds") +
-                        " (Asia/Kolkata).")
-        sections = [section.strip() for section in (context_sections or [])
-                    if section and section.strip()]
-        if sections:
-            base_prompt += "\n\nRuntime context:\n\n" + "\n\n".join(sections)
-        # Qwen's chat template rejects system messages anywhere except position 0.
-        # Strip any legacy/injected system entries from persisted conversation.
-        conversation = [message for message in self.history[1:]
-                        if message.get("role") != "system"]
-        # Group on user boundaries before trimming. This prevents a sliced prompt
-        # from beginning with an orphan assistant/tool message and lets us discard
-        # an entire contaminated tool exchange instead of only its final sentence.
-        turns: list[list[dict]] = []
-        for message in conversation:
-            if message.get("role") == "user":
-                turns.append([message])
-            elif turns:
-                turns[-1].append(message)
-
-        cleaned_turns: list[list[dict]] = []
-        synthetic_fallbacks = {"I haven't executed that change.", ACTION_FALLBACK}
-        for index, turn in enumerate(turns):
-            turn = self._canonical_chat_turn(turn)
-            if turn is None:
-                continue
-            if any(message.get("role") == "assistant"
-                   and (message.get("content") in synthetic_fallbacks
-                        or STALE_CAPABILITY_DENIAL.search(
-                            str(message.get("content") or ""))
-                        or UNGROUNDED_ACTION_CLAIM.search(
-                            str(message.get("content") or "")))
-                   for message in turn):
-                continue
-            if any(message.get("role") == "tool"
-                   and str(message.get("content") or "").startswith("error:")
-                   for message in turn):
-                continue
-            has_tools = any(message.get("role") == "tool"
-                            or message.get("tool_calls") for message in turn)
-            final = turn[-1]
-            complete = (final.get("role") == "assistant"
-                        and not final.get("tool_calls")
-                        and bool(final.get("content")))
-            current_user_only = index == len(turns) - 1 and len(turn) == 1
-            # During an agent round the current turn legitimately ends in a tool
-            # receipt. Keep that incomplete turn so the next model round can reason
-            # over the evidence it just acquired. Persisted orphan tool turns are
-            # still discarded as soon as a newer user turn exists.
-            current_tool_receipt = (
-                index == len(turns) - 1 and has_tools
-                and final.get("role") == "tool")
-            if (not has_tools and (complete or current_user_only)) or (
-                    has_tools and (complete or current_tool_receipt)):
-                cleaned_turns.append(turn)
-        cleaned_turns = self._drop_repeated_echo_turns(cleaned_turns)
-        cleaned = [message for turn in cleaned_turns[-HISTORY_TURNS:]
-                   for message in turn]
-        return ([{"role": "system", "content": base_prompt}]
-                + cleaned)
+        return compile_chat_messages(
+            self.history,
+            base_prompt=str(self.history[0].get("content", DEFAULT_PROMPT)),
+            local_time=(datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(
+                timespec="seconds") + " (Asia/Kolkata)."),
+            context_sections=context_sections or [],
+            history_turns=HISTORY_TURNS,
+            redacted_tool_receipt=REDACTED_TOOL_RECEIPT,
+            synthetic_fallbacks={
+                "I haven't executed that change.", ACTION_FALLBACK},
+            stale_capability_denial=STALE_CAPABILITY_DENIAL,
+            ungrounded_action_claim=UNGROUNDED_ACTION_CLAIM,
+        )
 
     def _fast_chat_messages(self, *, display_mode: bool) -> list[dict]:
-        """Build a bounded prompt containing only recent plain conversation turns."""
-        conversation = [message for message in self.history[1:]
-                        if message.get("role") != "system"]
-        turns: list[list[dict]] = []
-        for message in conversation:
-            if message.get("role") == "user":
-                turns.append([message])
-            elif turns:
-                turns[-1].append(message)
-
-        plain_turns: list[list[dict]] = []
-        for index, raw_turn in enumerate(turns):
-            turn = self._canonical_chat_turn(raw_turn)
-            if turn is None or any(
-                    message.get("role") == "tool" or message.get("tool_calls")
-                    for message in turn):
-                continue
-            final = turn[-1]
-            complete = final.get("role") == "assistant" and bool(final.get("content"))
-            current_user_only = index == len(turns) - 1 and len(turn) == 1
-            if complete or current_user_only:
-                plain_turns.append(turn)
-
-        selected: list[list[dict]] = []
-        used_chars = 0
-        for turn in reversed(plain_turns[-FAST_HISTORY_TURNS:]):
-            turn_chars = sum(len(str(message.get("content") or ""))
-                             for message in turn)
-            if selected and used_chars + turn_chars > FAST_CONTEXT_CHARS:
-                break
-            selected.append(turn)
-            used_chars += turn_chars
-        selected.reverse()
-        return ([{
-            "role": "system",
-            "content": fast_system_prompt(
+        return compile_fast_chat_messages(
+            self.history,
+            system_prompt=fast_system_prompt(
                 owner_name=OWNER_NAME, display_mode=display_mode),
-        }] + [message for turn in selected for message in turn])
+            history_turns=FAST_HISTORY_TURNS,
+            context_chars=FAST_CONTEXT_CHARS,
+            redacted_tool_receipt=REDACTED_TOOL_RECEIPT,
+        )
 
     @staticmethod
     def _is_action_request(messages: list[dict]) -> bool:
-        latest_user = next(
-            (str(message.get("content") or "") for message in reversed(messages)
-             if message.get("role") == "user"), "")
-        return bool(ACTION_REQUEST.search(latest_user))
+        return is_action_request(messages, ACTION_REQUEST)
 
     @staticmethod
     def _token_count_sync(messages: list[dict], use_tools: bool) -> int:
@@ -941,10 +767,7 @@ class Friday:
 
     @staticmethod
     def _latest_user_only(messages: list[dict]) -> list[dict]:
-        latest_user = next(
-            (message for message in reversed(messages[1:])
-             if message.get("role") == "user"), None)
-        return [messages[0]] + ([latest_user] if latest_user else [])
+        return latest_user_only(messages)
 
     async def _fit_context(self, messages: list[dict],
                            use_tools: bool) -> list[dict]:
@@ -2464,49 +2287,29 @@ ALLOWED_ORIGINS = frozenset(
 
 
 def _valid_host(value: str | None) -> bool:
-    if not value:
-        return False
-    try:
-        parsed = urllib.parse.urlsplit("//" + value)
-    except ValueError:
-        return False
-    return (parsed.username is None and parsed.password is None
-            and (parsed.hostname or "").lower() in ALLOWED_HOSTS)
+    return valid_host(value, ALLOWED_HOSTS)
 
 
 def _valid_origin(value: str | None) -> bool:
     # Non-browser/local API clients may omit Origin, but any supplied browser
     # origin must exactly match the configured Friday UI origins.
-    return value is None or value.lower().rstrip("/") in ALLOWED_ORIGINS
+    return valid_origin(value, ALLOWED_ORIGINS)
 
 
 def _valid_control_token(value: str | None) -> bool:
-    return bool(value) and hmac.compare_digest(value, CONTROL_TOKEN)
+    return valid_control_token(value, CONTROL_TOKEN)
 
 
 def _websocket_session_token(protocol_header: str | None) -> str | None:
-    for protocol in (protocol_header or "").split(","):
-        value = protocol.strip()
-        if value.startswith("session."):
-            return value.removeprefix("session.")
-    return None
+    return websocket_session_token(protocol_header)
 
 
 def _controller_origin(headers) -> str:
-    supplied = headers.get("origin")
-    if supplied:
-        return normalize_https_origin(supplied)
-    host = headers.get("host")
-    if not host:
-        raise ControllerAuthError()
-    return normalize_https_origin("https://" + host)
+    return controller_origin(headers)
 
 
 def _bearer_session_token(value: str | None) -> str | None:
-    if not value or not value.startswith("Bearer "):
-        return None
-    token = value.removeprefix("Bearer ")
-    return token if token and not any(char.isspace() for char in token) else None
+    return bearer_session_token(value)
 
 
 TLS_MATERIAL = ensure_tls_material(STATE_DIR, ALLOWED_HOSTS)
@@ -2723,104 +2526,8 @@ async def _confirm_reminder(receipt: dict):
 
 
 async def _complete_recovered_batch(outcome: BatchExecutionOutcome):
-    """Finalize a worker-owned batch without asking the model to rediscover it."""
-    batch = TASKS.step_batch(outcome.batch_id)
-    if batch is None:
-        return
-    task_id = str(batch["task_id"])
-    state = TASKS.get(task_id)
-    if state is None or state["status"] in {"completed", "failed", "cancelled"}:
-        return
-    # ``abandoned_unknown`` is deliberately a step disposition rather than a
-    # false observation about the external effect.  The legacy batch enum has
-    # no matching value and stores it as ``failed``.  Derive the durable
-    # workflow meaning after a crash between acknowledgement and continuation
-    # so restart never reports an unknown effect as an ordinary action failure.
-    status = outcome.status
-    step_statuses = {str(item.get("status") or "")
-                     for item in batch.get("steps", [])}
-    if (status == "failed" and "abandoned_unknown" in step_statuses
-            and step_statuses <= {"succeeded", "abandoned_unknown", "skipped"}):
-        status = "abandoned_unknown"
-    message: str
-    if status == "succeeded":
-        incomplete_steps = [
-            item for item in TASKS.list_steps(task_id=task_id)
-            if item.get("status") != "succeeded"
-        ]
-        if incomplete_steps:
-            # Recovery also replays terminal older batches so it can close a
-            # task after a crash between receipt storage and task completion.
-            # A newer batch may already be waiting for approval or execution;
-            # the older callback must not finalize or advance the whole task.
-            if (any(item.get("status") == "waiting_approval"
-                    for item in incomplete_steps)
-                    and state["status"] != "waiting_input"):
-                TASKS.transition(
-                    task_id, "waiting_input", label="Approval required",
-                    detail="A later recorded step is waiting for approval.")
-            return
-        if state["status"] in {"recovering", "waiting_input"}:
-            TASKS.transition(task_id, "running",
-                             label="Resuming exact reconciled steps")
-        state = TASKS.get(task_id)
-        if state and state["status"] == "running":
-            TASKS.transition(task_id, "verifying",
-                             label="Verifying recovered task outcome")
-        state = TASKS.get(task_id)
-        contract = (TaskContract.model_validate(state["completion_contract"])
-                    if state and int(state.get("contract_version") or 0) >= 1
-                    else CONTRACTS.build(
-                        state["objective"] if state else "Recovered task",
-                        [item["tool_name"]
-                         for item in TASKS.action_history(task_id)]))
-        verification = OUTCOMES.verify_task(
-            contract, TASKS.action_history(task_id))
-        TASKS.record_verification(task_id, verification)
-        if verification.status.value == "passed":
-            TASKS.transition(
-                task_id, "completed", label="Recovered task completed",
-                detail="Every recorded step and receipt passed verification.")
-            message = ("I completed the exact recorded steps after recovery and "
-                       "verified their receipts.")
-        else:
-            TASKS.transition(
-                task_id, "failed", label="Recovered task failed verification",
-                detail=verification.summary, error=verification.summary)
-            message = ("The recovered steps ran, but their receipts did not satisfy "
-                       "the task contract.")
-    elif status == "reconcile_required":
-        if state["status"] != "waiting_input":
-            TASKS.transition(
-                task_id, "waiting_input", label="Outcome reconciliation required",
-                detail=("A consequential action was interrupted after dispatch "
-                        "and was not replayed."))
-        message = ("I did not repeat an interrupted consequential action because its "
-                   "outcome is uncertain; it needs reconciliation first.")
-    elif status == "abandoned_unknown":
-        TASKS.transition(
-            task_id, "failed",
-            label="Reconciliation stopped; outcome remains unknown",
-            detail=("The operator stopped waiting without asserting whether "
-                    "the external action occurred."),
-            error="external_action_outcome_unknown_acknowledged")
-        message = ("I stopped waiting for reconciliation as requested. The task "
-                   "is closed, but the external action remains outcome unknown.")
-    elif status == "cancelled":
-        TASKS.transition(task_id, "cancelled", label="Recorded action batch cancelled")
-        message = "The recorded action batch was cancelled."
-    else:
-        TASKS.transition(
-            task_id, "failed", label="Recorded action batch failed",
-            detail=f"Batch status: {status}", error=status)
-        message = "The recorded action batch failed; no dependent step was dispatched."
-    GRAPH.record_node(
-        "assistant_message", {"text": message, "delivery": "recovery_outbox"},
-        actor="friday", task_id=task_id,
-        event_type="assistant.recovery_message",
-        links=[("derived_from", task_id)])
-    TASKS.publish(task_id, "recovery", "reported",
-                  "Recovered task status recorded", message[:300])
+    """Finalize a worker-owned batch from its durable receipts."""
+    RecoveredBatchFinalizer(TASKS, GRAPH, CONTRACTS, OUTCOMES).complete(outcome)
 
 
 async def _evolution_loop():
@@ -3529,106 +3236,80 @@ def _require_controller_principal(request: Request) -> ControllerPrincipal:
     return principal
 
 
+def _controller_api() -> ControllerAPI:
+    return ControllerAPI(
+        CONTROLLER_AUTH, TLS_MATERIAL.transport_binding_sha256)
+
+
+def _raise_controller_api_error(exc: ControllerAPIError):
+    raise HTTPException(exc.status_code, exc.detail) from exc
+
+
 @app.post("/api/controllers/pairings")
 async def api_create_controller_pairing():
     # Middleware restricts this sole bootstrap route to the private local
     # control token. The returned bearer is one-time, short-lived, and stored
     # only as a digest in SQLite.
-    return CONTROLLER_AUTH.create_pairing(
-        TLS_MATERIAL.transport_binding_sha256)
+    return _controller_api().create_pairing()
 
 
 @app.post("/api/controllers/pairings/prepare")
 async def api_prepare_controller_pairing(request: Request, body: dict):
-    if set(body) != {"pairing_token", "label", "public_jwk"}:
-        raise HTTPException(400, "pairing request fields are invalid")
     try:
-        return CONTROLLER_AUTH.prepare_pairing(
-            body["pairing_token"], body["label"], body["public_jwk"],
-            origin=_controller_origin(request.headers),
-            transport_binding_sha256=
-                TLS_MATERIAL.transport_binding_sha256)
-    except (ControllerAuthError, TypeError, ValueError) as exc:
-        raise HTTPException(401, "controller pairing was rejected") from exc
+        return _controller_api().prepare_pairing(request.headers, body)
+    except ControllerAPIError as exc:
+        _raise_controller_api_error(exc)
 
 
 @app.post("/api/controllers/pairings/complete")
 async def api_complete_controller_pairing(request: Request, body: dict):
-    if set(body) != {
-            "pairing_token", "label", "public_jwk", "signature_b64url"}:
-        raise HTTPException(400, "pairing proof fields are invalid")
     try:
-        return CONTROLLER_AUTH.complete_pairing(
-            body["pairing_token"], body["label"], body["public_jwk"],
-            body["signature_b64url"],
-            origin=_controller_origin(request.headers),
-            transport_binding_sha256=
-                TLS_MATERIAL.transport_binding_sha256)
-    except (ControllerAuthError, TypeError, ValueError) as exc:
-        raise HTTPException(401, "controller pairing was rejected") from exc
+        return _controller_api().complete_pairing(request.headers, body)
+    except ControllerAPIError as exc:
+        _raise_controller_api_error(exc)
 
 
 @app.post("/api/controllers/sessions/challenge")
 async def api_controller_session_challenge(request: Request, body: dict):
-    if set(body) != {"controller_id"}:
-        raise HTTPException(400, "controller challenge fields are invalid")
     try:
-        return CONTROLLER_AUTH.create_session_challenge(
-            body["controller_id"], origin=_controller_origin(request.headers),
-            transport_binding_sha256=
-                TLS_MATERIAL.transport_binding_sha256)
-    except (ControllerAuthError, TypeError, ValueError) as exc:
-        raise HTTPException(401, "controller challenge was rejected") from exc
+        return _controller_api().create_session_challenge(request.headers, body)
+    except ControllerAPIError as exc:
+        _raise_controller_api_error(exc)
 
 
 @app.post("/api/controllers/sessions/complete")
 async def api_complete_controller_session(body: dict):
-    if set(body) != {
-            "challenge_id", "challenge", "proof_payload",
-            "signature_b64url"}:
-        raise HTTPException(400, "controller proof fields are invalid")
     try:
-        return CONTROLLER_AUTH.complete_session(
-            body["challenge_id"], body["challenge"], body["proof_payload"],
-            body["signature_b64url"])
-    except (ControllerAuthError, TypeError, ValueError) as exc:
-        raise HTTPException(401, "controller proof was rejected") from exc
+        return _controller_api().complete_session(body)
+    except ControllerAPIError as exc:
+        _raise_controller_api_error(exc)
 
 
 @app.get("/api/controllers/me")
 async def api_controller_identity(request: Request):
     principal = _require_controller_principal(request)
-    return {
-        "controller_id": principal.controller_id,
-        "session_id": principal.session_id,
-        "public_key_sha256": principal.public_key_sha256,
-        "controller_epoch": principal.controller_epoch,
-        "idle_expires_at": principal.idle_expires_at,
-        "absolute_expires_at": principal.absolute_expires_at,
-    }
+    return _controller_api().identity(principal)
 
 
 @app.get("/api/controllers")
 async def api_controller_list(request: Request):
     _require_controller_principal(request)
-    return {"controllers": CONTROLLER_AUTH.list_controllers()}
+    return _controller_api().list_controllers()
 
 
 @app.delete("/api/controllers/{controller_id}")
 async def api_revoke_controller(controller_id: str, request: Request):
     principal = _require_controller_principal(request)
     try:
-        CONTROLLER_AUTH.revoke_controller(principal, controller_id)
-    except ControllerAuthError as exc:
-        raise HTTPException(403, "controller revocation was rejected") from exc
-    return {"status": "revoked", "controller_id": controller_id}
+        return _controller_api().revoke_controller(principal, controller_id)
+    except ControllerAPIError as exc:
+        _raise_controller_api_error(exc)
 
 
 @app.delete("/api/controllers/sessions/current")
 async def api_revoke_controller_session(request: Request):
     principal = _require_controller_principal(request)
-    CONTROLLER_AUTH.revoke_session(principal)
-    return {"status": "revoked", "session_id": principal.session_id}
+    return _controller_api().revoke_session(principal)
 
 
 def _record_admission_health(
@@ -4176,15 +3857,13 @@ async def ws_endpoint(ws: WebSocket):
         actor=controller_principal.controller_id,
         event_type="session.connected")
     f = FRIDAY
-    mode = "listen"
-    utterance = UtteranceBuffer(
-        SAMPLE_RATE, pre_roll_ms=PRE_ROLL_MS, post_roll_ms=POST_ROLL_MS,
-        silence_end_ms=SILENCE_END_MS, barge_in_ms=BARGE_IN_MS,
-        max_utterance_s=MAX_UTTERANCE_S)
-    interrupt = asyncio.Event()
-    active_speaker_task: asyncio.Task | None = None
+    voice_session = VoiceTransportSession.create(
+        sample_rate=SAMPLE_RATE, pre_roll_ms=PRE_ROLL_MS,
+        post_roll_ms=POST_ROLL_MS, silence_end_ms=SILENCE_END_MS,
+        barge_in_ms=BARGE_IN_MS, max_utterance_s=MAX_UTTERANCE_S,
+        playback_echo_tail_ms=PLAYBACK_ECHO_TAIL_MS,
+    )
     loop = asyncio.get_event_loop()
-    echo_gate = PlaybackEchoGate(PLAYBACK_ECHO_TAIL_MS)
 
     async def send(msg: dict):
         try:
@@ -4193,18 +3872,17 @@ async def ws_endpoint(ws: WebSocket):
             pass  # client gone; keep the turn alive server-side
 
     async def interrupt_current() -> None:
-        nonlocal mode, active_speaker_task
-        if mode == "speak":
-            echo_gate.finish(loop.time())
-        interrupt.set()
-        running = active_speaker_task
+        if voice_session.mode == "speak":
+            voice_session.playback_ended(loop.time())
+        voice_session.interrupt.set()
+        running = voice_session.active_speaker_task
         if running is not None and not running.done():
             running.cancel()
             await asyncio.gather(running, return_exceptions=True)
-        if active_speaker_task is running:
-            active_speaker_task = None
+        if voice_session.active_speaker_task is running:
+            voice_session.active_speaker_task = None
         await send({"type": "interrupted"})
-        mode = "listen"
+        voice_session.mode = "listen"
 
     for pending in TASKS.nonterminal()[-5:]:
         await send({"type": "progress", "task_id": pending["task_id"],
@@ -4213,7 +3891,7 @@ async def ws_endpoint(ws: WebSocket):
                     "label": f"Task {pending['status']}: {pending['objective'][:120]}"})
 
     async def handle_utterance(x16: np.ndarray):
-        nonlocal mode, active_speaker_task, controller_principal
+        nonlocal controller_principal
         try:
             controller_principal = CONTROLLER_AUTH.authenticate_session(
                 supplied_token or "", origin=_controller_origin(ws.headers),
@@ -4257,16 +3935,15 @@ async def ws_endpoint(ws: WebSocket):
                             f"{signal_dbfs:.1f} dBFS, peak {signal_peak:.3f}")})
         if len(text) < 2:
             await send({"type": "dbg", "text": f"ignored, too short: {text!r}"})
-            mode = "listen"
+            voice_session.mode = "listen"
             return
         if FILLER_UTTERANCE.fullmatch(text):
             await send({"type": "dbg", "text": f"ignored filler: {text!r}"})
-            mode = "listen"
+            voice_session.mode = "listen"
             return
-        interrupt.clear()
+        voice_session.interrupt.clear()
 
         async def speak_side():
-            nonlocal mode, active_speaker_task
             q: asyncio.Queue = asyncio.Queue()
             task = asyncio.create_task(f.respond(
                 text, q, session_id=graph_session_id, turn_id=turn_id,
@@ -4283,7 +3960,7 @@ async def ws_endpoint(ws: WebSocket):
                         t_first = time.time()
                         await send({"type": "dbg",
                                     "text": f"llm first token {t_first-t0:.2f}s"})
-                    if interrupt.is_set():
+                    if voice_session.interrupt.is_set():
                         task.cancel()
                         return
                     await send({"type": "friday", "text": sentence})
@@ -4303,7 +3980,7 @@ async def ws_endpoint(ws: WebSocket):
                                         f"for {dur:.1f}s audio "
                                         f"(rtf {(time.time()-ts)/dur:.2f})"})
                     n_sent += 1
-                    if interrupt.is_set():
+                    if voice_session.interrupt.is_set():
                         task.cancel()
                         return
                     pcm16 = (np.clip(audio, -1, 1) * 32767).astype("<i2")
@@ -4336,15 +4013,15 @@ async def ws_endpoint(ws: WebSocket):
                 await send({"type": "error", "text": PUBLIC_RESPONSE_ERROR})
             finally:
                 # Browser playback owns speak/listen state after audio is sent.
-                if active_speaker_task is asyncio.current_task():
-                    active_speaker_task = None
-                if mode == "think" and active_speaker_task is None:
-                    mode = "listen"
+                if voice_session.active_speaker_task is asyncio.current_task():
+                    voice_session.active_speaker_task = None
+                if voice_session.mode == "think" and voice_session.active_speaker_task is None:
+                    voice_session.mode = "listen"
 
-        active_speaker_task = asyncio.create_task(speak_side())
+        voice_session.active_speaker_task = asyncio.create_task(speak_side())
 
     async def handle_text(text: str, speak_response: bool = False):
-        nonlocal mode, active_speaker_task, controller_principal
+        nonlocal controller_principal
         text = text.strip()
         if not text:
             return
@@ -4401,14 +4078,12 @@ async def ws_endpoint(ws: WebSocket):
             print("text response failed:", repr(exc), flush=True)
             await send({"type": "error", "text": PUBLIC_RESPONSE_ERROR})
         finally:
-            if active_speaker_task is asyncio.current_task():
-                active_speaker_task = None
-            if mode == "think" and active_speaker_task is None:
-                mode = "listen"
+            if voice_session.active_speaker_task is asyncio.current_task():
+                voice_session.active_speaker_task = None
+            if voice_session.mode == "think" and voice_session.active_speaker_task is None:
+                voice_session.mode = "listen"
 
     try:
-        frame_n = 0
-        vad_carry = np.zeros(0, dtype=np.float32)
         while True:
             packet = await ws.receive()
             if packet.get("type") == "websocket.disconnect":
@@ -4422,21 +4097,18 @@ async def ws_endpoint(ws: WebSocket):
                 if message.get("type") == "playback":
                     state = message.get("state")
                     if state == "started":
-                        echo_gate.start()
-                        mode = "speak"
-                        utterance.reset()
+                        voice_session.playback_started()
                     elif state == "ended":
-                        echo_gate.finish(loop.time())
-                        utterance.reset()
+                        voice_session.playback_ended(loop.time())
                 elif message.get("type") == "text":
                     text = str(message.get("text") or "").strip()
                     if text:
                         speak_response = message.get("speak") is True
-                        if mode != "listen":
+                        if voice_session.mode != "listen":
                             await interrupt_current()
-                        interrupt.clear()
-                        mode = "think"
-                        active_speaker_task = asyncio.create_task(
+                        voice_session.interrupt.clear()
+                        voice_session.mode = "think"
+                        voice_session.active_speaker_task = asyncio.create_task(
                             handle_text(text, speak_response))
                 elif message.get("type") == "interrupt":
                     await interrupt_current()
@@ -4446,45 +4118,40 @@ async def ws_endpoint(ws: WebSocket):
                 continue
             x16 = np.frombuffer(data, dtype="<f4")   # browser sends 16 kHz mono
             rms = float(np.sqrt((x16 ** 2).mean()))
-            if echo_gate.blocks(loop.time()):
+            if voice_session.playback_blocks_input(loop.time()):
                 # Speaker output is not user intent. Drop it before VAD so it
                 # cannot trigger barge-in or enter the next utterance pre-roll.
-                utterance.reset()
-                vad_carry = np.zeros(0, dtype=np.float32)
-                frame_n += 1
-                if frame_n % 5 == 0:
+                voice_session.next_frame()
+                if voice_session.frame_count % 5 == 0:
                     await send({"type": "dbg", "vad": 0.0,
                                 "rms": round(rms, 5), "mode": "speak"})
                 continue
-            if mode == "speak":
-                mode = "listen"
-                utterance.reset()
-            vad_carry = np.concatenate([vad_carry, x16])
-            n = len(vad_carry) // 512
+            if voice_session.mode == "speak":
+                voice_session.mode = "listen"
+                voice_session.reset_audio_input()
             p = 0.0
-            if n:
-                chunks = vad_carry[: n * 512].reshape(n, 512)
-                vad_carry = vad_carry[n * 512:]
+            chunks = voice_session.vad_frames(x16)
+            if chunks:
                 ps = [await loop.run_in_executor(None, f.speech_prob, c)
                       for c in chunks]
                 p = max(ps)
-            frame_n += 1
-            if frame_n % 5 == 0:
+            voice_session.next_frame()
+            if voice_session.frame_count % 5 == 0:
                 await send({"type": "dbg", "vad": round(p, 3),
-                            "rms": round(rms, 5), "mode": mode})
+                            "rms": round(rms, 5), "mode": voice_session.mode})
 
-            if mode == "think":
-                if utterance.feed_barge_in(x16, p > SPEECH_THRESHOLD):
+            if voice_session.mode == "think":
+                if voice_session.utterance.feed_barge_in(x16, p > SPEECH_THRESHOLD):
                     await interrupt_current()
                     await send({"type": "hearing"})
                 continue
 
-            started, pcm = utterance.feed_listening(
+            started, pcm = voice_session.utterance.feed_listening(
                 x16, p > SPEECH_THRESHOLD)
             if started:
                 await send({"type": "hearing"})
             if pcm is not None:
-                mode = "think"
+                voice_session.mode = "think"
                 await handle_utterance(pcm)
     except WebSocketDisconnect:
         observation_id = GRAPH.record_node(
@@ -4495,1721 +4162,7 @@ async def ws_endpoint(ws: WebSocket):
                           actor="system")
 
 
-HTML = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Friday</title>
-<style>
- :root{
-   color-scheme:dark;
-   --bg:#07090d;
-   --bg-soft:#0c1018;
-   --panel:rgba(15,20,31,.78);
-   --panel-solid:#111722;
-   --panel-high:#171e2c;
-   --line:rgba(170,190,225,.12);
-   --line-strong:rgba(170,190,225,.22);
-   --fg:#f1f5fb;
-   --fg-soft:#c3ccda;
-   --dim:#7f8999;
-   --accent:#8eb8ff;
-   --accent-strong:#5d8ff0;
-   --violet:#b79cff;
-   --ok:#74dfb0;
-   --warn:#ff8098;
-   --amber:#ffc878;
-   --orb-scale:0;
-   --shadow:0 28px 80px rgba(0,0,0,.38);
- }
- *{box-sizing:border-box}
- html,body{height:100%}
- html{background:var(--bg)}
- body{
-   margin:0;
-   min-width:320px;
-   overflow:hidden;
-   color:var(--fg);
-   background:
-     radial-gradient(circle at 12% 12%,rgba(86,124,211,.15),transparent 31%),
-     radial-gradient(circle at 88% 88%,rgba(113,75,188,.12),transparent 34%),
-     linear-gradient(145deg,#07090d 0%,#090d14 50%,#07090d 100%);
-   font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-   -webkit-font-smoothing:antialiased;
- }
- body::before{
-   content:"";
-   position:fixed;
-   inset:0;
-   pointer-events:none;
-   opacity:.32;
-   background-image:
-     linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),
-     linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
-   background-size:64px 64px;
-   -webkit-mask-image:radial-gradient(circle at center,black,transparent 82%);
-   mask-image:radial-gradient(circle at center,black,transparent 82%);
- }
- button,input{font:inherit}
- button{touch-action:manipulation}
- button:focus-visible,input:focus-visible,a:focus-visible{
-   outline:2px solid var(--accent);
-   outline-offset:3px;
- }
- [hidden]{display:none!important}
-
- #banner{
-   position:fixed;
-   top:18px;
-   left:50%;
-   z-index:50;
-   display:flex;
-   width:min(680px,calc(100vw - 32px));
-   align-items:center;
-   gap:12px;
-   padding:12px 14px 12px 16px;
-   border:1px solid rgba(255,128,152,.35);
-   border-radius:14px;
-   background:rgba(53,17,29,.92);
-   box-shadow:0 18px 50px rgba(0,0,0,.35);
-   color:#ffc2ce;
-   font-size:13px;
-   line-height:1.45;
-   opacity:0;
-   pointer-events:none;
-   transform:translate(-50%,-14px);
-   transition:opacity .2s ease,transform .2s ease;
-   backdrop-filter:blur(18px);
- }
- body.error #banner{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
- #banner::before{
-   content:"!";
-   display:grid;
-   width:24px;
-   height:24px;
-   flex:none;
-   place-items:center;
-   border-radius:50%;
-   background:rgba(255,128,152,.14);
-   color:var(--warn);
-   font-weight:750;
- }
- #banner button{
-   margin-left:auto;
-   border:0;
-   border-radius:8px;
-   padding:6px 9px;
-   background:rgba(255,255,255,.07);
-   color:#ffd7df;
-   cursor:pointer;
-   font-size:11px;
- }
-
- #app-shell{
-   position:relative;
-   z-index:1;
-   display:flex;
-   height:100%;
-   flex-direction:column;
- }
- #topbar{
-   display:flex;
-   width:min(1480px,100%);
-   height:76px;
-   margin:0 auto;
-   flex:none;
-   align-items:center;
-   justify-content:space-between;
-   padding:0 clamp(18px,3vw,42px);
- }
- .brand{
-   display:flex;
-   align-items:center;
-   gap:11px;
- }
- .brand-mark{
-   position:relative;
-   display:grid;
-   width:31px;
-   height:31px;
-   place-items:center;
-   overflow:hidden;
-   border:1px solid rgba(142,184,255,.32);
-   border-radius:10px;
-   background:linear-gradient(145deg,rgba(142,184,255,.2),rgba(183,156,255,.08));
-   box-shadow:inset 0 1px 0 rgba(255,255,255,.12);
- }
- .brand-mark::after{
-   content:"";
-   width:9px;
-   height:9px;
-   border-radius:50%;
-   background:var(--accent);
-   box-shadow:0 0 16px rgba(142,184,255,.9);
- }
- .brand-name{
-   font-size:13px;
-   font-weight:700;
-   letter-spacing:.24em;
-   text-transform:uppercase;
- }
- .brand-version{
-   margin-left:2px;
-   color:var(--dim);
-   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-   font-size:9px;
-   letter-spacing:.08em;
- }
- .top-meta{display:flex;align-items:center;gap:8px}
- .meta-pill{
-   display:flex;
-   align-items:center;
-   gap:7px;
-   min-height:30px;
-   padding:0 10px;
-   border:1px solid var(--line);
-   border-radius:999px;
-   background:rgba(13,18,27,.55);
-   color:var(--dim);
-   font-size:10px;
-   letter-spacing:.05em;
-   backdrop-filter:blur(12px);
- }
- .meta-pill svg{width:12px;height:12px;color:var(--ok)}
-
- #workspace{
-   display:grid;
-   width:min(1480px,100%);
-   min-height:0;
-   margin:0 auto;
-   flex:1;
-   grid-template-columns:minmax(300px,.78fr) minmax(480px,1.22fr);
-   gap:clamp(14px,2vw,26px);
-   padding:0 clamp(18px,3vw,42px) clamp(18px,3vw,34px);
- }
- #stage,#conversation{
-   min-height:0;
-   border:1px solid var(--line);
-   border-radius:28px;
-   background:linear-gradient(155deg,rgba(19,25,38,.84),rgba(10,14,22,.72));
-   box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.045);
-   backdrop-filter:blur(22px);
- }
- #stage{
-   position:relative;
-   display:flex;
-   overflow:hidden;
-   flex-direction:column;
-   align-items:center;
-   justify-content:center;
-   padding:clamp(28px,5vh,58px) 30px;
-   text-align:center;
-   isolation:isolate;
- }
- #stage::before{
-   content:"";
-   position:absolute;
-   z-index:-1;
-   width:min(520px,90%);
-   aspect-ratio:1;
-   border-radius:50%;
-   background:radial-gradient(circle,rgba(84,129,218,.11),transparent 67%);
-   filter:blur(6px);
- }
- #stage::after{
-   content:"";
-   position:absolute;
-   right:22px;
-   bottom:20px;
-   left:22px;
-   height:1px;
-   background:linear-gradient(90deg,transparent,var(--line-strong),transparent);
- }
- .eyebrow{
-   display:inline-flex;
-   align-items:center;
-   gap:8px;
-   margin-bottom:12px;
-   color:var(--accent);
-   font-size:9px;
-   font-weight:700;
-   letter-spacing:.22em;
-   text-transform:uppercase;
- }
- .eyebrow::before{
-   content:"";
-   width:18px;
-   height:1px;
-   background:currentColor;
-   box-shadow:0 0 10px currentColor;
- }
- #stage h1{
-   margin:0;
-   font-size:clamp(38px,4.3vw,64px);
-   font-weight:600;
-   letter-spacing:-.055em;
-   line-height:.95;
- }
- .stage-subtitle{
-   max-width:340px;
-   margin:15px auto 0;
-   color:var(--dim);
-   font-size:12px;
-   line-height:1.55;
- }
-
- #orbwrap{
-   position:relative;
-   display:grid;
-   width:170px;
-   height:170px;
-   margin:clamp(20px,4vh,38px) 0 clamp(16px,3vh,28px);
-   place-items:center;
- }
- #ring{
-   position:absolute;
-   inset:0;
-   border-radius:50%;
-   border:2px solid var(--accent);
-   opacity:.25;
-   transition:transform .08s linear,opacity .3s;
- }
- #orb{
-   width:76%;
-   aspect-ratio:1;
-   border-radius:50%;
-   background:radial-gradient(circle at 35% 30%,#7aa2f7,#1a2240 70%);
-   box-shadow:0 0 60px rgba(122,162,247,.45);
-   transition:transform .12s ease-out,box-shadow .35s,filter .35s;
- }
- body.hearing #ring{transform:scale(calc(1 + var(--orb-scale)*.22));opacity:.6}
- body.speaking #orb{
-   box-shadow:0 0 110px rgba(122,162,247,.95);
-   transform:scale(1.07);
-   filter:saturate(1.15);
- }
- body.thinking #orb{animation:shimmer 1.5s ease-in-out infinite;box-shadow:0 0 70px rgba(122,162,247,.6)}
- @keyframes spin{to{transform:rotate(360deg)}}
- @keyframes shimmer{50%{transform:scale(.96);filter:brightness(.75)}}
- body.listening #orb{animation:breathe 2.2s ease-in-out infinite}
- @keyframes breathe{50%{box-shadow:0 0 90px rgba(122,162,247,.75)}}
- #state-block{display:flex;flex-direction:column;align-items:center}
- #status{
-   min-height:33px;
-   color:var(--fg);
-   font-size:clamp(20px,2vw,28px);
-   font-weight:530;
-   letter-spacing:-.025em;
-   line-height:1.15;
- }
- #activity{
-   display:flex;
-   min-height:25px;
-   max-width:390px;
-   align-items:center;
-   justify-content:center;
-   margin-top:8px;
-   color:var(--dim);
-   font-size:11px;
-   line-height:1.45;
- }
- #activity:not(:empty)::before{
-   content:"";
-   width:5px;
-   height:5px;
-   margin-right:8px;
-   flex:none;
-   border-radius:50%;
-   background:var(--dim);
- }
- body.listening #status{color:var(--ok)}
- body.listening #activity::before{background:var(--ok);box-shadow:0 0 8px var(--ok)}
- body.thinking #status{color:#d6c8ff}
- body.thinking #activity::before{background:var(--violet);box-shadow:0 0 8px var(--violet)}
- body.speaking #status{color:var(--accent)}
- body.speaking #activity::before{background:var(--accent);box-shadow:0 0 8px var(--accent)}
- .state-guide{
-   display:flex;
-   margin-top:24px;
-   gap:6px;
- }
- .state-guide span{
-   padding:6px 9px;
-   border:1px solid var(--line);
-   border-radius:999px;
-   color:var(--dim);
-   font-size:9px;
-   letter-spacing:.06em;
-   text-transform:uppercase;
- }
- body.started .state-guide{opacity:.55}
-
- #conversation{
-   display:flex;
-   overflow:hidden;
-   flex-direction:column;
- }
- .conversation-head{
-   display:flex;
-   min-height:68px;
-   flex:none;
-   align-items:center;
-   justify-content:space-between;
-   padding:0 22px;
-   border-bottom:1px solid var(--line);
- }
- .conversation-title{display:flex;align-items:center;gap:10px}
- .conversation-title strong{font-size:13px;font-weight:650}
- .conversation-title span{
-   color:var(--dim);
-   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-   font-size:9px;
-   letter-spacing:.06em;
-   text-transform:uppercase;
- }
- .private-badge{
-   display:flex;
-   align-items:center;
-   gap:6px;
-   color:var(--ok);
-   font-size:9px;
-   letter-spacing:.08em;
-   text-transform:uppercase;
- }
- .private-badge::before{
-   content:"";
-   width:5px;
-   height:5px;
-   border-radius:50%;
-   background:var(--ok);
-   box-shadow:0 0 9px var(--ok);
- }
-
- #log{
-   display:flex;
-   width:100%;
-   min-height:0;
-   flex:1;
-   flex-direction:column;
-   gap:14px;
-   overflow-y:auto;
-   padding:22px clamp(16px,2.3vw,30px) 18px;
-   overscroll-behavior:contain;
-   scrollbar-color:rgba(142,184,255,.18) transparent;
-   scrollbar-width:thin;
-   scroll-behavior:smooth;
- }
- #log::-webkit-scrollbar{width:6px}
- #log::-webkit-scrollbar-thumb{border-radius:6px;background:rgba(142,184,255,.16)}
- .msg{
-   position:relative;
-   max-width:min(82%,650px);
-   padding:13px 15px;
-   border:1px solid transparent;
-   border-radius:18px;
-   color:var(--fg-soft);
-   font-size:14px;
-   line-height:1.55;
-   white-space:pre-wrap;
-   overflow-wrap:anywhere;
-   animation:rise .26s cubic-bezier(.2,.75,.2,1);
- }
- @keyframes rise{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}
- .msg.you{
-   align-self:flex-end;
-   border-color:rgba(116,223,176,.13);
-   border-bottom-right-radius:6px;
-   background:linear-gradient(145deg,rgba(42,76,65,.7),rgba(25,48,43,.68));
-   color:#dcf8ea;
-   box-shadow:0 10px 28px rgba(0,0,0,.12);
- }
- .msg.fri{
-   width:100%;
-   max-width:100%;
-   align-self:stretch;
-   padding:14px 10px;
-   border:0;
-   background:transparent;
-   box-shadow:none;
-   white-space:normal;
- }
- .rich{min-width:0;color:var(--fg-soft);font-size:14px;line-height:1.68}
- .rich>*:first-child{margin-top:0}
- .rich>*:last-child{margin-bottom:0}
- .rich p{margin:0 0 .82em}
- .rich h1,.rich h2,.rich h3{
-   margin:1.35em 0 .52em;
-   color:var(--fg);
-   font-weight:650;
-   letter-spacing:-.025em;
-   line-height:1.25;
- }
- .rich h1{font-size:21px}
- .rich h2{font-size:17px}
- .rich h3{font-size:14px}
- .rich ul,.rich ol{margin:.4em 0 1em;padding-left:1.45em}
- .rich li{padding-left:.18em}
- .rich li+li{margin-top:.32em}
- .rich strong{color:var(--fg);font-weight:680}
- .rich em{color:#c7d0df}
- .rich a{color:var(--accent);text-decoration-color:rgba(142,184,255,.38);text-underline-offset:3px}
- .rich a:hover{text-decoration-color:currentColor}
- .rich code{
-   border:1px solid rgba(142,184,255,.12);
-   border-radius:6px;
-   padding:.12em .38em;
-   background:rgba(142,184,255,.07);
-   color:#bfd5ff;
-   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-   font-size:.88em;
- }
- .rich pre{
-   position:relative;
-   margin:.75em 0 1.1em;
-   overflow:auto;
-   border:1px solid var(--line-strong);
-   border-radius:13px;
-   padding:38px 14px 14px;
-   background:#090d15;
-   scrollbar-color:rgba(142,184,255,.22) transparent;
- }
- .rich pre code{display:block;border:0;padding:0;background:transparent;color:#cbd6e6;font-size:12px;line-height:1.58;white-space:pre}
- .codebar{
-   position:absolute;
-   top:0;
-   right:0;
-   left:0;
-   display:flex;
-   height:29px;
-   align-items:center;
-   justify-content:space-between;
-   padding:0 8px 0 12px;
-   border-bottom:1px solid var(--line);
-   color:var(--dim);
-   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-   font-size:8px;
-   letter-spacing:.06em;
-   text-transform:uppercase;
- }
- .codebar button{border:0;border-radius:6px;padding:4px 7px;background:transparent;color:var(--dim);cursor:pointer;font-size:8px}
- .codebar button:hover{background:rgba(255,255,255,.05);color:var(--fg-soft)}
- .rich blockquote{margin:.8em 0 1em;padding:.15em 0 .15em 14px;border-left:2px solid var(--accent);color:var(--dim)}
- .rich hr{height:1px;margin:1.25em 0;border:0;background:var(--line)}
- .table-wrap{max-width:100%;margin:.8em 0 1.1em;overflow:auto;border:1px solid var(--line-strong);border-radius:12px}
- .rich table{width:100%;border-collapse:collapse;font-size:12px;white-space:normal}
- .rich th,.rich td{padding:9px 11px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
- .rich th{background:rgba(142,184,255,.055);color:var(--fg);font-size:10px;font-weight:680}
- .rich tr:last-child td{border-bottom:0}
- .msg .who{
-   display:flex;
-   align-items:center;
-   gap:7px;
-   margin-bottom:5px;
-   color:var(--dim);
-   font-size:8px;
-   font-weight:750;
-   letter-spacing:.16em;
-   text-transform:uppercase;
- }
- .msg .who::before{
-   content:"";
-   width:5px;
-   height:5px;
-   border-radius:50%;
-   background:currentColor;
- }
- .msg.you .who{color:#86d9b4}
- .msg.fri .who{color:var(--accent)}
- .msg .who time{
-   margin-left:auto;
-   color:var(--dim);
-   font-size:8px;
-   font-weight:500;
-   letter-spacing:.02em;
-   text-transform:none;
- }
- .msg.status{
-   align-self:center;
-   max-width:92%;
-   padding:5px 10px;
-   border:0;
-   background:transparent;
-   color:var(--dim);
-   font-size:10px;
-   font-style:normal;
-   letter-spacing:.03em;
-   text-align:center;
- }
- .msg.progress{
-   align-self:center;
-   max-width:92%;
-   padding:7px 11px;
-   border-color:rgba(142,184,255,.15);
-   border-radius:999px;
-   background:rgba(21,29,44,.62);
-   color:var(--accent);
-   font-size:10px;
- }
- .msg.taskcard{
-   align-self:stretch;
-   max-width:100%;
-   padding:15px;
-   border-color:var(--line-strong);
-   border-radius:16px;
-   background:linear-gradient(145deg,rgba(21,29,44,.92),rgba(14,20,31,.9));
-   font-size:12px;
- }
- .tasklabel{display:flex;align-items:center;gap:9px;color:var(--fg-soft);font-weight:620}
- .tasklabel::before{
-   content:"";
-   width:7px;
-   height:7px;
-   flex:none;
-   border:2px solid var(--accent);
-   border-top-color:transparent;
-   border-radius:50%;
-   animation:spin 1s linear infinite;
- }
- .taskcard[data-state="completed"]{border-color:rgba(116,223,176,.2)}
- .taskcard[data-state="completed"] .tasklabel::before{
-   border:0;
-   background:var(--ok);
-   box-shadow:0 0 8px rgba(116,223,176,.55);
-   animation:none;
- }
- .taskcard[data-state="failed"],.taskcard[data-state="cancelled"]{border-color:rgba(255,128,152,.2)}
- .taskcard[data-state="failed"] .tasklabel::before,.taskcard[data-state="cancelled"] .tasklabel::before{
-   border:0;
-   background:var(--warn);
-   animation:none;
- }
- .taskcard.approval{border-color:rgba(255,200,120,.3);background:linear-gradient(145deg,rgba(47,37,25,.9),rgba(24,21,20,.88))}
- .taskcard.approval .tasklabel::before{border-color:var(--amber);border-top-color:transparent}
- .taskcard.approval pre{max-height:170px;overflow:auto;padding:10px;border:1px solid var(--line);border-radius:10px;background:rgba(4,7,12,.35);font-size:9px}
- .quick.approve{border-color:rgba(116,223,176,.28);color:var(--ok)}
- .quick.deny{border-color:rgba(255,128,152,.22);color:#ff9caf}
- .taskdetail{
-   max-height:190px;
-   margin-top:10px;
-   overflow:auto;
-   padding:10px;
-   border:1px solid var(--line);
-   border-radius:10px;
-   background:rgba(4,7,12,.38);
-   color:var(--dim);
-   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-   font-size:9px;
-   line-height:1.55;
-   white-space:pre-wrap;
- }
- .msg.news{
-   align-self:stretch;
-   max-width:100%;
-   padding:16px;
-   border-color:var(--line-strong);
-   border-radius:16px;
-   background:linear-gradient(150deg,rgba(24,34,52,.92),rgba(14,20,31,.88));
- }
- .news-title{
-   display:flex;
-   align-items:center;
-   gap:8px;
-   margin-bottom:8px;
-   color:var(--accent);
-   font-size:10px;
-   font-weight:700;
-   letter-spacing:.06em;
-   text-transform:uppercase;
- }
- .news-title::before{content:"↗";font-size:12px}
- .news-item{
-   display:grid;
-   grid-template-columns:1fr auto;
-   gap:4px 12px;
-   padding:10px 2px;
-   border-top:1px solid var(--line);
- }
- .news-item a{color:var(--fg-soft);font-size:12px;text-decoration:none}
- .news-item a:hover{color:var(--accent)}
- .news-meta{color:var(--dim);font-size:9px;white-space:nowrap}
- .hint{
-   flex:none;
-   padding:0 28px 12px;
-   color:var(--dim);
-   font-size:10px;
-   text-align:center;
- }
- body.started .hint{display:none}
-
- #bottom{
-   flex:none;
-   padding:12px 18px 16px;
-   border-top:1px solid var(--line);
-   background:linear-gradient(to bottom,rgba(10,14,22,.3),rgba(10,14,22,.76));
- }
- #textform{
-   display:flex;
-   min-height:54px;
-   align-items:center;
-   gap:8px;
-   padding:5px 6px 5px 17px;
-   border:1px solid var(--line-strong);
-   border-radius:18px;
-   background:rgba(21,28,42,.88);
-   box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 12px 30px rgba(0,0,0,.15);
-   transition:border-color .2s ease,box-shadow .2s ease;
- }
- #textform:focus-within{
-   border-color:rgba(142,184,255,.55);
-   box-shadow:0 0 0 4px rgba(142,184,255,.065),0 12px 30px rgba(0,0,0,.18);
- }
- #textinput{
-   min-width:0;
-   flex:1;
-   border:0;
-   outline:0;
-   background:transparent;
-   color:var(--fg);
-   font-size:13px;
- }
- #textinput::placeholder{color:#687384}
- #sendbtn{
-   display:grid;
-   width:42px;
-   height:42px;
-   flex:none;
-   place-items:center;
-   border:0;
-   border-radius:13px;
-   background:linear-gradient(145deg,#9bc1ff,#6f9bea);
-   box-shadow:0 8px 22px rgba(71,116,207,.3),inset 0 1px 0 rgba(255,255,255,.45);
-   color:#0b1424;
-   cursor:pointer;
-   transition:transform .18s ease,filter .18s ease;
- }
- #sendbtn:hover{filter:brightness(1.08);transform:translateY(-1px)}
- #sendbtn:active{transform:translateY(1px)}
- #sendbtn:disabled{cursor:not-allowed;filter:saturate(.15);opacity:.45;transform:none}
- #sendbtn svg{width:17px;height:17px}
- #barrow{
-   display:flex;
-   min-height:31px;
-   align-items:center;
-   gap:9px;
-   padding:8px 3px 0;
-   color:var(--dim);
-   font-size:9px;
-   letter-spacing:.05em;
- }
- #dot{
-   width:6px;
-   height:6px;
-   flex:none;
-   border-radius:50%;
-   background:var(--warn);
-   box-shadow:0 0 8px rgba(255,128,152,.45);
- }
- #dot.on{background:var(--ok);box-shadow:0 0 9px rgba(116,223,176,.7)}
- #modechip{min-width:64px;text-transform:lowercase}
- #micbar{
-   height:3px;
-   flex:1;
-   overflow:hidden;
-   border-radius:999px;
-   background:rgba(255,255,255,.055);
- }
- #micbar>div{
-   width:0;
-   height:100%;
-   border-radius:inherit;
-   background:linear-gradient(90deg,var(--accent),var(--violet));
-   box-shadow:0 0 8px rgba(142,184,255,.5);
-   transition:width .08s linear;
- }
- #diagbtn{
-   display:grid;
-   width:28px;
-   height:28px;
-   place-items:center;
-   align-items:center;
-   border:0;
-   border-radius:7px;
-   padding:0;
-   background:transparent;
-   color:var(--dim);
-   cursor:pointer;
-   font-size:9px;
-   letter-spacing:.05em;
- }
- #diagbtn:hover{background:rgba(255,255,255,.04);color:var(--fg-soft)}
- #diagbtn svg{width:12px;height:12px}
- #diag{
-   display:none;
-   max-height:300px;
-   margin-top:9px;
-   overflow:auto;
-   padding:12px;
-   border:1px solid var(--line);
-   border-radius:14px;
-   background:rgba(7,10,16,.52);
- }
- body.diag #diag{display:block;animation:rise .2s ease}
- .mrow{display:flex;align-items:center;gap:8px;margin:5px 0;color:var(--dim);font-size:9px}
- .mrow b{width:30px;flex:none;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
- .bar{height:4px;flex:1;overflow:hidden;border-radius:99px;background:rgba(255,255,255,.06)}
- .bar>div{width:0;height:100%;background:var(--accent);transition:width .1s}
- #vadbar>div{background:var(--ok)}
- #dbg{
-   height:90px;
-   margin-top:8px;
-   overflow-y:auto;
-   color:var(--dim);
-   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-   font-size:9px;
-   line-height:1.45;
-   white-space:pre-wrap;
- }
- #diagtools{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
- #diagtools button,.quick{
-   border:1px solid var(--line-strong);
-   border-radius:8px;
-   padding:6px 9px;
-   background:rgba(255,255,255,.025);
-   color:var(--dim);
-   cursor:pointer;
-   font-size:9px;
-   transition:background .15s ease,color .15s ease,border-color .15s ease;
- }
- #diagtools button:hover,.quick:hover{
-   border-color:rgba(142,184,255,.32);
-   background:rgba(142,184,255,.07);
-   color:var(--fg-soft);
- }
- .quick:disabled{cursor:not-allowed;opacity:.45}
- .quickrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
- #mind{
-   display:none;
-   height:170px;
-   margin-top:8px;
-   overflow:auto;
-   padding:10px;
-   border:1px solid var(--line);
-   border-radius:10px;
-   color:var(--dim);
-   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-   font-size:9px;
-   white-space:pre-wrap;
- }
- #mind.on{display:block}
-
- #gate{
-   position:fixed;
-   inset:0;
-   z-index:40;
-   display:grid;
-   place-items:center;
-   overflow:auto;
-   padding:24px;
-   background:
-     radial-gradient(circle at 50% 42%,rgba(67,103,177,.16),transparent 36%),
-     rgba(5,7,11,.88);
-   backdrop-filter:blur(20px);
- }
- #gate .card{
-   position:relative;
-   width:min(480px,100%);
-   overflow:hidden;
-   padding:30px;
-   border:1px solid var(--line-strong);
-   border-radius:24px;
-   background:linear-gradient(150deg,rgba(24,31,46,.96),rgba(12,17,26,.97));
-   box-shadow:0 30px 100px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.07);
-   color:var(--dim);
- }
- #gate .card::before{
-   content:"";
-   position:absolute;
-   top:-90px;
-   left:50%;
-   width:260px;
-   height:180px;
-   border-radius:50%;
-   background:rgba(105,145,229,.16);
-   filter:blur(50px);
-   transform:translateX(-50%);
- }
- .gate-brand{position:relative;display:flex;align-items:center;gap:13px;margin-bottom:26px}
- .gate-brand .brand-mark{width:38px;height:38px;border-radius:12px}
- .gate-brand strong{display:block;color:var(--fg);font-size:14px;letter-spacing:.16em;text-transform:uppercase}
- .gate-brand span{display:block;margin-top:3px;color:var(--dim);font-size:9px;letter-spacing:.05em}
- .gate-kicker{color:var(--accent);font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
- #gate .card>h2{
-   margin:8px 0 9px;
-   color:var(--fg);
-   font-size:26px;
-   font-weight:590;
-   letter-spacing:-.035em;
- }
- .gate-copy{max-width:390px;margin:0;color:var(--dim);font-size:12px;line-height:1.6}
- .trust-row{
-   display:grid;
-   grid-template-columns:repeat(3,1fr);
-   gap:7px;
-   margin:20px 0;
- }
- .trust-item{
-   padding:10px 8px;
-   border:1px solid var(--line);
-   border-radius:11px;
-   background:rgba(255,255,255,.018);
-   color:var(--dim);
-   font-size:8px;
-   letter-spacing:.05em;
-   text-align:center;
-   text-transform:uppercase;
- }
- .trust-item svg{display:block;width:14px;height:14px;margin:0 auto 6px;color:var(--ok)}
- #transportwarning{
-   margin:14px 0;
-   padding:10px 12px;
-   border:1px solid rgba(255,128,152,.32);
-   border-radius:10px;
-   background:rgba(255,128,152,.06);
-   color:#ffb0c0;
-   font-size:10px;
-   line-height:1.45;
- }
- #unlockform{margin-top:18px}
- .field-label{
-   display:flex;
-   justify-content:space-between;
-   margin-bottom:7px;
-   color:var(--fg-soft);
-   font-size:9px;
-   font-weight:650;
-   letter-spacing:.08em;
-   text-transform:uppercase;
- }
- .field-label span{color:var(--dim);font-weight:500;letter-spacing:0;text-transform:none}
- #tokeninput{
-   width:100%;
-   height:48px;
-   border:1px solid var(--line-strong);
-   border-radius:13px;
-   padding:0 13px;
-   outline:0;
-   background:rgba(6,9,15,.55);
-   color:var(--fg);
-   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-   font-size:12px;
-   transition:border-color .2s ease,box-shadow .2s ease;
- }
- #tokeninput:focus{border-color:rgba(142,184,255,.62);box-shadow:0 0 0 4px rgba(142,184,255,.07)}
- #gateerror{min-height:18px;margin-top:8px;color:var(--warn);font-size:10px;line-height:1.4}
- #gate .choices{display:flex;gap:8px;margin-top:12px}
- #gate button{
-   min-height:44px;
-   flex:1;
-   border:1px solid var(--line-strong);
-   border-radius:12px;
-   padding:0 14px;
-   background:rgba(255,255,255,.035);
-   color:var(--fg-soft);
-   cursor:pointer;
-   font-size:11px;
-   transition:transform .17s ease,border-color .17s ease,background .17s ease;
- }
- #gate button:hover{border-color:rgba(142,184,255,.4);background:rgba(142,184,255,.08);transform:translateY(-1px)}
- #unlockbtn{
-   border-color:transparent!important;
-   background:linear-gradient(145deg,#9bc1ff,#719ceb)!important;
-   box-shadow:0 10px 25px rgba(75,119,207,.24);
-   color:#0b1424!important;
-   font-weight:700;
- }
- #modechoices{display:grid!important;grid-template-columns:1fr 1fr}
- #modechoices[hidden]{display:none!important}
- #modechoices button{
-   height:auto;
-   min-height:52px;
-   padding:13px;
-   text-align:center;
- }
- #modechoices button strong{display:block;color:var(--fg);font-size:11px}
- #modechoices button span{display:block;color:var(--dim);font-size:9px;line-height:1.4}
- .gate-foot{
-   display:flex;
-   align-items:center;
-   gap:7px;
-   margin-top:20px;
-   color:#677181;
-   font-size:9px;
- }
- .gate-foot svg{width:12px;height:12px;color:var(--ok)}
- body.started #gate{display:none}
-
- @media (max-width:900px){
-   #topbar{height:64px}
-   #workspace{
-     grid-template-columns:1fr;
-     grid-template-rows:minmax(190px,31vh) minmax(0,1fr);
-     gap:12px;
-     padding-bottom:14px;
-   }
-   #stage{display:grid;grid-template-columns:180px 1fr;padding:18px 24px;text-align:left}
-   #orbwrap{width:170px;height:170px;margin:0}
-   #state-block{align-items:flex-start;text-align:left}
-   #status{font-size:21px}
-   #activity{justify-content:flex-start;text-align:left}
-   .state-guide{margin-top:13px;flex-wrap:wrap}
-   #conversation{border-radius:22px}
- }
- @media (max-width:600px){
-   #topbar{height:58px;padding:0 14px}
-   .brand-version,.meta-pill:first-child{display:none}
-   #workspace{
-     grid-template-rows:154px minmax(0,1fr);
-     gap:8px;
-     padding:0 8px 8px;
-   }
-   #stage{
-     grid-template-columns:112px 1fr;
-     border-radius:20px;
-     padding:14px 18px;
-   }
-   #orbwrap{width:108px;height:108px;margin:0}
-   #state-block{align-items:flex-start;padding-left:12px;text-align:left}
-   #status{min-height:auto;font-size:14px}
-   #activity{min-height:auto;margin-top:7px;justify-content:flex-start;font-size:9px;text-align:left}
-   #log{gap:10px;padding:14px 12px 12px}
-   .msg{max-width:89%;padding:11px 12px;font-size:13px}
-   #bottom{padding:9px 10px 11px}
-   #textform{min-height:49px;border-radius:15px;padding-left:13px}
-   #sendbtn{width:38px;height:38px;border-radius:11px}
-   .hint{display:none}
-   #gate{padding:12px}
-   #gate .card{padding:22px 18px;border-radius:20px}
-   .gate-brand{margin-bottom:20px}
-   #gate .card>h2{font-size:23px}
-   .trust-row{gap:5px}
-   .trust-item{padding:8px 4px;font-size:7px}
-   #modechoices{grid-template-columns:1fr!important}
-   #modechoices button{min-height:64px}
- }
- @media (max-height:700px) and (min-width:901px){
-   #topbar{height:58px}
-   #workspace{padding-bottom:14px}
-   #stage{padding:22px}
-   #orbwrap{width:190px;height:190px;margin:18px 0}
-   .stage-subtitle{display:none}
-   .state-guide{margin-top:14px}
- }
- @media (prefers-reduced-motion:reduce){
-   *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
- }
-</style>
-</head>
-<body class="idle">
-<div id="app-shell">
-  <div id="banner" role="alert" aria-live="assertive">
-    <span id="banner-text"></span>
-    <button type="button" aria-label="Dismiss" onclick="dismissBanner()">×</button>
-  </div>
-
-  <header id="topbar">
-    <div class="brand" aria-label="Friday local assistant">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <span class="brand-name">Friday</span>
-    </div>
-  </header>
-
-  <main id="workspace">
-    <section id="stage" aria-label="Friday status">
-      <div id="orbwrap" aria-hidden="true">
-        <div id="ring"></div>
-        <div id="orb"></div>
-      </div>
-
-      <div id="state-block">
-        <div id="status" role="status" aria-live="polite">Ready</div>
-        <div id="activity"></div>
-      </div>
-    </section>
-
-    <section id="conversation" aria-label="Conversation with Friday">
-      <div id="log" role="log" aria-live="polite" aria-relevant="additions"></div>
-
-      <div id="bottom">
-        <form id="textform">
-          <input id="textinput" autocomplete="off" placeholder="Message"
-            aria-label="Message Friday">
-          <button id="sendbtn" type="submit" aria-label="Send message" disabled>
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 13-7-4 14-2.5-5L5 12Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m11.5 14 3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-          </button>
-        </form>
-        <div id="barrow">
-          <span id="dot" aria-hidden="true"></span>
-          <span id="modechip">Offline</span>
-          <div id="micbar" aria-label="Microphone level"><div></div></div>
-          <button id="diagbtn" type="button" aria-label="Toggle diagnostics"
-            aria-expanded="false" onclick="toggleDiagnostics(this)">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M10 14v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-          </button>
-        </div>
-        <div id="diag">
-          <div class="mrow"><b>mic</b><div class="bar" id="rmsbar"><div></div></div></div>
-          <div class="mrow"><b>vad</b><div class="bar" id="vadbar"><div></div></div></div>
-          <div id="dbg"></div>
-          <div id="diagtools">
-            <button type="button" onclick="testTone()">Test speaker</button>
-            <button type="button" onclick="document.getElementById('dbg').textContent=''">Clear log</button>
-            <button type="button" onclick="refreshMind()">Inspect mind</button>
-            <button type="button" onclick="location.reload()">Reconnect</button>
-          </div>
-          <div id="mind"></div>
-        </div>
-      </div>
-    </section>
-  </main>
-</div>
-
-<div id="gate">
-  <div class="card">
-    <div class="gate-brand">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <div><strong>Friday</strong></div>
-    </div>
-    <div id="transportwarning" hidden>Friday requires HTTPS on non-loopback hosts. Reopen this page using the secure URL.</div>
-    <form id="unlockform">
-      <label class="field-label" for="tokeninput">Token</label>
-      <input id="tokeninput" type="password" autocomplete="off" spellcheck="false"
-        aria-label="Friday bootstrap control token" placeholder="Token">
-      <div id="gateerror" role="alert" aria-live="polite"></div>
-      <div class="choices" id="unlockchoices">
-        <button id="unlockbtn" type="submit">Pair</button>
-      </div>
-    </form>
-    <div class="choices" id="modechoices" hidden>
-      <button id="voicebtn" type="button"><strong>Voice</strong></button>
-      <button id="textbtn" type="button"><strong>Text</strong></button>
-    </div>
-  </div>
-</div>
-
-<script>
-let SESSION_TOKEN='',CONTROLLER_KEY=null,CONTROLLER_RECORD=null,SESSION_RECOVERY=null;
-const nativeFetch=window.fetch.bind(window);
-window.fetch=async(input,init={})=>{
-  const requestInput=input instanceof Request;
-  const headers=new Headers(init.headers||(requestInput?input.headers:{}));
-  let sameOrigin=false;
-  try{const raw=requestInput?input.url:String(input);
-      sameOrigin=new URL(raw,location.href).origin===location.origin;}catch(_e){}
-  let retryInput=input;
-  if(requestInput&&sameOrigin){try{retryInput=input.clone();}catch(_e){retryInput=null;}}
-  const presentedToken=SESSION_TOKEN;
-  if(presentedToken&&sameOrigin)headers.set('Authorization','Bearer '+presentedToken);
-  const response=await nativeFetch(input,{...init,headers});
-  if(sameOrigin&&presentedToken&&response.status===401){
-    if(retryInput===null)return response;
-    const resumed=(SESSION_TOKEN&&SESSION_TOKEN!==presentedToken) ? true :
-      await recoverControllerSession(
-        'Controller session expired. Reconnecting securely…');
-    if(resumed&&SESSION_TOKEN){
-      const retryHeaders=new Headers(headers);
-      retryHeaders.set('Authorization','Bearer '+SESSION_TOKEN);
-      return nativeFetch(retryInput,{...init,headers:retryHeaders});
-    }
-  }
-  return response;
-};
-const $=id=>document.getElementById(id);
-const log=$('log'), body=document.body;
-let currentTaskId=null;
-const taskCards=new Map();
-const reconciliationCards=new Map();
-
-function openControllerDB(){
-  return new Promise((resolve,reject)=>{
-    const request=indexedDB.open('friday-controller-v1',1);
-    request.onupgradeneeded=()=>request.result.createObjectStore('identity');
-    request.onsuccess=()=>resolve(request.result);
-    request.onerror=()=>reject(request.error||new Error('Controller storage unavailable.'));
-  });
-}
-async function loadStoredController(){
-  const db=await openControllerDB();
-  try{return await new Promise((resolve,reject)=>{
-    const request=db.transaction('identity','readonly').objectStore('identity').get('active');
-    request.onsuccess=()=>resolve(request.result||null);
-    request.onerror=()=>reject(request.error||new Error('Controller identity could not be read.'));
-  });}finally{db.close();}
-}
-async function storeController(record){
-  const db=await openControllerDB();
-  try{await new Promise((resolve,reject)=>{
-    const tx=db.transaction('identity','readwrite');
-    tx.objectStore('identity').put(record,'active');
-    tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);
-    tx.onabort=()=>reject(tx.error||new Error('Controller identity was not stored.'));
-  });}finally{db.close();}
-}
-async function deleteStoredController(){
-  const db=await openControllerDB();
-  try{await new Promise((resolve,reject)=>{
-    const tx=db.transaction('identity','readwrite');tx.objectStore('identity').delete('active');
-    tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
-  });}finally{db.close();}
-}
-function b64url(bytes){
-  let binary='';for(const value of new Uint8Array(bytes))binary+=String.fromCharCode(value);
-  return btoa(binary).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
-}
-async function signControllerProof(payload,key=CONTROLLER_KEY){
-  if(!key)throw new Error('Controller signing key is unavailable.');
-  const signature=await crypto.subtle.sign(
-    {name:'ECDSA',hash:'SHA-256'},key,new TextEncoder().encode(payload));
-  if(signature.byteLength!==64)throw new Error('Browser returned an invalid controller signature.');
-  return b64url(signature);
-}
-async function publicJSON(path,body,headers={}){
-  return nativeFetch(path,{method:'POST',cache:'no-store',
-    headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
-}
-function unlockController(session,key,record){
-  SESSION_TOKEN=session.session_token;CONTROLLER_KEY=key;CONTROLLER_RECORD=record;
-  $('tokeninput').value='';$('unlockform').hidden=true;
-  $('gateerror').textContent='';$('modechoices').hidden=false;
-}
-function lockControlGate(message){
-  SESSION_TOKEN='';connected=false;
-  audioEnabled=false;playQ=[];
-  if(curSrc){try{curSrc.stop();}catch(_e){}curSrc=null;}playing=false;
-  playbackActive=false;
-  if(ws&&ws.readyState<2){try{ws.close();}catch(_e){}}ws=null;
-  body.classList.remove('started');$('unlockform').hidden=false;
-  $('unlockchoices').hidden=false;$('modechoices').hidden=true;
-  $('sendbtn').disabled=true;$('dot').classList.remove('on');$('modechip').textContent='Offline';
-  setState('idle');setStatus('Locked');$('activity').textContent='';
-  $('tokeninput').hidden=false;$('gateerror').textContent=message||'';
-  $('tokeninput').value='';$('tokeninput').focus();
-}
-async function recoverControllerSession(message){
-  if(SESSION_RECOVERY)return SESSION_RECOVERY;
-  SESSION_RECOVERY=(async()=>{
-    lockControlGate(message);return resumeStoredController();
-  })();
-  try{return await SESSION_RECOVERY;}finally{SESSION_RECOVERY=null;}
-}
-async function resumeStoredController(){
-  let record;
-  try{record=await loadStoredController();}catch(error){
-    $('gateerror').textContent=error.message||'Controller storage unavailable.';return false;}
-  if(!record||!record.controllerId||!record.privateKey)return false;
-  $('gateerror').textContent='Authenticating paired controller…';
-  try{
-    const challengeResponse=await publicJSON('/api/controllers/sessions/challenge',
-      {controller_id:record.controllerId});
-    if(challengeResponse.status===401){await deleteStoredController();return false;}
-    if(!challengeResponse.ok)throw new Error('Friday is not ready.');
-    const challenge=await challengeResponse.json();
-    const signature=await signControllerProof(challenge.proof_payload,record.privateKey);
-    const sessionResponse=await publicJSON('/api/controllers/sessions/complete',{
-      challenge_id:challenge.challenge_id,challenge:challenge.challenge,
-      proof_payload:challenge.proof_payload,signature_b64url:signature});
-    if(sessionResponse.status===401){await deleteStoredController();return false;}
-    if(!sessionResponse.ok)throw new Error('Controller proof was not accepted.');
-    unlockController(await sessionResponse.json(),record.privateKey,record);return true;
-  }catch(error){$('gateerror').textContent=error.message||'Unable to authenticate controller.';
-    return false;}
-}
-async function pairController(rawToken){
-  const candidate=String(rawToken||'').trim();
-  if(!candidate){$('gateerror').textContent='Enter the one-time bootstrap control token.';return false;}
-  if(!window.isSecureContext||!crypto.subtle){
-    $('gateerror').textContent='Secure HTTPS is required to pair this controller.';return false;}
-  $('unlockbtn').disabled=true;$('gateerror').textContent='Checking…';
-  try{
-    const pairingResponse=await nativeFetch('/api/controllers/pairings',{
-      method:'POST',cache:'no-store',headers:{'X-Friday-Token':candidate}});
-    if(!pairingResponse.ok)throw new Error(
-      pairingResponse.status===401?'Bootstrap token not accepted.':'Friday is not ready.');
-    const pairing=await pairingResponse.json();
-    const keys=await crypto.subtle.generateKey(
-      {name:'ECDSA',namedCurve:'P-256'},false,['sign','verify']);
-    const exported=await crypto.subtle.exportKey('jwk',keys.publicKey);
-    const publicJwk={kty:'EC',crv:'P-256',x:exported.x,y:exported.y};
-    const label=((navigator.platform||'Browser')+' on '+location.hostname).slice(0,80);
-    const preparedResponse=await publicJSON('/api/controllers/pairings/prepare',{
-      pairing_token:pairing.pairing_token,label,public_jwk:publicJwk});
-    if(!preparedResponse.ok)throw new Error('Controller pairing preparation failed.');
-    const prepared=await preparedResponse.json();
-    const signature=await signControllerProof(prepared.proof_payload,keys.privateKey);
-    const completedResponse=await publicJSON('/api/controllers/pairings/complete',{
-      pairing_token:pairing.pairing_token,label,public_jwk:publicJwk,
-      signature_b64url:signature});
-    if(!completedResponse.ok)throw new Error('Controller pairing proof was rejected.');
-    const completed=await completedResponse.json();
-    const record={schemaVersion:1,controllerId:completed.controller_id,
-      publicKeySha256:completed.public_key_sha256,privateKey:keys.privateKey,
-      publicKey:keys.publicKey,publicJwk};
-    await storeController(record);unlockController(completed,keys.privateKey,record);return true;
-  }catch(error){SESSION_TOKEN='';CONTROLLER_KEY=null;CONTROLLER_RECORD=null;
-    $('tokeninput').hidden=false;
-    $('gateerror').textContent=error.message||'Unable to unlock Friday.';return false;
-  }finally{$('unlockbtn').disabled=false;}
-}
-
-function appendInline(parent,value){
-  const source=String(value||'');
-  const pattern=/(`[^`]+`|\\[[^\\]]+\\]\\(https?:\\/\\/[^) ]+\\)|[*][*][^*]+[*][*]|__[^_]+__|[*][^*]+[*]|_[^_]+_)/g;
-  let cursor=0,match;
-  while((match=pattern.exec(source))){
-    if(match.index>cursor)parent.appendChild(document.createTextNode(source.slice(cursor,match.index)));
-    const raw=match[0];let node;
-    if(raw.startsWith('`')){
-      node=document.createElement('code');node.textContent=raw.slice(1,-1);
-    }else if(raw.startsWith('[')){
-      const link=raw.match(/^\\[([^\\]]+)\\]\\((https?:\\/\\/[^)]+)\\)$/);
-      if(link){node=document.createElement('a');node.textContent=link[1];node.href=link[2];
-        node.target='_blank';node.rel='noopener noreferrer';}
-    }else if(raw.startsWith('**')||raw.startsWith('__')){
-      node=document.createElement('strong');node.textContent=raw.slice(2,-2);
-    }else{
-      node=document.createElement('em');node.textContent=raw.slice(1,-1);
-    }
-    parent.appendChild(node||document.createTextNode(raw));cursor=pattern.lastIndex;
-  }
-  if(cursor<source.length)parent.appendChild(document.createTextNode(source.slice(cursor)));
-}
-function markdownCells(line){
-  return line.trim().replace(/^[|]/,'').replace(/[|]$/,'').split('|').map(cell=>cell.trim());
-}
-function markdownDivider(line){
-  const cells=markdownCells(line);
-  return cells.length>0&&cells.every(cell=>/^:?-{3,}:?$/.test(cell.replace(/ +/g,'')));
-}
-function richText(value){
-  const root=document.createElement('div');root.className='rich';
-  const lines=String(value||'').split(String.fromCharCode(10)).map(
-    line=>line.endsWith(String.fromCharCode(13))?line.slice(0,-1):line);
-  let i=0;
-  const blockStart=index=>{
-    const line=lines[index]||'';
-    return !line.trim()||/^ *```/.test(line)||/^#{1,3} +/.test(line)||
-      /^ *([-+*]) +/.test(line)||/^ *[0-9]+[.)] +/.test(line)||
-      /^ *> ?/.test(line)||/^ *(---+|___+|[*][*][*]+) *$/.test(line)||
-      (index+1<lines.length&&line.includes('|')&&markdownDivider(lines[index+1]));
-  };
-  while(i<lines.length){
-    const line=lines[i];
-    if(!line.trim()){i++;continue;}
-    const fence=line.match(/^ *```([A-Za-z0-9_.+-]*) *$/);
-    if(fence){
-      const language=fence[1]||'code',body=[];i++;
-      while(i<lines.length&&!/^ *``` *$/.test(lines[i]))body.push(lines[i++]);
-      if(i<lines.length)i++;
-      const pre=document.createElement('pre'),bar=document.createElement('div');bar.className='codebar';
-      const label=document.createElement('span');label.textContent=language;
-      const copy=document.createElement('button');copy.type='button';copy.textContent='Copy';
-      const codeText=body.join(String.fromCharCode(10));copy.onclick=async()=>{try{await navigator.clipboard.writeText(codeText);
-        copy.textContent='Copied';setTimeout(()=>copy.textContent='Copy',1200);}catch(_e){copy.textContent='Failed';}};
-      const code=document.createElement('code');code.textContent=codeText;
-      bar.append(label,copy);pre.append(bar,code);root.appendChild(pre);continue;
-    }
-    const heading=line.match(/^(#{1,3}) +(.+)$/);
-    if(heading){const h=document.createElement('h'+heading[1].length);appendInline(h,heading[2]);root.appendChild(h);i++;continue;}
-    if(/^ *(---+|___+|[*][*][*]+) *$/.test(line)){root.appendChild(document.createElement('hr'));i++;continue;}
-    if(i+1<lines.length&&line.includes('|')&&markdownDivider(lines[i+1])){
-      const headers=markdownCells(line),rows=[];i+=2;
-      while(i<lines.length&&lines[i].includes('|')&&lines[i].trim())rows.push(markdownCells(lines[i++]));
-      const wrap=document.createElement('div');wrap.className='table-wrap';
-      const table=document.createElement('table'),thead=document.createElement('thead'),tr=document.createElement('tr');
-      for(const value of headers){const th=document.createElement('th');appendInline(th,value);tr.appendChild(th);}
-      thead.appendChild(tr);table.appendChild(thead);
-      const tbody=document.createElement('tbody');
-      for(const row of rows){const rowNode=document.createElement('tr');
-        for(let column=0;column<headers.length;column++){const td=document.createElement('td');appendInline(td,row[column]||'');rowNode.appendChild(td);}
-        tbody.appendChild(rowNode);}
-      table.appendChild(tbody);wrap.appendChild(table);root.appendChild(wrap);continue;
-    }
-    const unordered=line.match(/^ *[-+*] +(.+)$/),ordered=line.match(/^ *[0-9]+[.)] +(.+)$/);
-    if(unordered||ordered){const list=document.createElement(ordered?'ol':'ul');
-      while(i<lines.length){const item=lines[i].match(ordered?/^ *[0-9]+[.)] +(.+)$/:/^ *[-+*] +(.+)$/);if(!item)break;
-        const li=document.createElement('li');appendInline(li,item[1]);list.appendChild(li);i++;}
-      root.appendChild(list);continue;
-    }
-    if(/^ *> ?/.test(line)){const quote=[];
-      while(i<lines.length&&/^ *> ?/.test(lines[i]))quote.push(lines[i++].replace(/^ *> ?/,''));
-      const block=document.createElement('blockquote');appendInline(block,quote.join(' '));root.appendChild(block);continue;
-    }
-    const paragraph=[line.trim()];i++;
-    while(i<lines.length&&!blockStart(i))paragraph.push(lines[i++].trim());
-    const p=document.createElement('p');appendInline(p,paragraph.join(' '));root.appendChild(p);
-  }
-  return root;
-}
-function add(cls,text,who){
-  const d=document.createElement('div');d.className='msg '+cls;
-  if(who)d.setAttribute('aria-label',who+' message');
-  d.appendChild(cls.split(/ +/).includes('fri')?richText(text):document.createTextNode(text));
-  log.appendChild(d);log.scrollTop=log.scrollHeight;
-  return d;
-}
-function quickActions(card,taskId){
-  if(!taskId)return;const row=document.createElement('div');row.className='quickrow';
-  for(const [label,kind] of [['correct','correct'],['wrong','wrong'],['undo','undo'],['problem','problem']]){
-    const b=document.createElement('button');b.className='quick';b.textContent=label;
-    b.onclick=async()=>{let comment=null;if(kind==='problem'||kind==='wrong')comment=prompt('What should Friday do differently?');
-      if(kind==='problem'&&!comment)return;
-      const r=await fetch('/api/tasks/'+taskId+'/feedback',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({kind,comment})});b.textContent=r.ok?'recorded':'failed';};row.appendChild(b);
-  }card.appendChild(row);
-}
-async function correctTranscript(utteranceId,original){
-  const corrected=prompt('Correct transcript:',original);if(!corrected||corrected===original)return;
-  const r=await fetch('/api/turns/'+utteranceId+'/correct',{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({corrected_text:corrected})});
-  if(r.ok)add('status','transcript correction saved');else showBanner('Correction failed: '+await r.text());
-}
-function dlog(t){const d=$('dbg');
-  d.textContent+=new Date().toLocaleTimeString()+'  '+t+'\\n';
-  d.scrollTop=d.scrollHeight;}
-function meter(id,v,max){document.querySelector('#'+id+' > div').style.width=
-  Math.min(100,v/max*100)+'%';}
-function setState(s){
-  for(const state of ['idle','hearing','listening','thinking','speaking'])body.classList.remove(state);
-  body.classList.add(s);
-}
-function setStatus(t){$('status').textContent=t;}
-function showBanner(text){$('banner-text').textContent=text;body.classList.add('error');}
-function dismissBanner(){body.classList.remove('error');}
-function toggleDiagnostics(button){
-  const expanded=body.classList.toggle('diag');button.setAttribute('aria-expanded',String(expanded));
-}
-function testTone(){
-  if(!ctx){showBanner('Speaker test requires voice mode.');return;}
-  ctx.resume();
-  const o=ctx.createOscillator(),g=ctx.createGain();
-  o.frequency.value=440;g.gain.value=0.15;o.connect(g);g.connect(ctx.destination);
-  o.start();o.stop(ctx.currentTime+0.5);dlog('test tone played');
-}
-
-const PLAYBACK_ECHO_TAIL_MS=650;
-let ws, ctx, playQ=[], playing=false, playbackActive=false, curSrc=null;
-let micResumeAt=0;
-let connected=false, audioEnabled=false;
-let progressSeq=Number(localStorage.getItem('friday-progress-seq')||0);
-let progressInitialized=localStorage.getItem('friday-progress-seq')!==null;
-
-function showProgress(m){
-  if(m.seq&&m.seq<=progressSeq)return;
-  if(m.seq){progressSeq=m.seq;localStorage.setItem('friday-progress-seq',progressSeq);}
-  progressInitialized=true;
-  if(m.task_id&&String(m.task_id).startsWith('task_'))currentTaskId=m.task_id;
-  const detail=m.detail?(' — '+m.detail):'';
-  $('activity').textContent=m.label+detail;
-  if(m.seq&&m.task_id&&String(m.task_id).startsWith('task_'))showTaskCard(m,detail);
-  else if(m.seq)add('progress',m.label+detail);
-  dlog((m.phase||'task')+' '+m.state+' — '+m.label+detail);
-}
-function showTaskCard(m,detail){
-  let card=taskCards.get(m.task_id),label;
-  if(!card){card=document.createElement('div');card.className='msg taskcard';
-    label=document.createElement('div');label.className='tasklabel';card.appendChild(label);
-    const row=document.createElement('div');row.className='quickrow';
-    const inspect=document.createElement('button');inspect.className='quick';inspect.textContent='details';
-    inspect.onclick=async()=>{let pane=card.querySelector('.taskdetail');if(pane){pane.remove();return;}
-      pane=document.createElement('div');pane.className='taskdetail';pane.textContent='loading…';card.appendChild(pane);
-      const r=await fetch('/api/tasks/'+m.task_id);pane.textContent=r.ok?JSON.stringify(await r.json(),null,2):await r.text();};
-    const cancel=document.createElement('button');cancel.className='quick';cancel.textContent='cancel';
-    cancel.onclick=async()=>{const r=await fetch('/api/tasks/'+m.task_id+'/cancel',{method:'POST'});
-      cancel.textContent=r.ok?'cancelled':'unable';};row.append(inspect,cancel);card.appendChild(row);
-    taskCards.set(m.task_id,card);log.appendChild(card);}else label=card.querySelector('.tasklabel');
-  label=label||card.querySelector('.tasklabel');label.textContent=m.label+detail;
-  card.dataset.state=m.state||'running';
-  if(['completed','failed','cancelled'].includes(m.state)){
-    const cancel=card.querySelector('.quickrow button:last-child');if(cancel)cancel.remove();}
-  log.scrollTop=log.scrollHeight;
-}
-function showReconciliation(item){
-  let card=reconciliationCards.get(item.step_id);
-  if(card)return;
-  card=document.createElement('div');card.className='msg taskcard';
-  const label=document.createElement('div');label.className='tasklabel';
-  label.textContent='Outcome check required — '+item.tool_name;card.appendChild(label);
-  const preview=document.createElement('pre');preview.style.whiteSpace='pre-wrap';
-  preview.style.color='var(--dim)';preview.textContent=JSON.stringify(item.args||{},null,2);
-  card.appendChild(preview);
-  const note=document.createElement('div');note.className='taskdetail';
-  note.textContent='Friday will not repeat this action or infer its outcome.';card.appendChild(note);
-  const row=document.createElement('div');row.className='quickrow';
-  if(item.probe_available){const recheck=document.createElement('button');recheck.className='quick';
-    recheck.textContent='recheck safely';recheck.onclick=async()=>{
-      recheck.disabled=true;const r=await fetch('/api/reconciliations/'+item.step_id+'/recheck',{method:'POST'});
-      const data=await r.json();if(data.resolved){card.remove();reconciliationCards.delete(item.step_id);}
-      else{note.textContent='Still unknown: '+(data.reason||'postcondition not proven');recheck.disabled=false;}};
-    row.appendChild(recheck);}
-  const abandon=document.createElement('button');abandon.className='quick';abandon.textContent='stop waiting';
-  abandon.onclick=async()=>{if(!confirm('Stop reconciliation? The action will remain recorded as outcome unknown.'))return;
-    abandon.disabled=true;const r=await fetch('/api/reconciliations/'+item.step_id+'/decide',
-      {method:'POST',headers:{'content-type':'application/json'},
-       body:JSON.stringify({decision:'abandon_unknown',confirm:true})});
-    if(r.ok){card.remove();reconciliationCards.delete(item.step_id);}
-    else{note.textContent='Unable to record decision: '+await r.text();abandon.disabled=false;}};
-  row.appendChild(abandon);card.appendChild(row);reconciliationCards.set(item.step_id,card);
-  log.appendChild(card);log.scrollTop=log.scrollHeight;
-}
-async function pollReconciliations(){
-  if(!SESSION_TOKEN)return;
-  try{const r=await fetch('/api/reconciliations');if(!r.ok)return;
-    const data=await r.json(),seen=new Set();for(const item of data.reconciliations||[]){
-      seen.add(item.step_id);showReconciliation(item);}
-    for(const [id,card] of reconciliationCards){if(!seen.has(id)){card.remove();reconciliationCards.delete(id);}}
-  }catch(_e){}
-}
-function showSources(m){
-  const card=document.createElement('div');card.className='msg news';
-  const title=document.createElement('div');title.className='news-title';
-  title.textContent='Web sources — '+(m.query||'research');card.appendChild(title);
-  for(const h of (m.results||[]).slice(0,10)){
-    let url;try{url=new URL(h.url);}catch(_e){continue;}
-    const item=document.createElement('div');item.className='news-item';
-    const a=document.createElement('a');a.href=url.href;a.target='_blank';a.rel='noopener';
-    a.textContent=h.title||'Open source';item.appendChild(a);
-    const meta=document.createElement('span');meta.className='news-meta';meta.textContent=h.source||url.hostname;
-    item.appendChild(meta);card.appendChild(item);
-  }log.appendChild(card);log.scrollTop=log.scrollHeight;
-}
-function showNews(m){
-  const card=document.createElement('div');card.className='msg news';
-  const title=document.createElement('div');title.className='news-title';
-  title.textContent=(m.region||'Current')+' news — open any headline';
-  card.appendChild(title);
-  for(const h of (m.headlines||[]).slice(0,10)){
-    let url;try{url=new URL(h.url);}catch(_e){continue;}
-    if(url.protocol!=='http:'&&url.protocol!=='https:')continue;
-    const item=document.createElement('div');item.className='news-item';
-    const a=document.createElement('a');a.href=url.href;a.target='_blank';a.rel='noopener';
-    a.textContent=h.title||'Open story';item.appendChild(a);
-    const meta=document.createElement('span');meta.className='news-meta';
-    meta.textContent=h.source||'Unknown source';item.appendChild(meta);
-    card.appendChild(item);
-  }
-  log.appendChild(card);log.scrollTop=log.scrollHeight;
-}
-async function pollProgress(){
-  if(!SESSION_TOKEN)return;
-  try{
-    if(!progressInitialized){
-      const cursor=await fetch('/api/progress?latest=true').then(r=>r.json());
-      progressSeq=cursor.latest;progressInitialized=true;
-      localStorage.setItem('friday-progress-seq',progressSeq);return;
-    }
-    const r=await fetch('/api/progress?since='+progressSeq);
-    const data=await r.json();for(const m of data.events)showProgress(m);
-  }catch(e){}
-}
-async function refreshMind(){
-  if(!SESSION_TOKEN)return;
-  const mind=$('mind');mind.classList.add('on');mind.textContent='loading…';
-  try{
-    const [s,t,m,k,c,v,u]=await Promise.all(['/api/status','/api/tasks','/api/memories',
-      '/api/skills','/api/capabilities','/api/voices','/api/upgrades']
-      .map(x=>fetch(x).then(r=>r.json())));
-    mind.textContent=JSON.stringify({status:s,tasks:t.tasks,memories:m.memories,
-      skills:k.skills,capabilities:c.capabilities,voices:v,upgrades:u.upgrades},null,2);
-  }catch(e){mind.textContent='inspection failed: '+e.message;}
-}
-
-async function start(){
-  if(!SESSION_TOKEN){lockControlGate('Pair this controller first.');return;}
-  audioEnabled=true;
-  document.body.classList.add('started');
-  setState('thinking');setStatus('Starting');$('activity').textContent='';
-  if(!ctx){
-    try{
-      ctx=new AudioContext({sampleRate:48000});
-      await ctx.resume();
-      dlog('audio ctx state: '+ctx.state+', sr '+ctx.sampleRate);
-      const stream=await navigator.mediaDevices.getUserMedia(
-        {audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
-      const src=ctx.createMediaStreamSource(stream);
-      const proc=ctx.createScriptProcessor(4096,1,1);
-      let carry=new Float32Array(0);
-      proc.onaudioprocess=e=>{
-        const inp=e.inputBuffer.getChannelData(0);
-        // live mic bar + orb breathing even while the socket reconnects
-        let peak=0;for(let i=0;i<inp.length;i++){const a=Math.abs(inp[i]);if(a>peak)peak=a;}
-        meter('micbar',peak,0.05);
-        document.documentElement.style.setProperty('--orb-scale',Math.min(1,peak/0.05));
-        if(playbackActive||playing||performance.now()<micResumeAt){
-          carry=new Float32Array(0);return;
-        }
-        if(ws&&ws.readyState===1){
-          const all=new Float32Array(carry.length+inp.length);
-          all.set(carry);all.set(inp,carry.length);
-          const n=Math.floor(all.length/3072)*3072;
-          if(n===0){carry=all;return;}
-          const out=new Float32Array(n/3);
-          for(let i=0;i<out.length;i++)out[i]=(all[i*3]+all[i*3+1]+all[i*3+2])/3;
-          ws.send(out.buffer);
-          carry=all.slice(n);
-        }
-      };
-      src.connect(proc);proc.connect(ctx.destination);
-    }catch(e){
-      showBanner('Microphone unavailable: '+e.message+'. Allow access and reload.');
-      dlog('mic error '+e.message);
-      const failedContext=ctx;ctx=null;
-      audioEnabled=false;
-      if(failedContext){try{await failedContext.close();}catch(_e){}}
-      body.classList.remove('started');$('modechoices').hidden=false;
-      $('gateerror').textContent=
-        'Microphone unavailable. Text mode is still available.';
-      return;
-    }
-  }else{await ctx.resume();}
-  connect();
-}
-
-async function signAndSubmitApproval(approvalId,approved){
-  if(!SESSION_TOKEN||!CONTROLLER_KEY)throw new Error('Controller session is unavailable.');
-  const preparedResponse=await fetch('/api/approvals/'+approvalId+'/prepare',{
-    method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({approved})});
-  if(!preparedResponse.ok)throw new Error('Approval proof could not be prepared.');
-  const prepared=await preparedResponse.json();
-  const signature=await signControllerProof(prepared.proof_payload);
-  const decisionResponse=await fetch('/api/approvals/'+approvalId,{
-    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
-      approved,proof_payload:prepared.proof_payload,signature_b64url:signature})});
-  if(!decisionResponse.ok)throw new Error('Signed approval was rejected.');
-  return decisionResponse.json();
-}
-
-function connect(){
-  if(!SESSION_TOKEN||!body.classList.contains('started'))return;
-  ws=new WebSocket(`wss://${location.host}/ws`,['friday.v1','session.'+SESSION_TOKEN]);
-  ws.binaryType='arraybuffer';
-  ws.onopen=()=>{connected=true;$('dot').classList.add('on');$('sendbtn').disabled=false;
-                 $('modechip').textContent='Connected';
-                 setState(audioEnabled?'listening':'idle');
-                 setStatus(audioEnabled?'Listening':'Text');
-                 $('activity').textContent='';};
-  ws.onclose=event=>{
-    connected=false;$('dot').classList.remove('on');$('sendbtn').disabled=true;
-    if(event.code===1008){$('modechip').textContent='locked';
-      void recoverControllerSession(
-        'Authorization expired. Reconnecting the paired controller…');return;}
-    $('modechip').textContent='Reconnecting';setStatus('Reconnecting');
-    $('activity').textContent='';
-    dlog('connection lost — friday may be restarting');
-    if(SESSION_TOKEN&&body.classList.contains('started'))setTimeout(connect,2000);
-  };
-  ws.onmessage=ev=>{
-    const m=JSON.parse(ev.data);
-    if(m.type==='dbg'){
-      if(m.vad!==undefined){
-        meter('vadbar',m.vad,1);
-        $('modechip').textContent=m.mode;
-        // trust the server's own turn state machine
-        if(m.mode==='speak'){setState('speaking');setStatus('Speaking');}
-        else if(m.mode==='think'){setState('thinking');setStatus('Thinking');}
-        else {setState('listening');setStatus('Listening');}
-      } else dlog(m.text);
-      return;
-    }
-    switch(m.type){
-      case 'hearing': setState('hearing');setStatus('Listening');break;
-      case 'you': {currentTaskId=null;const card=add('you',m.text,'you');if(m.utterance_id){
-                    const row=document.createElement('div');row.className='quickrow';
-                    const b=document.createElement('button');b.className='quick';b.textContent='edit transcript';
-                    b.onclick=()=>correctTranscript(m.utterance_id,m.text);row.appendChild(b);card.appendChild(row);}
-                  if(m.dbg)dlog(m.dbg);break;}
-      case 'friday': {const card=add('fri',m.text,'friday');quickActions(card,currentTaskId);break;}
-      case 'progress': showProgress(m);break;
-      case 'news': showNews(m);break;
-      case 'sources': showSources(m);break;
-      case 'approval_required': {currentTaskId=m.task_id;const card=add('taskcard approval',m.reason||'Approval required');
-        const taskLabel=document.createElement('div');taskLabel.className='tasklabel';taskLabel.textContent='Your approval is required';card.prepend(taskLabel);
-        if(m.args){const preview=document.createElement('pre');preview.textContent=JSON.stringify(m.args,null,2);
-          preview.style.whiteSpace='pre-wrap';preview.style.color='var(--dim)';card.appendChild(preview);}
-        const row=document.createElement('div');row.className='quickrow';
-        for(const [label,approved] of [['approve',true],['deny',false]]){const b=document.createElement('button');
-          b.className='quick '+(approved?'approve':'deny');b.textContent=label;b.onclick=async()=>{
-            for(const button of row.querySelectorAll('button'))button.disabled=true;
-            try{await signAndSubmitApproval(m.approval_id,approved);b.textContent='recorded';}
-            catch(error){b.textContent='failed';showBanner(error.message);
-              for(const button of row.querySelectorAll('button'))button.disabled=false;}};
-          row.appendChild(b);}card.appendChild(row);break;}
-      case 'audio': if(audioEnabled)playQ.push(m);break;
-      case 'interrupted': playQ=[];micResumeAt=performance.now()+PLAYBACK_ECHO_TAIL_MS;
-                          if(curSrc){curSrc.stop();curSrc=null;}
-                          setState('listening');setStatus('Listening');break;
-      case 'done': if(!playbackActive&&!playing){setState(audioEnabled?'listening':'idle');setStatus(audioEnabled?'Listening':'Text');}break;
-      case 'error': showBanner(m.text);add('status','error — see banner');dlog('ERROR '+m.text);break;
-    }
-  };
-}
-
-function pump(){
-  if(!audioEnabled||!ctx){playQ=[];return;}
-  if(playing||!playQ.length)return;
-  if(ctx&&ctx.state!=='running'){ctx.resume();dlog('ctx was '+ctx.state+', resuming');}
-  if(!playbackActive){
-    playbackActive=true;
-    if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'playback',state:'started'}));
-  }
-  playing=true;setState('speaking');setStatus('Speaking');
-  const m=playQ.shift();
-  const raw=atob(m.b64),buf=new ArrayBuffer(raw.length),v=new Uint8Array(buf);
-  for(let i=0;i<raw.length;i++)v[i]=raw.charCodeAt(i);
-  const i16=new Int16Array(buf);
-  if(!i16.length){playing=false;pump();return;}
-  const ab=ctx.createBuffer(1,i16.length,m.rate);
-  const ch=ab.getChannelData(0);
-  for(let i=0;i<i16.length;i++)ch[i]=i16[i]/32768;
-  curSrc=ctx.createBufferSource();curSrc.buffer=ab;curSrc.connect(ctx.destination);
-  curSrc.onended=()=>{
-    playing=false;curSrc=null;
-    if(playQ.length){pump();return;}
-    micResumeAt=performance.now()+PLAYBACK_ECHO_TAIL_MS;
-    if(playbackActive){
-      playbackActive=false;
-      if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'playback',state:'ended'}));
-    }
-    setState('listening');setStatus('Listening');
-  };
-  curSrc.start();
-}
-setInterval(pump,80);
-setInterval(pollProgress,1200);
-setInterval(pollReconciliations,2500);
-
-$('textform').addEventListener('submit',event=>{
-  event.preventDefault();const input=$('textinput'),text=input.value.trim();if(!text)return;
-  if(ws&&ws.readyState===1){ws.send(JSON.stringify({type:'text',text,speak:audioEnabled}));input.value='';}
-  else showBanner('Friday is reconnecting. Your message was not sent.');
-});
-
-$('unlockform').addEventListener('submit',async event=>{
-  event.preventDefault();await pairController($('tokeninput').value);
-});
-$('voicebtn').addEventListener('click',event=>{event.stopPropagation();start();});
-$('textbtn').addEventListener('click',event=>{event.stopPropagation();
-  if(!SESSION_TOKEN){lockControlGate('Pair this controller first.');return;}
-  audioEnabled=false;playQ=[];
-  if(curSrc){try{curSrc.stop();}catch(_e){}curSrc=null;}playing=false;
-  playbackActive=false;
-  document.body.classList.add('started');setState('thinking');setStatus('Starting');
-  $('activity').textContent='';connect();$('textinput').focus();});
-
-if(location.protocol!=='https:'&&!['localhost','127.0.0.1','::1'].includes(location.hostname)){
-  $('transportwarning').hidden=false;
-}
-void resumeStoredController().then(resumed=>{if(!resumed)$('tokeninput').focus();});
-</script></body></html>
-"""
+HTML = load_frontend(REPO / "frontend" / "index.html")
 
 if __name__ == "__main__":
     uvicorn.run(

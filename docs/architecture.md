@@ -23,10 +23,14 @@ Supervisor service -> pinned loopback Qwen/vLLM runtime
 checks its process and listener identity, performs health and calibration gates,
 and stops or replaces it when the binding is no longer valid.
 
-`server.py` owns the HTTPS and WebSocket interface, speech pipeline, task
-orchestration, approvals, tools, and the current HTML/CSS/JavaScript client. The
-browser microphone is muted while TTS plays, and a playback tail gate prevents
-Friday from transcribing its own output.
+`server.py` is the FastAPI composition root. Pure Host, Origin, bearer, and
+WebSocket parsing lives in `friday_core/transport.py`; strict pairing and
+revocation flows live in `controller_api.py`; history compilation lives in
+`conversation_runtime.py`; per-connection echo and VAD state lives in
+`voice_transport.py`; recovered-batch finalization lives in
+`task_orchestration.py`; and `frontend/index.html` is loaded through a bounded,
+no-symlink asset reader. The browser microphone is muted while TTS plays, and a
+playback tail gate prevents Friday from transcribing its own output.
 
 `friday_core/` contains durable graph, task, policy, process, desktop, browser,
 memory, speech, and evaluation services. SQLite is authoritative for durable
@@ -54,20 +58,28 @@ maintenance-worker changes are untrusted. State-changing actions pass through:
 Unknown outcomes remain unknown until reconciled. A transport success alone is
 not an action receipt.
 
-## Current architectural debt
+## Enforced composition boundaries
 
-- `server.py` contains the API, orchestration wiring, and embedded frontend. Its
-  size raises review cost and couples UI release cadence to the control plane.
+`scripts/check-architecture.py` prevents the frontend from returning to an
+embedded Python string, requires every named boundary, and caps growth of the
+composition root. Unit and integration tests exercise each extracted boundary
+and the retained server-facing compatibility wrappers.
+
+The compatibility contract for graph migrations, receipts, runtime manifests,
+skills, extensions, and controllers is published in
+[Alpha compatibility policy](compatibility.md).
+
+## Remaining release constraints
+
 - The supported installer target is one Linux and NVIDIA family. Hardware
   selection code covers more cases than the public install matrix proves.
-- The SQLite event graph has migrations and restart tests, but no supported
-  selective export or deletion tool for every record type.
 - Browser and desktop boundaries rely on Linux user-session facilities and have
   not received an independent penetration test.
 - Model and speech quality are measured on the maintainer's hardware. There is
   no public cross-device benchmark matrix yet.
-- The repository has one maintainer and no published compatibility window for
-  alpha schemas or extension APIs.
+- The repository has one maintainer. Alpha extension APIs intentionally have no
+  compatibility window yet; durable data and authority have the narrower
+  guarantees documented in the policy.
 
 These are release constraints, not hidden roadmap items. Changes that widen a
 network, execution, or storage boundary require tests and documentation in the

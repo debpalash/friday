@@ -23,6 +23,7 @@ required=(
   README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md SUPPORT.md
   CODE_OF_CONDUCT.md THIRD_PARTY.md VERSION .gitleaks.toml
   docs/README.md docs/architecture.md docs/privacy.md docs/releasing.md
+  docs/compatibility.md compatibility/v1.json frontend/index.html
 )
 for path in "${required[@]}"; do
   [[ -s "$path" ]] || fail "missing required file: $path"
@@ -76,6 +77,8 @@ bash -n install.sh ops/fridayctl ops/provision_qwen_runtime.sh \
   scripts/scan-secrets.sh \
   || fail "a shell entrypoint does not parse"
 git diff --check || fail "Git reports whitespace errors"
+python3 scripts/check_architecture.py >/dev/null \
+  || fail "architecture boundary check failed"
 
 if (( failures )); then
   printf '%d release-tree check(s) failed\n' "$failures" >&2

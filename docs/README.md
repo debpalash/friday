@@ -3,6 +3,7 @@
 ## Start here
 
 - [Architecture](architecture.md): processes, trust boundaries, and current debt
+- [Compatibility](compatibility.md): alpha data, protocol, receipt, runtime, and extension policy
 - [Installer](installer.md): transaction, rollback, and supply-chain contract
 - [Privacy](privacy.md): stored data, retention, and network access
 - [Roadmap closure ledger](roadmap-closure.md): verified evidence, open work,

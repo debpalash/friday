@@ -35,6 +35,7 @@ not authorized by this ledger.
 | Recovered project execution | closed | Long-horizon project v1: 3/3 files, 3/3 tests, 5/5 verified receipts, one interrupted step resumed as attempt 2 in 55.8 ms, no duplicate effects, and receipt-derived completion |
 | Paired controller and browser control path | closed | Controller-browser v1: signed pairing, restart/reconnect, rejected action with zero effects, one exact approved effect, before/after managed-runtime fencing, single-use approval, and immediate controller revocation |
 | Injected rollback and recovery | closed | Recovery v1: 4/4 model, worker, browser, and filesystem scenarios; 12.7 ms control-path p95; 15-second model retry policy; no duplicate worker or rejected-browser effects |
+| Architecture and alpha compatibility | closed | External frontend plus explicit transport, controller, conversation, voice-session, speech, and recovered-task modules; machine boundary check; schema-15 compatibility policy |
 
 The performance numbers above describe one local machine and one exact runtime
 profile. They are not a cross-device claim.
@@ -60,15 +61,6 @@ profile. They are not a cross-device claim.
 
 ### Capability and runtime
 
-
-### Architecture and compatibility
-
-- Split `server.py` into transport, conversation, speech, task orchestration,
-  controller, and frontend boundaries without changing the security model.
-- Separate frontend assets from the control-plane module so UI changes do not
-  require reviewing unrelated execution code.
-- Publish an alpha compatibility policy for graph schemas, tool receipts,
-  runtime manifests, skills, and extension APIs.
 
 ### Installer and release rehearsal
 

@@ -127,7 +127,8 @@ EOF
       || fail "Friday's default 27B runtime needs an NVIDIA GPU with at least 22 GiB VRAM"
   fi
   if [[ -n "$source_dir" ]]; then
-    [[ -f "$source_dir/server.py" && -f "$source_dir/supervisor.py" ]] \
+    [[ -f "$source_dir/server.py" && -f "$source_dir/supervisor.py" \
+        && -f "$source_dir/frontend/index.html" ]] \
       || fail "local source is not a Friday checkout: $source_dir"
   fi
 
@@ -298,7 +299,8 @@ for raw in sys.stdin:
 '
     tar -xzf "$archive" --strip-components=1 -C "$release_dir"
   fi
-  [[ -f "$release_dir/install.sh" && -f "$release_dir/server.py" ]] \
+  [[ -f "$release_dir/install.sh" && -f "$release_dir/server.py" \
+      && -f "$release_dir/frontend/index.html" ]] \
     || fail "source archive is missing Friday install/runtime files"
   chmod 755 "$release_dir/install.sh" "$release_dir/ops/fridayctl" \
     "$release_dir/ops/provision_qwen_runtime.sh" \
