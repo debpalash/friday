@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Friday
+Comment=Private local assistant
+Exec=@CLI@ open
+Icon=friday
+Terminal=false
+Categories=Utility;AudioVideo;
+StartupNotify=true
+StartupWMClass=Friday

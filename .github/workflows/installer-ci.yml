@@ -1,0 +1,37 @@
+name: Installer safety
+
+on:
+  pull_request:
+    paths:
+      - install.sh
+      - scripts/uninstall.sh
+      - ops/**
+      - requirements-runtime.*
+      - tests/test_installer.py
+      - .github/workflows/installer-ci.yml
+  push:
+    branches: [main]
+    paths:
+      - install.sh
+      - scripts/uninstall.sh
+      - ops/**
+      - requirements-runtime.*
+      - tests/test_installer.py
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse shell entrypoints
+        run: bash -n install.sh ops/fridayctl ops/provision_qwen_runtime.sh scripts/uninstall.sh
+      - name: Compile Python entrypoints
+        run: python3 -m py_compile ops/install_asr_model.py ops/friday_doctor.py
+      - name: Exercise clean install and rollback
+        run: python3 -m unittest -v tests.test_installer

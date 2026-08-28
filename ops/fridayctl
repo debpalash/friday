@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+INSTALL_ROOT="${FRIDAY_INSTALL_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/friday}"
+CONFIG_ROOT="${FRIDAY_CONFIG_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/friday}"
+ENV_FILE="$CONFIG_ROOT/friday.env"
+UNIT="friday.service"
+
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # The installer writes a private, shell-compatible environment file.
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
+CURRENT="$INSTALL_ROOT/current"
+PORT="${FRIDAY_PORT:-8500}"
+URL="https://127.0.0.1:$PORT"
+CA_FILE="${FRIDAY_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/friday}/tls/friday-local-ca.crt"
+
+usage() {
+  cat <<'EOF'
+Friday lifecycle commands
+
+Usage: friday <command>
+
+  start       Start Friday and wait for readiness
+  stop        Stop Friday and unload its model
+  restart     Restart Friday and its model
+  status      Show service and runtime status
+  doctor      Check hardware, assets, permissions, and health
+  logs        Follow Friday's service log
+  open        Start Friday and open its desktop window
+  update      Install the newest configured Friday release
+  repair      Rebuild the installed release from its local source
+  uninstall   Remove Friday's app/runtime; preserve personal data
+  version     Print the installed release identity
+EOF
+}
+
+need_install() {
+  [[ -L "$CURRENT" && -x "$CURRENT/venv/bin/python" ]] || {
+    echo "Friday is not installed at $INSTALL_ROOT" >&2
+    exit 1
+  }
+}
+
+wait_ready() {
+  local deadline=$((SECONDS + 300))
+  while (( SECONDS < deadline )); do
+    if [[ -f "$CA_FILE" ]] && curl --silent --show-error --fail \
+        --cacert "$CA_FILE" "$URL/healthz" >/dev/null 2>&1; then
+      echo "Friday is ready at $URL"
+      return 0
+    fi
+    if ! systemctl --user is-active --quiet "$UNIT"; then
+      echo "Friday stopped before becoming ready." >&2
+      journalctl --user -u "$UNIT" -n 40 --no-pager >&2 || true
+      return 1
+    fi
+    sleep 2
+  done
+  echo "Friday did not become ready within 5 minutes." >&2
+  journalctl --user -u "$UNIT" -n 40 --no-pager >&2 || true
+  return 1
+}
+
+start() {
+  need_install
+  systemctl --user start "$UNIT"
+  wait_ready
+}
+
+stop() {
+  systemctl --user stop "$UNIT"
+  echo "Friday stopped; its local model is unloaded."
+}
+
+case "${1:-}" in
+  start)
+    start
+    ;;
+  stop)
+    stop
+    ;;
+  restart)
+    need_install
+    systemctl --user restart "$UNIT"
+    wait_ready
+    ;;
+  status)
+    need_install
+    systemctl --user status "$UNIT" --no-pager || true
+    "$CURRENT/venv/bin/python" "$CURRENT/supervisor.py" status || true
+    ;;
+  doctor)
+    need_install
+    exec "$CURRENT/venv/bin/python" "$CURRENT/ops/friday_doctor.py" --expect-running
+    ;;
+  logs)
+    exec journalctl --user -u "$UNIT" -f
+    ;;
+  open)
+    need_install
+    if ! systemctl --user is-active --quiet "$UNIT"; then
+      start
+    elif ! [[ -f "$CA_FILE" ]] || ! curl --silent --fail --cacert "$CA_FILE" \
+        "$URL/healthz" >/dev/null 2>&1; then
+      wait_ready
+    fi
+    if command -v chromium >/dev/null 2>&1; then
+      SPKI="$(openssl x509 -in "$(python3 - "$FRIDAY_STATE_DIR/tls/active.json" <<'PY'
+import json, sys
+from pathlib import Path
+manifest = json.loads(Path(sys.argv[1]).read_text())
+print(Path(sys.argv[1]).parent / manifest["generation"] / "server-cert.pem")
+PY
+)" -pubkey -noout | openssl pkey -pubin -outform der 2>/dev/null \
+        | openssl dgst -sha256 -binary | base64 -w0)"
+      UI_PROFILE="${FRIDAY_STATE_DIR}/ui-browser"
+      mkdir -p "$UI_PROFILE"
+      chmod 700 "$UI_PROFILE"
+      setsid -f chromium --app="$URL" --class=Friday --no-first-run \
+        --user-data-dir="$UI_PROFILE" \
+        --ignore-certificate-errors-spki-list="$SPKI" >/dev/null 2>&1
+    elif command -v google-chrome >/dev/null 2>&1; then
+      setsid -f google-chrome --app="$URL" --class=Friday >/dev/null 2>&1
+    else
+      xdg-open "$URL" >/dev/null 2>&1
+    fi
+    ;;
+  update)
+    need_install
+    update_args=(--root "$INSTALL_ROOT" --config-root "$CONFIG_ROOT")
+    [[ -z "${FRIDAY_STATE_DIR:-}" ]] || update_args+=(--state-root "$FRIDAY_STATE_DIR")
+    [[ -z "${FRIDAY_LLM_REPO:-}" ]] || update_args+=(--llm-root "$FRIDAY_LLM_REPO")
+    exec "$CURRENT/install.sh" "${update_args[@]}"
+    ;;
+  repair)
+    need_install
+    repair_args=(--local "$CURRENT" --root "$INSTALL_ROOT" \
+      --config-root "$CONFIG_ROOT" --repair)
+    [[ -z "${FRIDAY_STATE_DIR:-}" ]] || repair_args+=(--state-root "$FRIDAY_STATE_DIR")
+    [[ -z "${FRIDAY_LLM_REPO:-}" ]] || repair_args+=(--llm-root "$FRIDAY_LLM_REPO")
+    exec "$CURRENT/install.sh" "${repair_args[@]}"
+    ;;
+  uninstall)
+    need_install
+    shift
+    exec "$CURRENT/scripts/uninstall.sh" "$@"
+    ;;
+  version)
+    need_install
+    if [[ -f "$CURRENT/FRIDAY_RELEASE" ]]; then
+      cat "$CURRENT/FRIDAY_RELEASE"
+    else
+      basename "$(readlink -f "$CURRENT")"
+    fi
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    echo "Unknown command: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

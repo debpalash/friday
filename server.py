@@ -165,6 +165,10 @@ NEWS_DELIVERY_PREFERENCE = (
 )
 
 REPO = Path(__file__).parent.resolve()
+OWNER_NAME = (
+    os.environ.get("FRIDAY_OWNER_NAME", "").strip()
+    or Path.home().name
+)
 SESSION_FILE = REPO / "session.json"
 SERVER_LOG_FILE = REPO / "server.log"
 PROMPT_FILE = REPO / "system_prompt.md"
@@ -197,7 +201,7 @@ def _new_local_llm_client() -> AsyncOpenAI:
 
 DEFAULT_PROMPT = (
     "You are Friday, a personal AI assistant. You run locally on your owner's "
-    "machine (user: Pulash) on a fine-tuned Qwen3.8-27B model. Match the active "
+    f"machine (user: {OWNER_NAME}) on a fine-tuned Qwen3.8-27B model. Match the active "
     "delivery mode: concise natural speech in voice; complete, polished answers "
     "with useful Markdown in text. Start with the answer. No filler, repetition, "
     "canned sections, or decorative formatting. Dry wit."
@@ -353,6 +357,8 @@ class Friday:
 
         system_prompt = (PROMPT_FILE.read_text() if PROMPT_FILE.is_file()
                          else DEFAULT_PROMPT)
+        system_prompt = system_prompt.replace("{{owner_name}}", OWNER_NAME).replace(
+            "{{project_root}}", str(REPO))
         if SESSION_FILE.is_file():
             try:
                 h = json.loads(SESSION_FILE.read_text())
@@ -452,13 +458,13 @@ class Friday:
             return False
         existing = next((claim for claim in MEMORY.list(
             lifecycle="active", limit=100)
-            if claim.get("subject") == "Pulash"
+            if claim.get("subject") == OWNER_NAME
             and claim.get("predicate") == "news_delivery_style"
             and claim.get("object") == NEWS_DELIVERY_PREFERENCE), None)
         if existing:
             return True
         claim_id = MEMORY.propose(
-            subject="Pulash", predicate="news_delivery_style",
+            subject=OWNER_NAME, predicate="news_delivery_style",
             object_value=NEWS_DELIVERY_PREFERENCE,
             scope="user_preference", evidence_class="user_explicit",
             source_node_ids=[utterance_id], confidence=1.0,
@@ -803,7 +809,7 @@ class Friday:
                 result = "error: preference has no source utterance"
             else:
                 claim_id = MEMORY.propose(
-                    subject="Pulash", predicate=args.get("key", "preference"),
+                    subject=OWNER_NAME, predicate=args.get("key", "preference"),
                     object_value=args.get("value", ""),
                     scope="user_preference", evidence_class="user_explicit",
                     source_node_ids=[utterance_id], confidence=1.0,
@@ -1352,7 +1358,7 @@ class Friday:
                     context_sections.append(resume_context)
                 if news_preference_recorded:
                     context_sections.append(
-                        "Pulash's explicit news-delivery preference was already stored "
+                        f"{OWNER_NAME}'s explicit news-delivery preference was already stored "
                         "from this utterance. Apply or acknowledge it now; do not call "
                         "remember_preference again and do not fetch merely to record it.")
                 if grounded_news:
@@ -1764,7 +1770,11 @@ SENTENCE_SPLIT = re.compile(
     r"(?<!Dr\.)(?<!Prof\.)(?<!Sr\.)(?<!Jr\.)(?<=[.!?])\s+")
 LLM_REPO = Path(os.environ.get(
     "FRIDAY_LLM_REPO",
-    os.environ.get("FRIDAY_QWEN_ROOT", "/home/pal/github/qwen38-27b-uncensored"),
+    os.environ.get(
+        "FRIDAY_QWEN_ROOT",
+        str(Path(os.environ.get(
+            "XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
+            / "friday" / "runtime" / "qwen")),
 )).expanduser().resolve()
 LOCAL_API_KEY_FILE = Path(os.environ.get(
     "FRIDAY_LOCAL_API_KEY_FILE", str(LLM_REPO / "api_key.txt"))).expanduser()

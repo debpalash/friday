@@ -1,0 +1,19 @@
+[Unit]
+Description=Friday private local assistant
+After=network-online.target graphical-session.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@CURRENT@
+EnvironmentFile=@ENV_FILE@
+ExecStart=@CURRENT@/venv/bin/python @CURRENT@/supervisor.py watch
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=control-group
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+UMask=0077
+
+[Install]
+WantedBy=default.target

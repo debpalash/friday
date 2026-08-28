@@ -44,9 +44,14 @@ from friday_core.vision_evals import (NativeVisionEvalRunner,
 
 REPO = Path(__file__).resolve().parent
 STATE = REPO / "state"
+DEFAULT_INSTALL_ROOT = Path(
+    os.environ.get(
+        "XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
+) / "friday"
 QWEN = Path(os.environ.get(
     "FRIDAY_LLM_REPO",
-    os.environ.get("FRIDAY_QWEN_ROOT", "/home/pal/github/qwen38-27b-uncensored"),
+    os.environ.get(
+        "FRIDAY_QWEN_ROOT", str(DEFAULT_INSTALL_ROOT / "runtime" / "qwen")),
 )).expanduser().resolve()
 FRIDAY_PID = STATE / "friday.pid"
 QWEN_PID = STATE / "qwen.pid"
