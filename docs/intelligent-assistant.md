@@ -66,13 +66,13 @@ discovery metadata, not evidence of safety or quality.
 Install the managed-browser client dependency with:
 
 ```bash
-uv pip install --python venv/bin/python -r requirements-operator.txt
+uv pip install --python venv/bin/python -r requirements/operator.txt
 ```
 
 Install Friday's fast local CPU speech backend and exact hash-pinned voice with:
 
 ```bash
-uv pip install --python venv/bin/python -r requirements-tts.txt
+uv pip install --python venv/bin/python -r requirements/tts.txt
 venv/bin/python ops/install_piper_voice.py
 ```
 

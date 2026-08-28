@@ -1,7 +1,10 @@
-__pycache__/
+/__pycache__/
 *.py[cod]
-*.log
-state/
-backups/
-models/
-session.json*
+/*.log
+/state/
+/backups/
+/models/
+/session.json*
+/venv/
+/capabilities/
+/skills/workflow-*/

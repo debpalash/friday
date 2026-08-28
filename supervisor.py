@@ -45,10 +45,7 @@ from friday_core.vision_evals import (NativeVisionEvalRunner,
 REPO = Path(__file__).resolve().parent
 _CONFIGURED_STATE_DIR = os.environ.get("FRIDAY_STATE_DIR", "").strip()
 STATE = Path(_CONFIGURED_STATE_DIR or str(REPO / "state")).expanduser().resolve()
-SERVER_LOG_FILE = (
-    STATE / "logs" / "server.log"
-    if _CONFIGURED_STATE_DIR else REPO / "server.log"
-)
+SERVER_LOG_FILE = STATE / "logs" / "server.log"
 DEFAULT_INSTALL_ROOT = Path(
     os.environ.get(
         "XDG_DATA_HOME", str(Path.home() / ".local" / "share"))

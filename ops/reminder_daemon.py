@@ -11,7 +11,7 @@ from pathlib import Path
 from friday_core import GraphStore, ReminderService, ReminderWorker
 
 
-REPO = Path(__file__).resolve().parent
+REPO = Path(__file__).resolve().parents[1]
 STATE = Path(
     os.environ.get("FRIDAY_STATE_DIR", str(REPO / "state"))
 ).expanduser().resolve()

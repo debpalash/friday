@@ -5,7 +5,7 @@ Silero VAD -> Parakeet TDT -> Qwen3.8 vLLM stream -> OmniVoice TTS and
 streams 24 kHz audio back. Microphone endpointing is gated during playback.
 
 Friday can read/edit files in this project and restart herself.
-System prompt lives in system_prompt.md; memory persists in session.json.
+System prompt lives in system_prompt.md; local development state lives in state/.
 
 Run:  venv/bin/python server.py
 """
@@ -187,14 +187,8 @@ OWNER_NAME = (
 )
 _CONFIGURED_STATE_DIR = os.environ.get("FRIDAY_STATE_DIR", "").strip()
 STATE_DIR = Path(_CONFIGURED_STATE_DIR or str(REPO / "state")).expanduser().resolve()
-SESSION_FILE = (
-    STATE_DIR / "session.json"
-    if _CONFIGURED_STATE_DIR else REPO / "session.json"
-)
-SERVER_LOG_FILE = (
-    STATE_DIR / "logs" / "server.log"
-    if _CONFIGURED_STATE_DIR else REPO / "server.log"
-)
+SESSION_FILE = STATE_DIR / "session.json"
+SERVER_LOG_FILE = STATE_DIR / "logs" / "server.log"
 PROMPT_FILE = REPO / "system_prompt.md"
 
 

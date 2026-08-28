@@ -1,5 +1,5 @@
 # Direct Friday application dependencies. Compile with:
-#   uv pip compile requirements-runtime.in -o requirements-runtime.lock
+#   uv pip compile requirements/runtime.in -o requirements/runtime.lock
 accelerate==1.14.0
 fastapi==0.141.1
 faster-whisper==1.2.1

@@ -389,11 +389,11 @@ for path in (Path(new) / "bin").iterdir():
 PY
   else
     step environment "creating a pinned Python 3.12 runtime"
-    [[ -f "$release_dir/requirements-runtime.lock" ]] \
-      || fail "requirements-runtime.lock is missing"
+    [[ -f "$release_dir/requirements/runtime.lock" ]] \
+      || fail "requirements/runtime.lock is missing"
     "$uv_bin" venv --python 3.12 "$release_dir/venv"
     "$uv_bin" pip sync --python "$release_dir/venv/bin/python" \
-      "$release_dir/requirements-runtime.lock"
+      "$release_dir/requirements/runtime.lock"
   fi
   (cd "$release_dir" && venv/bin/python - <<'PY'
 import fastapi, numpy, openai, pydantic, sherpa_onnx, silero_vad, torch, uvicorn

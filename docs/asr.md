@@ -8,7 +8,7 @@ line in the diagnostic panel.
 Install the runtime into Friday's environment:
 
 ```bash
-uv pip install --python venv/bin/python -r requirements-asr.txt
+uv pip install --python venv/bin/python -r requirements/asr.txt
 ```
 
 Download and unpack the int8 model from Sherpa-ONNX's official model release:

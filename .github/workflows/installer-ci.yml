@@ -6,7 +6,7 @@ on:
       - install.sh
       - scripts/uninstall.sh
       - ops/**
-      - requirements-runtime.*
+      - requirements/**
       - tests/test_installer.py
       - .github/workflows/installer-ci.yml
   push:
@@ -15,7 +15,7 @@ on:
       - install.sh
       - scripts/uninstall.sh
       - ops/**
-      - requirements-runtime.*
+      - requirements/**
       - tests/test_installer.py
 
 permissions:

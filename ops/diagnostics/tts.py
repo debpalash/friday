@@ -1,4 +1,7 @@
-import time, sys
+"""Manual OmniVoice synthesis and real-time-factor check."""
+
+import time
+
 import torch
 from omnivoice.models.omnivoice import OmniVoice
 

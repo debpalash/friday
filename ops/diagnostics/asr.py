@@ -1,3 +1,5 @@
+"""Manual Faster Whisper smoke test against generated TTS samples."""
+
 import time
 from faster_whisper import WhisperModel
 

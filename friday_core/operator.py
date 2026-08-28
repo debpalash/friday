@@ -233,7 +233,7 @@ class WebOperator:
             from playwright.sync_api import sync_playwright
         except ImportError as exc:
             raise RuntimeError(
-                "browser automation needs requirements-operator.txt") from exc
+                "browser automation needs requirements/operator.txt") from exc
         self._ensure_browser()
         with sync_playwright() as playwright:
             browser = playwright.chromium.connect_over_cdp(

@@ -101,7 +101,7 @@ class PiperSpeechSynthesizer:
             from piper import PiperVoice
         except ImportError as exc:
             raise RuntimeError(
-                "Piper is unavailable; install requirements-tts.txt") from exc
+                "Piper is unavailable; install requirements/tts.txt") from exc
         self._voice = PiperVoice.load(str(model_path), use_cuda=False)
         self._lock = threading.Lock()
         self.output_rate = output_rate

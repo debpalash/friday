@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from friday_core import GraphStore, ReminderService, ReminderWorker
-from reminder_daemon import deliver as deliver_desktop_notification
+from ops.reminder_daemon import deliver as deliver_desktop_notification
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -108,7 +108,7 @@ class ReminderWorkerTests(unittest.IsolatedAsyncioTestCase):
 class ReminderDaemonTests(unittest.IsolatedAsyncioTestCase):
     async def test_nonzero_notify_send_exit_is_a_delivery_failure(self):
         failure = subprocess.CalledProcessError(1, ["notify-send"])
-        with patch("reminder_daemon.asyncio.to_thread", new_callable=AsyncMock,
+        with patch("ops.reminder_daemon.asyncio.to_thread", new_callable=AsyncMock,
                    side_effect=failure) as to_thread:
             with self.assertRaises(subprocess.CalledProcessError):
                 await deliver_desktop_notification({"text": "Do not lose me"})
