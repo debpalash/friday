@@ -83,11 +83,13 @@ class InstallerLifecycleTests(unittest.TestCase):
         self.fake_bin = self.root / "bin"
         self.fake_bin.mkdir()
         self.systemctl_log = self.root / "systemctl.log"
+        self.uv_log = self.root / "uv.log"
         self._write_executable(self.fake_bin / "bwrap", "#!/bin/sh\nexit 0\n")
         self._write_executable(
             self.fake_bin / "uv",
             """#!/usr/bin/env bash
 set -eu
+printf '%s\n' "$*" >> "${UV_LOG:?}"
 if [[ "${1:-}" == venv ]]; then
   target="${@: -1}"
   mkdir -p "$target/bin"
@@ -118,6 +120,7 @@ exit 0
             "XDG_CACHE_HOME": str(self.root / "cache"),
             "XDG_BIN_HOME": str(self.root / "user-bin"),
             "SYSTEMCTL_LOG": str(self.systemctl_log),
+            "UV_LOG": str(self.uv_log),
             "PATH": str(self.fake_bin) + os.pathsep + self.env["PATH"],
         })
         self.source = self.root / "source"
@@ -255,6 +258,10 @@ touch "$runtime/provisioner-invoked"
         self.assertEqual((self.root / "user-bin" / "friday").stat().st_mode & 0o777, 0o755)
         self.assertEqual((self.root / "config" / "friday" / "friday.env").stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.llm.joinpath("api_key.txt").stat().st_mode & 0o777, 0o600)
+        self.assertTrue(any(
+            call.startswith("pip sync ")
+            for call in self.uv_log.read_text().splitlines()
+        ))
 
     def test_verified_archive_install_uses_no_source_network_and_lifecycle_works(self):
         archive, digest = self._make_archive(self.source)
