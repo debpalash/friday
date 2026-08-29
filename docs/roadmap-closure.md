@@ -71,7 +71,7 @@ content. Cross-device physical-host coverage remains an external gate.
 ### Security hardening
 
 The seven-scenario adversarial scorecard, complete boundary-to-response threat
-model, and exact 321-package plus model engineering license inventory are
+model, and exact 322-package plus model engineering license inventory are
 closed. Distribution remains gated on the owner's Friday/Piper license
 compatibility decision below.
 

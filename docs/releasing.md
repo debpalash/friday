@@ -26,7 +26,7 @@ venv/bin/python ops/friday_release_candidate.py \
 
 The command refuses a dirty worktree, builds an exact HEAD source archive,
 runs the release tree, full tests, full-history secret scan, all local
-scorecards including live conversation, the 321-package license inventory, and
+scorecards including live conversation, the 322-package license inventory, and
 the clean synthetic installer lifecycle. It retains only hashes, counts,
 timings, declared blockers, and privacy-safe summaries in a new mode-0600
 report. It does not tag, publish, or change repository settings.

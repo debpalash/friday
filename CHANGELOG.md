@@ -29,7 +29,7 @@ releases. Migrations must preserve user state.
   controller-browser, injected-recovery, and adversarial scorecards.
 - A private release-candidate command covering full tests, full-history secret
   scanning, live scorecards, exact dependency review, and installer rehearsal.
-- A complete threat-model checklist and 321-package plus model engineering
+- A complete threat-model checklist and 322-package plus model engineering
   license inventory.
 
 ## 0.1.0-alpha.1
