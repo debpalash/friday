@@ -8,10 +8,12 @@ releases. Migrations must preserve user state.
 
 ### Changed
 
-- Split the control plane into explicit frontend, transport, controller,
-  conversation, voice-session, speech, and recovered-task boundaries.
+- Removed browser tokens, pairing, bearer sessions, and signing keys. Friday now
+  opens directly and rejects any non-loopback bind host.
+- Split the control plane into explicit frontend, transport, conversation,
+  voice-session, speech, and recovered-task boundaries.
 - Added a forward-only alpha compatibility contract for graph schema 15,
-  receipts, runtime manifests, skills, extensions, and controllers.
+  receipts, runtime manifests, skills, extensions, and the local UI protocol.
 - Added verified local source-archive installation with pre-mutation digest
   checks and bounded no-link tar extraction.
 - Made the provisioned Qwen environment relocatable and verify its launcher

@@ -249,6 +249,8 @@ touch "$runtime/provisioner-invoked"
         self.assertEqual((self.root / "state" / "friday" / "friday.db").read_bytes(), b"personal-state")
         environment = (self.root / "config" / "friday" / "friday.env").read_text()
         self.assertIn("FRIDAY_BIND_HOST='127.0.0.1'", environment)
+        self.assertNotIn("FRIDAY_ALLOWED_HOSTS", environment)
+        self.assertNotIn("FRIDAY_ALLOWED_ORIGINS", environment)
         self.assertNotIn("0.0.0.0", environment)
         self.assertEqual((self.root / "user-bin" / "friday").stat().st_mode & 0o777, 0o755)
         self.assertEqual((self.root / "config" / "friday" / "friday.env").stat().st_mode & 0o777, 0o600)

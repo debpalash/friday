@@ -12,7 +12,6 @@ SERVER = ROOT / "server.py"
 MAX_SERVER_LINES = 4_500
 BOUNDARIES = {
     "transport": ROOT / "friday_core" / "transport.py",
-    "controller": ROOT / "friday_core" / "controller_api.py",
     "conversation": ROOT / "friday_core" / "conversation_runtime.py",
     "speech": ROOT / "friday_core" / "speech.py",
     "voice_transport": ROOT / "friday_core" / "voice_transport.py",
@@ -29,7 +28,6 @@ def inspect_architecture() -> dict[str, object]:
                      if not path.is_file() or path.stat().st_size == 0)
     imports = {
         "transport": "from friday_core.transport import",
-        "controller": "from friday_core.controller_api import",
         "conversation": "from friday_core.conversation_runtime import",
         "voice_transport": "from friday_core.voice_transport import",
         "task_orchestration": "from friday_core.task_orchestration import",

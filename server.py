@@ -38,8 +38,6 @@ from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome,
                          CapabilityManager,
                          ClaimedStep, ContractBuilder, CoreUpgradeHarness,
-                         ControllerAuthError, ControllerAuthService,
-                         ControllerPrincipal,
                          CorrectedAudioStore, DurableStepWorker,
                          DeploymentManager, EvolutionEngine, FeedbackService, GraphStore,
                          IntentInterpreter, MachineOperator, MemoryCurator,
@@ -78,7 +76,6 @@ from friday_core.tls import ensure_tls_material
 from friday_core.local_http import (normalize_loopback_model_base_url,
                                     open_loopback_request)
 from friday_core.frontend import load_frontend
-from friday_core.controller_api import ControllerAPI, ControllerAPIError
 from friday_core.conversation_runtime import (
     canonical_chat_turn,
     compile_chat_messages,
@@ -90,12 +87,8 @@ from friday_core.conversation_runtime import (
     latest_user_only,
 )
 from friday_core.transport import (
-    bearer_session_token,
-    controller_origin,
-    valid_control_token,
     valid_host,
     valid_origin,
-    websocket_session_token,
 )
 from friday_core.voice_transport import VoiceTransportSession
 from friday_core.task_orchestration import RecoveredBatchFinalizer
@@ -1317,8 +1310,7 @@ class Friday:
                       utterance_id: str | None = None, progress_sink=None,
                       existing_task_id: str | None = None,
                       resume_context: str | None = None,
-                      display_mode: bool = False,
-                      controller_principal: ControllerPrincipal | None = None):
+                      display_mode: bool = False):
         lock = getattr(self, "_response_lock", None)
         if lock is None:
             lock = self._response_lock = asyncio.Lock()
@@ -1328,8 +1320,7 @@ class Friday:
                 utterance_id=utterance_id, progress_sink=progress_sink,
                 existing_task_id=existing_task_id,
                 resume_context=resume_context,
-                display_mode=display_mode,
-                controller_principal=controller_principal)
+                display_mode=display_mode)
 
     async def _respond_serialized(self, user_text: str, speak_q: asyncio.Queue, *,
                                   session_id: str | None = None,
@@ -1338,9 +1329,7 @@ class Friday:
                                   progress_sink=None,
                                   existing_task_id: str | None = None,
                                   resume_context: str | None = None,
-                                  display_mode: bool = False,
-                                  controller_principal:
-                                      ControllerPrincipal | None = None):
+                                  display_mode: bool = False):
         if existing_task_id is None:
             self.history.append({"role": "user", "content": user_text})
         seen_calls: set[tuple] = set()
@@ -1620,8 +1609,7 @@ class Friday:
                     plan = PLANNER.build(calls, contract)
                     task_id, event = TASKS.create(
                         user_text, contract.model_dump(mode="json"),
-                        session_id=session_id, turn_id=turn_id,
-                        controller_principal=controller_principal)
+                        session_id=session_id, turn_id=turn_id)
                     TASKS.graph.record_edge(task_id, "created_for", intent_id,
                                             actor="interpreter", task_id=task_id)
                     await progress(event)
@@ -1780,8 +1768,7 @@ class Friday:
                     approvals_pending = True
                     approval = APPROVALS.request(
                         task_id, staged["tool_name"], staged["args"],
-                        staged["policy_reason"], step_id=step["step_id"],
-                        controller_principal=controller_principal)
+                        staged["policy_reason"], step_id=step["step_id"])
                     if staged["tool_name"] == "write_file":
                         args_hash = approval["args"].get("_args_sha256")
                         approval["args"] = {
@@ -2242,45 +2229,16 @@ def _sample_admission_resources() -> ResourceSnapshot:
         captured_at=datetime.now(UTC))
 
 
-def _load_control_token(path: Path) -> str:
-    """Load or create the non-exported browser control-plane credential."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except FileNotFoundError:
-        token = secrets.token_urlsafe(32)
-        create_flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL
-                        | getattr(os, "O_NOFOLLOW", 0))
-        try:
-            descriptor = os.open(path, create_flags, 0o600)
-        except FileExistsError:
-            return _load_control_token(path)
-        with os.fdopen(descriptor, "w") as stream:
-            stream.write(token + "\n")
-        return token
-    with os.fdopen(descriptor) as stream:
-        token = stream.read().strip()
-    if len(token) < 32:
-        raise RuntimeError("Friday control token is missing or truncated")
-    os.chmod(path, 0o600)
-    return token
-
-
-CONTROL_TOKEN = _load_control_token(STATE_DIR / "control-token")
 try:
     WEB_PORT = int(os.environ.get("FRIDAY_PORT", "8500"))
 except ValueError as exc:
     raise RuntimeError("FRIDAY_PORT must be an integer") from exc
-_configured_hosts = os.environ.get("FRIDAY_ALLOWED_HOSTS", "").strip()
-ALLOWED_HOSTS = frozenset(
-    item.strip().lower() for item in _configured_hosts.split(",") if item.strip()
-) if _configured_hosts else frozenset({"localhost", "127.0.0.1", "::1"})
-_configured_origins = os.environ.get("FRIDAY_ALLOWED_ORIGINS", "").strip()
-ALLOWED_ORIGINS = frozenset(
-    item.strip().lower().rstrip("/")
-    for item in _configured_origins.split(",") if item.strip()
-) if _configured_origins else frozenset({
+BIND_HOST = os.environ.get("FRIDAY_BIND_HOST", "127.0.0.1").strip().lower()
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+if BIND_HOST not in LOOPBACK_HOSTS:
+    raise RuntimeError("authless Friday must bind to a loopback host")
+ALLOWED_HOSTS = LOOPBACK_HOSTS
+ALLOWED_ORIGINS = frozenset({
     f"https://localhost:{WEB_PORT}", f"https://127.0.0.1:{WEB_PORT}",
     f"https://[::1]:{WEB_PORT}",
 })
@@ -2296,26 +2254,8 @@ def _valid_origin(value: str | None) -> bool:
     return valid_origin(value, ALLOWED_ORIGINS)
 
 
-def _valid_control_token(value: str | None) -> bool:
-    return valid_control_token(value, CONTROL_TOKEN)
-
-
-def _websocket_session_token(protocol_header: str | None) -> str | None:
-    return websocket_session_token(protocol_header)
-
-
-def _controller_origin(headers) -> str:
-    return controller_origin(headers)
-
-
-def _bearer_session_token(value: str | None) -> str | None:
-    return bearer_session_token(value)
-
-
 TLS_MATERIAL = ensure_tls_material(STATE_DIR, ALLOWED_HOSTS)
 GRAPH = GraphStore(STATE_DIR / "friday.db")
-CONTROLLER_AUTH = ControllerAuthService(
-    GRAPH, STATE_DIR / "controller-auth")
 ADMISSION = ResourceAdmissionController(
     GRAPH, ADMISSION_BUDGET, _sample_admission_resources,
     snapshot_ttl_seconds=2.0, lease_ttl_seconds=300,
@@ -2323,14 +2263,11 @@ ADMISSION = ResourceAdmissionController(
         str(_RESOLVED_RUNTIME.get("fingerprint") or "") or None))
 PROCESS_BROKER: ProcessBroker | None = None
 DESKTOP_BROKER: DesktopBroker | None = None
-TASKS = TaskService(
-    GRAPH, admission=ADMISSION, controller_auth=CONTROLLER_AUTH,
-    require_controller_authority=True)
+TASKS = TaskService(GRAPH, admission=ADMISSION)
 MEMORY = MemoryCurator(GRAPH, embedder=configured_local_embedder(REPO))
 REFLECTION = ReflectionService(GRAPH)
 FEEDBACK = FeedbackService(GRAPH)
-APPROVALS = ApprovalService(
-    GRAPH, CONTROLLER_AUTH, require_controller_decisions=True)
+APPROVALS = ApprovalService(GRAPH)
 OPERATOR_GRANTS = OperatorGrantService(
     GRAPH, REPO, state_root=STATE_DIR)
 MACHINE_OPERATOR = MachineOperator(
@@ -2466,43 +2403,31 @@ DESKTOP_INITIALIZED = False
 DESKTOP_LAST_ERROR: str | None = None
 
 
+def _remove_retired_auth_artifacts() -> None:
+    """Remove credentials that the loopback-only runtime no longer reads."""
+    controller_state = STATE_DIR / "controller-auth"
+    for path in (
+        STATE_DIR / "control-token",
+        controller_state / "controller-auth.key",
+    ):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            print(f"could not remove retired auth artifact {path.name}: {exc}",
+                  flush=True)
+    try:
+        controller_state.rmdir()
+    except OSError:
+        pass
+
+
 @app.middleware("http")
 async def protect_control_plane(request: Request, call_next):
     if not _valid_host(request.headers.get("host")):
         return JSONResponse({"detail": "invalid host"}, status_code=403)
     if not _valid_origin(request.headers.get("origin")):
         return JSONResponse({"detail": "origin not allowed"}, status_code=403)
-    path = request.url.path
-    public_controller_paths = {
-        "/api/controllers/pairings/prepare",
-        "/api/controllers/pairings/complete",
-        "/api/controllers/sessions/challenge",
-        "/api/controllers/sessions/complete",
-    }
-    if path in {"/", "/healthz"}:
-        response = await call_next(request)
-    elif path == "/api/controllers/pairings":
-        if not _valid_control_token(request.headers.get("x-friday-token")):
-            return JSONResponse(
-                {"detail": "pairing bootstrap authorization required"},
-                status_code=401)
-        response = await call_next(request)
-    elif path in public_controller_paths:
-        response = await call_next(request)
-    else:
-        token = _bearer_session_token(
-            request.headers.get("authorization"))
-        try:
-            principal = CONTROLLER_AUTH.authenticate_session(
-                token or "", origin=_controller_origin(request.headers),
-                transport_binding_sha256=
-                    TLS_MATERIAL.transport_binding_sha256)
-        except (ControllerAuthError, ValueError):
-            return JSONResponse(
-                {"detail": "controller authorization required"},
-                status_code=401)
-        request.state.controller_principal = principal
-        response = await call_next(request)
+    response = await call_next(request)
     response.headers.setdefault("Cache-Control", "no-store")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
@@ -3063,30 +2988,6 @@ async def _process_monitor_loop():
         await asyncio.sleep(5)
 
 
-def _retire_legacy_controller_authority() -> dict[str, int]:
-    """Retire authority that predates paired controllers without effects."""
-    result = APPROVALS.retire_unbound_legacy_requests()
-    cancelled_tasks = 0
-    for task_id in result["task_ids"]:
-        state = TASKS.get(task_id)
-        if (state is None or state["status"] != "waiting_input"
-                or TASKS.list_steps(task_id=task_id)):
-            continue
-        try:
-            TASKS.transition(
-                task_id, "cancelled", expected_status="waiting_input",
-                label="Retired legacy unsigned approval",
-                error="legacy_unbound_controller_authority",
-                actor="controller_auth_migration")
-        except ValueError:
-            continue
-        cancelled_tasks += 1
-    return {
-        "retired_approvals": int(result["retired"]),
-        "cancelled_tasks": cancelled_tasks,
-    }
-
-
 @app.on_event("startup")
 async def _load():
     global FRIDAY, WORKER, EVOLUTION_TASK, REMINDER_WORKER
@@ -3100,13 +3001,16 @@ async def _load():
     imported = migrate_session_json(GRAPH, SESSION_FILE)
     if imported:
         print(f"imported {imported} legacy messages into graph journal", flush=True)
-    retired = _retire_legacy_controller_authority()
-    if retired["retired_approvals"]:
+    retired = APPROVALS.retire_controller_bound_requests_for_local_runtime()
+    for task_id in retired["task_ids"]:
+        state = TASKS.get(task_id)
+        if state and state["status"] not in {"completed", "failed", "cancelled"}:
+            TASKS.request_cancel(task_id, actor="authless_local_migration")
+    if retired["retired"]:
         print(
-            "retired "
-            f"{retired['retired_approvals']} unsigned legacy approval(s) "
-            f"and {retired['cancelled_tasks']} orphan task(s)",
-            flush=True)
+            f"retired {retired['retired']} obsolete controller approval(s)",
+            flush=True,
+        )
     PROCESS_BROKER = ProcessBroker(
         GRAPH, _curated_process_registry(), SystemdUserProcessBackend(),
         ADMISSION, state_root=STATE_DIR / "process-runtime")
@@ -3158,6 +3062,7 @@ async def _load():
     REMINDER_WORKER = ReminderWorker(
         REMINDERS, _deliver_reminder, confirmation=_confirm_reminder)
     await REMINDER_WORKER.start()
+    _remove_retired_auth_artifacts()
 
 
 async def _shutdown_components() -> None:
@@ -3224,92 +3129,7 @@ async def _shutdown():
 
 @app.get("/")
 async def index():
-    # Reachability is not authority.  The UI shell is intentionally public,
-    # but it must never bootstrap the installation-wide control credential.
     return HTMLResponse(HTML)
-
-
-def _require_controller_principal(request: Request) -> ControllerPrincipal:
-    principal = getattr(request.state, "controller_principal", None)
-    if not isinstance(principal, ControllerPrincipal):
-        raise HTTPException(401, "controller authorization required")
-    return principal
-
-
-def _controller_api() -> ControllerAPI:
-    return ControllerAPI(
-        CONTROLLER_AUTH, TLS_MATERIAL.transport_binding_sha256)
-
-
-def _raise_controller_api_error(exc: ControllerAPIError):
-    raise HTTPException(exc.status_code, exc.detail) from exc
-
-
-@app.post("/api/controllers/pairings")
-async def api_create_controller_pairing():
-    # Middleware restricts this sole bootstrap route to the private local
-    # control token. The returned bearer is one-time, short-lived, and stored
-    # only as a digest in SQLite.
-    return _controller_api().create_pairing()
-
-
-@app.post("/api/controllers/pairings/prepare")
-async def api_prepare_controller_pairing(request: Request, body: dict):
-    try:
-        return _controller_api().prepare_pairing(request.headers, body)
-    except ControllerAPIError as exc:
-        _raise_controller_api_error(exc)
-
-
-@app.post("/api/controllers/pairings/complete")
-async def api_complete_controller_pairing(request: Request, body: dict):
-    try:
-        return _controller_api().complete_pairing(request.headers, body)
-    except ControllerAPIError as exc:
-        _raise_controller_api_error(exc)
-
-
-@app.post("/api/controllers/sessions/challenge")
-async def api_controller_session_challenge(request: Request, body: dict):
-    try:
-        return _controller_api().create_session_challenge(request.headers, body)
-    except ControllerAPIError as exc:
-        _raise_controller_api_error(exc)
-
-
-@app.post("/api/controllers/sessions/complete")
-async def api_complete_controller_session(body: dict):
-    try:
-        return _controller_api().complete_session(body)
-    except ControllerAPIError as exc:
-        _raise_controller_api_error(exc)
-
-
-@app.get("/api/controllers/me")
-async def api_controller_identity(request: Request):
-    principal = _require_controller_principal(request)
-    return _controller_api().identity(principal)
-
-
-@app.get("/api/controllers")
-async def api_controller_list(request: Request):
-    _require_controller_principal(request)
-    return _controller_api().list_controllers()
-
-
-@app.delete("/api/controllers/{controller_id}")
-async def api_revoke_controller(controller_id: str, request: Request):
-    principal = _require_controller_principal(request)
-    try:
-        return _controller_api().revoke_controller(principal, controller_id)
-    except ControllerAPIError as exc:
-        _raise_controller_api_error(exc)
-
-
-@app.delete("/api/controllers/sessions/current")
-async def api_revoke_controller_session(request: Request):
-    principal = _require_controller_principal(request)
-    return _controller_api().revoke_session(principal)
 
 
 def _record_admission_health(
@@ -3690,35 +3510,13 @@ async def api_approvals(status: str | None = "pending"):
     return {"approvals": APPROVALS.list(status=status)}
 
 
-@app.post("/api/approvals/{approval_id}/prepare")
-async def api_prepare_approval_decision(
-        approval_id: str, request: Request, body: dict):
+@app.post("/api/approvals/{approval_id}")
+async def api_decide_approval(approval_id: str, body: dict):
     if set(body) != {"approved"} or type(body.get("approved")) is not bool:
         raise HTTPException(400, "approved must be exactly true or false")
     try:
-        return APPROVALS.prepare_decision(
-            approval_id, body["approved"],
-            _require_controller_principal(request))
-    except (ControllerAuthError, PermissionError) as exc:
-        raise HTTPException(403, "approval proof preparation was rejected") from exc
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-
-
-@app.post("/api/approvals/{approval_id}")
-async def api_decide_approval(
-        approval_id: str, request: Request, body: dict):
-    if (set(body) != {"approved", "proof_payload", "signature_b64url"}
-            or type(body.get("approved")) is not bool
-            or not isinstance(body.get("proof_payload"), str)
-            or not isinstance(body.get("signature_b64url"), str)):
-        raise HTTPException(400, "signed approval decision fields are invalid")
-    try:
         decision = APPROVALS.decide(
-            approval_id, body["approved"],
-            controller_principal=_require_controller_principal(request),
-            proof_payload=body["proof_payload"],
-            signature_b64url=body["signature_b64url"])
+            approval_id, body["approved"], actor="local_user")
         state = TASKS.get(decision["task_id"])
         if state and state["status"] == "waiting_input":
             if decision["status"] == "approved":
@@ -3733,7 +3531,7 @@ async def api_decide_approval(
                 TASKS.transition(decision["task_id"], "failed",
                                  label="Task denied by user")
         return decision
-    except (ControllerAuthError, PermissionError) as exc:
+    except PermissionError as exc:
         raise HTTPException(403, "approval decision was rejected") from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -3836,25 +3634,14 @@ async def api_graph_events(since: int = 0, limit: int = 100):
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
-    supplied_token = _websocket_session_token(
-        ws.headers.get("sec-websocket-protocol"))
-    try:
-        if (not _valid_host(ws.headers.get("host"))
-                or not _valid_origin(ws.headers.get("origin"))):
-            raise ControllerAuthError()
-        controller_principal = CONTROLLER_AUTH.authenticate_session(
-            supplied_token or "", origin=_controller_origin(ws.headers),
-            transport_binding_sha256=
-                TLS_MATERIAL.transport_binding_sha256)
-    except (ControllerAuthError, ValueError):
-        await ws.close(code=1008, reason="control-plane authorization failed")
+    if (not _valid_host(ws.headers.get("host"))
+            or not _valid_origin(ws.headers.get("origin"))):
+        await ws.close(code=1008, reason="loopback origin rejected")
         return
     await ws.accept(subprotocol="friday.v1")
     graph_session_id = GRAPH.record_node(
-        "session", {"transport": "websocket", "state": "connected",
-                    "controller_id": controller_principal.controller_id,
-                    "controller_session_id": controller_principal.session_id},
-        actor=controller_principal.controller_id,
+        "session", {"transport": "websocket", "state": "connected"},
+        actor="local_user",
         event_type="session.connected")
     f = FRIDAY
     voice_session = VoiceTransportSession.create(
@@ -3891,15 +3678,6 @@ async def ws_endpoint(ws: WebSocket):
                     "label": f"Task {pending['status']}: {pending['objective'][:120]}"})
 
     async def handle_utterance(x16: np.ndarray):
-        nonlocal controller_principal
-        try:
-            controller_principal = CONTROLLER_AUTH.authenticate_session(
-                supplied_token or "", origin=_controller_origin(ws.headers),
-                transport_binding_sha256=
-                    TLS_MATERIAL.transport_binding_sha256)
-        except (ControllerAuthError, ValueError):
-            await ws.close(code=1008, reason="controller session expired")
-            return
         t0 = time.time()
         signal_rms = float(np.sqrt(np.mean(np.square(x16)))) if x16.size else 0.0
         signal_peak = float(np.max(np.abs(x16))) if x16.size else 0.0
@@ -3947,8 +3725,7 @@ async def ws_endpoint(ws: WebSocket):
             q: asyncio.Queue = asyncio.Queue()
             task = asyncio.create_task(f.respond(
                 text, q, session_id=graph_session_id, turn_id=turn_id,
-                utterance_id=utterance_id, progress_sink=send,
-                controller_principal=controller_principal))
+                utterance_id=utterance_id, progress_sink=send))
             try:
                 t_first = None
                 n_sent = 0
@@ -4021,17 +3798,8 @@ async def ws_endpoint(ws: WebSocket):
         voice_session.active_speaker_task = asyncio.create_task(speak_side())
 
     async def handle_text(text: str, speak_response: bool = False):
-        nonlocal controller_principal
         text = text.strip()
         if not text:
-            return
-        try:
-            controller_principal = CONTROLLER_AUTH.authenticate_session(
-                supplied_token or "", origin=_controller_origin(ws.headers),
-                transport_binding_sha256=
-                    TLS_MATERIAL.transport_binding_sha256)
-        except (ControllerAuthError, ValueError):
-            await ws.close(code=1008, reason="controller session expired")
             return
         turn_id = GRAPH.record_node(
             "turn", {"input": "text", "text": text}, actor="user",
@@ -4047,8 +3815,7 @@ async def ws_endpoint(ws: WebSocket):
         response_task = asyncio.create_task(FRIDAY.respond(
             text, queue, session_id=graph_session_id, turn_id=turn_id,
             utterance_id=utterance_id, progress_sink=send,
-            display_mode=not speak_response,
-            controller_principal=controller_principal))
+            display_mode=not speak_response))
         try:
             while True:
                 sentence = await queue.get()
@@ -4166,7 +3933,7 @@ HTML = load_frontend(REPO / "frontend" / "index.html")
 
 if __name__ == "__main__":
     uvicorn.run(
-        app, host=os.environ.get("FRIDAY_BIND_HOST", "127.0.0.1"),
+        app, host=BIND_HOST,
         port=WEB_PORT, log_level="warning",
         ssl_keyfile=str(TLS_MATERIAL.keyfile),
         ssl_certfile=str(TLS_MATERIAL.certfile),

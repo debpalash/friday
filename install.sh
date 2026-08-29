@@ -492,8 +492,6 @@ FRIDAY_LOCAL_API_KEY_FILE='$llm_root/api_key.txt'
 FRIDAY_OWNER_NAME='$owner_name'
 FRIDAY_BIND_HOST='127.0.0.1'
 FRIDAY_PORT='8500'
-FRIDAY_ALLOWED_HOSTS='localhost,127.0.0.1,::1'
-FRIDAY_ALLOWED_ORIGINS='https://localhost:8500,https://127.0.0.1:8500,https://[::1]:8500'
 FRIDAY_DESKTOP_MODE='auto'
 EOF
   chmod 600 "$config_file"

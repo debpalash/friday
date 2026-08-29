@@ -49,12 +49,12 @@ destinations before and after redirects. The managed browser uses a constrained
 public proxy. These checks reduce SSRF risk but do not make external content
 trustworthy.
 
-## Local controllers
+## Local browser access
 
-The installer binds Friday to loopback HTTPS. A browser controller receives a
-short-lived pairing challenge and keeps its private signing key in browser
-storage. Do not expose the service to a LAN or the public internet without a
-separate deployment review.
+The installer binds Friday to loopback HTTPS. The browser UI has no account,
+token, pairing step, or persistent authentication key. The local OS account is
+the access boundary. Friday rejects non-loopback bind hosts and must not be
+exposed directly to a LAN or the public internet.
 
 ## Removing data
 

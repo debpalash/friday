@@ -1753,14 +1753,9 @@ def start_friday(*, activate_voice: str | None = None,
             str(request.get("voice") or "") if request else "")
         env = build_friday_environment(
             selected, activate_voice=requested_voice)
-        configured_hosts = env.get("FRIDAY_ALLOWED_HOSTS", "").strip()
-        tls_hosts = (
-            [item.strip() for item in configured_hosts.split(",")
-             if item.strip()]
-            if configured_hosts else ["localhost", "127.0.0.1", "::1"])
         # Bootstrap before launch so the HTTPS readiness probe has a trusted
         # local CA and a malformed/tampered identity prevents any listener.
-        ensure_tls_material(STATE, tls_hosts)
+        ensure_tls_material(STATE, ["localhost", "127.0.0.1", "::1"])
         log = _private_log(SERVER_LOG_FILE)
         try:
             proc = subprocess.Popen(

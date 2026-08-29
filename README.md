@@ -161,7 +161,7 @@ deleting them.
 browser microphone or text
             |
             v
-loopback HTTPS controller
+loopback HTTPS interface
             |
       ASR -> planner -> local Qwen -> response -> TTS
                 |             |
@@ -173,8 +173,8 @@ loopback HTTPS controller
 ```
 
 `supervisor.py` owns the model process, listener identity, health probes, and
-runtime profile. `server.py` composes explicit controller, transport,
-conversation, voice-session, task, speech, and external frontend boundaries.
+runtime profile. `server.py` composes explicit local transport, conversation,
+voice-session, task, speech, and external frontend boundaries.
 SQLite is authoritative for durable task state.
 
 State-changing work follows a typed tool contract, resource admission, policy,
@@ -198,10 +198,11 @@ network tools still contact external services.
 | Remote reasoning | Disabled unless configured and approved |
 | Telemetry | No telemetry or analytics sender is implemented |
 
-The installer binds the interface to `127.0.0.1:8500`. Browser controllers use
-a short-lived pairing challenge and keep their signing key in browser storage.
-Do not expose Friday to a LAN or public interface without a separate deployment
-review.
+The installer binds the interface to `127.0.0.1:8500`. The local browser opens
+without an application token or account. Friday rejects non-loopback bind hosts,
+foreign Host headers, and foreign browser origins. Any process running as the
+same OS user can still reach the local API, so the operating-system account is
+the security boundary. Friday does not support direct LAN or public exposure.
 
 Raw microphone samples remain in memory for up to ten minutes so a transcript
 can be corrected. Friday writes audio only after a correction, encrypts it with
@@ -216,7 +217,7 @@ runtime network tools, and current deletion limits.
 | Path | Responsibility |
 |---|---|
 | `server.py` | FastAPI composition root and WebSocket request lifecycle |
-| `frontend/` | Static controller interface, released independently from Python composition |
+| `frontend/` | Static local interface, released independently from Python composition |
 | `supervisor.py` | Qwen/vLLM lifecycle, runtime profile, identity, and readiness |
 | `friday_core/` | Tasks, policy, memory, speech, tools, processes, evidence, and evals |
 | `ops/` | Asset installers, diagnostics, service templates, and runtime provisioning |

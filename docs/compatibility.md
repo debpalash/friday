@@ -35,8 +35,8 @@ otherwise recovery uses the pre-update backup or export.
 ## Tool contracts and receipts
 
 Task contracts use version 1. Authority-bearing request bodies reject unknown
-fields. An approved action remains bound to its exact controller, session,
-tool, arguments, executor identity, policy decision, and one-time approval.
+fields. An approved action remains bound to its exact task, durable step, tool,
+arguments, executor identity, policy decision, and one-time local approval.
 Receipt verification does not infer compatibility from similar prose or a
 transport success.
 
@@ -68,13 +68,12 @@ experimental during alpha. There is no cross-release compatibility window for
 third-party extensions unless a later document names one. Unsupported fields,
 versions, or permissions fail closed rather than being guessed.
 
-## Controller protocol
+## Local UI protocol
 
-The current WebSocket subprotocol is `friday.v1`. Controller sessions are bound
-to the paired P-256 key, canonical HTTPS origin, TLS transport identity, idle
-expiry, absolute expiry, and controller epoch. A breaking wire change uses a
-new subprotocol or endpoint version. Friday does not silently weaken an older
-controller's proof requirements.
+The current WebSocket subprotocol is `friday.v1`. It carries no bearer token or
+paired identity. The server accepts it only on a loopback listener with an exact
+allowed Host and HTTPS Origin. A breaking wire change uses a new subprotocol or
+endpoint version.
 
 ## Support window
 

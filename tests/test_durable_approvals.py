@@ -184,15 +184,9 @@ class ApprovalEndpointTests(unittest.IsolatedAsyncioTestCase):
         with (patch.object(server, "APPROVALS", approvals),
               patch.object(server, "TASKS", tasks),
               patch.object(server, "WORKER", worker),
-              patch.object(server, "FRIDAY", friday),
-              patch.object(server, "_require_controller_principal",
-                           return_value="controller-principal")):
+              patch.object(server, "FRIDAY", friday)):
             decision = await server.api_decide_approval(
-                "approval_exact", SimpleNamespace(), {
-                    "approved": True,
-                    "proof_payload": '{"exact":true}',
-                    "signature_b64url": "s" * 86,
-                })
+                "approval_exact", {"approved": True})
 
         self.assertEqual(decision["batch_id"], batch_id)
         tasks.step_batch.assert_called_once_with(batch_id)
@@ -204,9 +198,7 @@ class ApprovalEndpointTests(unittest.IsolatedAsyncioTestCase):
         worker.enqueue.assert_awaited_once_with(batch_id)
         friday.respond.assert_not_awaited()
         approvals.decide.assert_called_once_with(
-            "approval_exact", True,
-            controller_principal="controller-principal",
-            proof_payload='{"exact":true}', signature_b64url="s" * 86)
+            "approval_exact", True, actor="local_user")
 
     async def test_endpoint_does_not_enqueue_until_all_approvals_are_done(self):
         approvals = SimpleNamespace(decide=Mock(return_value={
@@ -227,15 +219,9 @@ class ApprovalEndpointTests(unittest.IsolatedAsyncioTestCase):
 
         with (patch.object(server, "APPROVALS", approvals),
               patch.object(server, "TASKS", tasks),
-              patch.object(server, "WORKER", worker),
-              patch.object(server, "_require_controller_principal",
-                           return_value="controller-principal")):
+              patch.object(server, "WORKER", worker)):
             await server.api_decide_approval(
-                "approval_first", SimpleNamespace(), {
-                    "approved": True,
-                    "proof_payload": '{"exact":true}',
-                    "signature_b64url": "s" * 86,
-                })
+                "approval_first", {"approved": True})
 
         tasks.transition.assert_not_called()
         worker.enqueue.assert_not_awaited()

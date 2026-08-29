@@ -5,7 +5,7 @@ assistant. The supervisor publishes `state/runtime-resolved.json` only after vLL
 health plus an authenticated `/v1/models` identity check; it therefore describes the
 active runtime, not merely a proposal. The server consumes the same model endpoint,
 context budget, ASR thread count, and TTS device through environment variables.
-`/api/status` exposes that manifest to an authenticated UI.
+`/api/status` exposes that manifest to the local UI.
 
 The policy is reasoning-first. A single 24 GB card cannot simultaneously hold the
 27B model's proven 200K KV profile and resident CUDA OmniVoice, so automatic placement
@@ -57,7 +57,7 @@ bounded mono audio locally, rejects silent/malformed output, and resamples to Fr
 browser stream. If the pinned voice is absent, automatic mode preserves the older OmniVoice CPU
 fallback; explicit `piper` fails closed instead. Piper prioritizes immediate speech and does not
 offer reference-based voice activation. CUDA speech automatically retains OmniVoice and its voice-profile
-lifecycle. The authenticated status response reports the active backend and runtime voice.
+lifecycle. The local status response reports the active backend and runtime voice.
 
 The 200K ceiling is capacity, not a promise of constant decode speed. KVarN's own measured
 cost is small on short prompts but material beyond 100K active tokens; long context should
@@ -209,8 +209,7 @@ Every automatic choice can be overridden without editing source:
 | `FRIDAY_EMBEDDING_BATCH_SIZE` | Optional semantic-memory CPU batch override from 1 through 64 |
 | `FRIDAY_LOCAL_API_KEY` | In-memory local provider credential |
 | `FRIDAY_LOCAL_API_KEY_FILE` | Local provider credential file; never copied into status |
-| `FRIDAY_BIND_HOST`, `FRIDAY_PORT` | Friday UI listener (loopback by default) |
-| `FRIDAY_ALLOWED_HOSTS`, `FRIDAY_ALLOWED_ORIGINS` | Exact comma-separated HTTPS UI trust boundary |
+| `FRIDAY_BIND_HOST`, `FRIDAY_PORT` | Friday UI listener; the host must be `localhost`, `127.0.0.1`, or `::1` |
 | `FRIDAY_DESKTOP_MODE` | Hyprland operator mode: `auto`, `required`, or `disabled` |
 
 The live 24 GB profile remains explicitly language-only and retains its proven 200K/eight-sequence
@@ -243,31 +242,15 @@ ephemeral and its receipt stores hashes rather than pixels or answer text. These
 bounded launch and five deterministic scene tasks, not general visual competence. The current
 24 GiB language-only profile neither runs nor advertises this tool.
 
-For direct LAN access, bind the UI to `0.0.0.0` but keep `FRIDAY_ALLOWED_HOSTS` and
-`FRIDAY_ALLOWED_ORIGINS` limited to the machine's current private address and trusted local
-names. The model endpoint remains constrained to loopback. If DHCP changes either private
-address, update the allowlists and firewall rule before reconnecting. Prefer one exact trusted
-client over a whole subnet; for the current server/client pair the UFW rule is:
+Friday's browser and model listeners are loopback-only. `FRIDAY_BIND_HOST` accepts only
+`localhost`, `127.0.0.1`, or `::1`; startup rejects wildcard, LAN, and public addresses. Direct
+LAN access is unsupported because the local browser API has no application authentication.
 
-```bash
-sudo ufw allow in on wlp7s0 proto tcp from 192.168.1.175 to 192.168.1.158 port 8500 comment 'Friday LAN UI'
-```
-
-Friday serves this listener directly over HTTPS. It creates a stable local P-256 CA and a
-host/SAN-specific leaf certificate under the owner-only `state/tls/` directory. Import
-`state/tls/friday-local-ca.crt` into each intended controller device's trust store using a
-secure local transfer, then open the exact configured URL, for example:
-
-```text
-https://192.168.1.158:8500/
-```
-
-Do not bypass the browser's certificate warning: trusting the CA is what makes the browser's
-non-exportable controller key and microphone APIs available in a secure context. Adding or
-changing a configured host renews the leaf while preserving the CA and paired identities.
-CA/key tampering, symlinks, unsafe permissions, or certificate verification failures abort
-startup instead of silently rotating trust. A VPN or authenticated tunnel is still preferred
-when crossing an untrusted network. The model endpoint remains loopback-only.
+Friday still serves HTTPS and creates a stable local P-256 CA plus leaf certificate under the
+owner-only `state/tls/` directory. HTTPS preserves browser microphone access and transport
+integrity. CA/key tampering, symlinks, unsafe permissions, or certificate verification failures
+abort startup instead of silently rotating trust. Remote use requires a separately reviewed
+authenticated tunnel that terminates at loopback.
 
 Invalid numeric ranges or KV modes fail at startup with an explicit error. Explicit values
 always beat the automatic profile and are listed by variable name in the resolved manifest;
@@ -367,30 +350,12 @@ A normal stop still uses `KillMode=control-group` and terminates the entire serv
 
 ## Local control-plane protection
 
-On first start, Friday creates `state/control-token` with mode `0600`. The unauthenticated UI
-shell contains no credential. This installation-wide token is accepted only to create a
-short-lived, one-use pairing challenge; it is never accepted as operational API authority.
-Read or copy it locally without printing it into chat or logs, for example:
+Friday has no browser token, account, pairing flow, bearer session, or signing key. The UI opens
+directly and every HTTP and WebSocket route is available to the local OS user. Foreign Host and
+Origin values are rejected, the server cannot bind outside loopback, responses disable caching
+and framing, and HTTPS remains enabled.
 
-```bash
-wl-copy < state/control-token
-```
-
-During first pairing, the browser creates a P-256 signing key whose private half is
-non-exportable and stores that key in IndexedDB. The bootstrap token is held only in the
-password input long enough to obtain the one-use challenge and is never put in HTML, URLs,
-Web Storage, IndexedDB, or SQLite. Only the public key is sent to Friday. Returning devices
-prove possession of the private key against a fresh, origin- and TLS-bound challenge and
-receive a short-lived bearer session held only in JavaScript memory.
-
-HTTP API requests use that expiring session; WebSockets use its dedicated subprotocol entry.
-Friday revalidates controller status, key epoch, exact HTTPS origin, TLS CA binding, idle
-deadline, and absolute deadline at every authority boundary. Controllers and individual
-sessions can be revoked immediately. Consequential approvals are fresh server challenges
-signed by the same controller and bound to the exact durable task step, arguments, decision,
-expiry, controller, and eventual effect. A decision cannot be replayed by another controller
-or reused after revocation or expiry.
-
-Foreign Host or Origin values are rejected. Only `/healthz`, the secret-free UI shell, and
-the proof-carrying pairing/session handshake routes are credential-free. Task, memory,
-approval, artifact, status, and command endpoints require a valid paired-controller session.
+Consequential tools still require an explicit in-UI approval bound to the exact durable task
+step and arguments. That approval is not cryptographically tied to a browser. Any process with
+access to the same OS account can call the local API, so OS login, process isolation, browser
+extensions, and local malware are outside Friday's application-level protection.

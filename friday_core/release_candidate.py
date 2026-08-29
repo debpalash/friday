@@ -25,7 +25,6 @@ EVALUATION_COMMANDS = (
     ("semantic_scale", "ops/run_semantic_scale_evals.py"),
     ("documents", "ops/run_document_reasoning_evals.py"),
     ("long_horizon_project", "ops/run_project_evals.py"),
-    ("controller_browser", "ops/run_controller_browser_evals.py"),
     ("recovery", "ops/run_recovery_evals.py"),
     ("adversarial", "ops/run_adversarial_evals.py"),
     ("live_conversation", "ops/run_conversation_evals.py"),

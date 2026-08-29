@@ -545,23 +545,24 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("args", keys(status_body))
 
-    def test_control_plane_rejects_foreign_hosts_origins_and_tokens(self):
+    def test_control_plane_accepts_only_loopback_hosts_and_origins(self):
         self.assertTrue(server._valid_host("localhost:8500"))
         self.assertTrue(server._valid_origin("https://localhost:8500"))
         self.assertFalse(server._valid_host("attacker.example"))
         self.assertFalse(server._valid_origin("https://attacker.example"))
-        self.assertFalse(server._valid_control_token("wrong"))
-        self.assertTrue(server._valid_control_token(server.CONTROL_TOKEN))
 
-    async def test_root_ui_is_secret_free_and_requires_explicit_unlock(self):
+    async def test_root_ui_opens_without_controller_authentication(self):
         response = await server.index()
         rendered = response.body.decode()
 
-        self.assertNotIn(server.CONTROL_TOKEN, rendered)
-        self.assertNotIn("__FRIDAY_CONTROL_TOKEN__", rendered)
-        self.assertNotIn('meta name="friday-control-token"', rendered)
-        self.assertIn('id="tokeninput" type="password"', rendered)
-        self.assertIn('type="password" autocomplete="off"', rendered)
+        self.assertNotIn("control-token", rendered)
+        self.assertNotIn("tokeninput", rendered)
+        self.assertNotIn("pairController", rendered)
+        self.assertNotIn("SESSION_TOKEN", rendered)
+        self.assertNotIn("Authorization", rendered)
+        self.assertNotIn("indexedDB", rendered)
+        self.assertIn('id="modechoices"', rendered)
+        self.assertNotIn('id="modechoices" hidden', rendered)
         self.assertIn('id="workspace"', rendered)
         self.assertIn('id="log" role="log" aria-live="polite"', rendered)
         self.assertIn('id="status" role="status" aria-live="polite"', rendered)
@@ -571,20 +572,11 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("speak:audioEnabled", rendered)
         self.assertNotIn("innerHTML", rendered)
         self.assertNotIn("sessionStorage", rendered)
-        self.assertIn("indexedDB.open('friday-controller-v1'", rendered)
-        self.assertIn("crypto.subtle.generateKey", rendered)
-        self.assertIn("false,['sign','verify']", rendered)
-        self.assertIn("headers.set('Authorization','Bearer '+presentedToken)",
-                      rendered)
-        self.assertIn("nativeFetch('/api/controllers/pairings'", rendered)
-        self.assertIn("'session.'+SESSION_TOKEN", rendered)
-        self.assertIn("requestInput?input.url:String(input)", rendered)
-        self.assertIn("response.status===401", rendered)
-        self.assertIn("recoverControllerSession", rendered)
-        self.assertIn("return nativeFetch(retryInput", rendered)
         self.assertIn("if(!audioEnabled||!ctx){playQ=[];return;}", rendered)
-        self.assertIn("signAndSubmitApproval", rendered)
-        self.assertIn("signature_b64url:signature", rendered)
+        self.assertIn("submitApproval", rendered)
+        self.assertIn("body:JSON.stringify({approved})", rendered)
+        self.assertIn("new WebSocket(`wss://${location.host}/ws`,['friday.v1'])",
+                      rendered)
         self.assertIn("Friday requires HTTPS", rendered)
 
     async def test_model_disclosure_rejects_loose_booleans_and_extra_fields(self):
@@ -698,14 +690,13 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(server.RECONCILIATION_IO_TASKS, set())
 
-    def test_websocket_session_uses_subprotocol_and_bootstrap_file_is_private(self):
-        token = "friday-session-v1.controller_session_exact.secret"
-        supplied = server._websocket_session_token(
-            "friday.v1, session." + token)
-        mode = stat.S_IMODE((server.STATE_DIR / "control-token").stat().st_mode)
+    def test_websocket_and_http_composition_have_no_auth_credentials(self):
+        source = Path(server.__file__).read_text()
 
-        self.assertEqual(supplied, token)
-        self.assertEqual(mode, 0o600)
+        self.assertNotIn("CONTROL_TOKEN", source)
+        self.assertNotIn("authenticate_session", source)
+        self.assertNotIn("/api/controllers", source)
+        self.assertNotIn("session.", server.HTML)
 
     def test_session_save_is_atomic_private_and_redacts_sensitive_receipts(self):
         friday = server.Friday.__new__(server.Friday)
@@ -844,7 +835,7 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             server._harden_private_runtime_file(path)
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
-    def test_project_tools_cannot_read_runtime_authority_or_private_state(self):
+    def test_project_tools_cannot_read_private_runtime_state(self):
         protected = (
             "state/control-token", "state/friday.db", "session.json",
             "server.log", "capabilities/example/v1/handler.py",
@@ -857,7 +848,6 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         result = server.exec_tool(
             "read_file", {"path": "state/control-token"})
         self.assertTrue(result.startswith("error:"))
-        self.assertNotIn(server.CONTROL_TOKEN, result)
 
     def test_spoken_sentence_split_does_not_break_us_abbreviation(self):
         text = "Trump threatened Iran after an attack on U.S. forces in Jordan. More followed."

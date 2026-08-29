@@ -3,8 +3,8 @@
 Friday is a single-user local service with four primary process boundaries.
 
 ```text
-Browser controller
-  microphone, text, signed approvals
+Browser interface
+  microphone, text, local approvals
              |
              v
 Friday application service
@@ -23,9 +23,8 @@ Supervisor service -> pinned loopback Qwen/vLLM runtime
 checks its process and listener identity, performs health and calibration gates,
 and stops or replaces it when the binding is no longer valid.
 
-`server.py` is the FastAPI composition root. Pure Host, Origin, bearer, and
-WebSocket parsing lives in `friday_core/transport.py`; strict pairing and
-revocation flows live in `controller_api.py`; history compilation lives in
+`server.py` is the FastAPI composition root. Pure Host, Origin, and WebSocket
+parsing lives in `friday_core/transport.py`; history compilation lives in
 `conversation_runtime.py`; per-connection echo and VAD state lives in
 `voice_transport.py`; recovered-batch finalization lives in
 `task_orchestration.py`; and `frontend/index.html` is loaded through a bounded,
@@ -43,8 +42,8 @@ code rollback does not roll back or delete user data.
 ## Trust boundaries
 
 Friday assumes one trusted local operating-system user. The kernel, filesystem
-permissions, user systemd manager, desktop compositor, GPU stack, browser
-controller, and desktop keyring are part of the trusted computing base.
+permissions, user systemd manager, desktop compositor, GPU stack, local browser,
+and desktop keyring are part of the trusted computing base.
 
 External pages, model output, imported skills, generated capabilities, and
 maintenance-worker changes are untrusted. State-changing actions pass through:
@@ -66,7 +65,7 @@ composition root. Unit and integration tests exercise each extracted boundary
 and the retained server-facing compatibility wrappers.
 
 The compatibility contract for graph migrations, receipts, runtime manifests,
-skills, extensions, and controllers is published in
+skills, extensions, and the local UI protocol is published in
 [Alpha compatibility policy](compatibility.md).
 
 ## Remaining release constraints

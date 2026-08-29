@@ -33,9 +33,9 @@ not authorized by this ledger.
 | Source-history privacy | closed | Voice clips, learned workflow snapshots, backup refs, and the synthetic credential finding were purged from every reachable branch; full-history Gitleaks passes |
 | Private data lifecycle | closed | Owner-only complete export and offline deletion by conversation, task, artifact, memory claim, and time range; manifests, hashes, tombstones, dependency closure, compaction, and failure atomicity are tested |
 | Recovered project execution | closed | Long-horizon project v1: 3/3 files, 3/3 tests, 5/5 verified receipts, one interrupted step resumed as attempt 2 in 55.8 ms, no duplicate effects, and receipt-derived completion |
-| Paired controller and browser control path | closed | Controller-browser v1: signed pairing, restart/reconnect, rejected action with zero effects, one exact approved effect, before/after managed-runtime fencing, single-use approval, and immediate controller revocation |
+| Authless local browser control path | closed | No token, pairing, bearer, or browser key; hard loopback bind restriction, exact Host/Origin admission, direct reconnect, and exact local approval tests |
 | Injected rollback and recovery | closed | Recovery v1: 4/4 model, worker, browser, and filesystem scenarios; 12.7 ms control-path p95; 15-second model retry policy; no duplicate worker or rejected-browser effects |
-| Architecture and alpha compatibility | closed | External frontend plus explicit transport, controller, conversation, voice-session, speech, and recovered-task modules; machine boundary check; schema-15 compatibility policy |
+| Architecture and alpha compatibility | closed | External frontend plus explicit transport, conversation, voice-session, speech, and recovered-task modules; machine boundary check; schema-15 compatibility policy |
 
 The performance numbers above describe one local machine and one exact runtime
 profile. They are not a cross-device claim.

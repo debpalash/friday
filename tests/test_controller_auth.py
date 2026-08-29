@@ -573,6 +573,34 @@ class ControllerAuthTests(unittest.TestCase):
         self.assertEqual(use["authorizing_session_id"], principal.session_id)
         self.assertFalse(approvals.is_approved(task_id, "write_file", args))
 
+    def test_authless_upgrade_retires_pending_controller_approval(self) -> None:
+        _, paired = self._pair()
+        tasks, task_id, _batch_id, steps, principal = self._authorized_task(
+            paired, approval_status="pending")
+        controller_approvals = ApprovalService(
+            self.graph, self.service, require_controller_decisions=True,
+            clock=self.clock,
+        )
+        requested = controller_approvals.request(
+            task_id, "write_file",
+            {"path": "authorized.txt", "content": "exact"},
+            "old controller request", step_id=steps[0]["step_id"],
+            controller_principal=principal,
+        )
+
+        local_approvals = ApprovalService(self.graph, clock=self.clock)
+        retired = (
+            local_approvals.retire_controller_bound_requests_for_local_runtime()
+        )
+        tasks.request_cancel(task_id, actor="authless_local_migration")
+
+        self.assertEqual(retired, {"retired": 1, "task_ids": [task_id]})
+        self.assertEqual(
+            local_approvals.list(status="cancelled")[0]["approval_id"],
+            requested["approval_id"],
+        )
+        self.assertEqual(tasks.get(task_id)["status"], "cancelled")
+
     def test_wrong_approval_signature_leaves_no_decision_or_projection(self):
         _, paired = self._pair()
         _tasks, task_id, _batch_id, steps, principal = self._authorized_task(

@@ -881,32 +881,6 @@
    font-size:10px;
    line-height:1.45;
  }
- #unlockform{margin-top:18px}
- .field-label{
-   display:flex;
-   justify-content:space-between;
-   margin-bottom:7px;
-   color:var(--fg-soft);
-   font-size:9px;
-   font-weight:650;
-   letter-spacing:.08em;
-   text-transform:uppercase;
- }
- .field-label span{color:var(--dim);font-weight:500;letter-spacing:0;text-transform:none}
- #tokeninput{
-   width:100%;
-   height:48px;
-   border:1px solid var(--line-strong);
-   border-radius:13px;
-   padding:0 13px;
-   outline:0;
-   background:rgba(6,9,15,.55);
-   color:var(--fg);
-   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-   font-size:12px;
-   transition:border-color .2s ease,box-shadow .2s ease;
- }
- #tokeninput:focus{border-color:rgba(142,184,255,.62);box-shadow:0 0 0 4px rgba(142,184,255,.07)}
  #gateerror{min-height:18px;margin-top:8px;color:var(--warn);font-size:10px;line-height:1.4}
  #gate .choices{display:flex;gap:8px;margin-top:12px}
  #gate button{
@@ -922,13 +896,6 @@
    transition:transform .17s ease,border-color .17s ease,background .17s ease;
  }
  #gate button:hover{border-color:rgba(142,184,255,.4);background:rgba(142,184,255,.08);transform:translateY(-1px)}
- #unlockbtn{
-   border-color:transparent!important;
-   background:linear-gradient(145deg,#9bc1ff,#719ceb)!important;
-   box-shadow:0 10px 25px rgba(75,119,207,.24);
-   color:#0b1424!important;
-   font-weight:700;
- }
  #modechoices{display:grid!important;grid-template-columns:1fr 1fr}
  #modechoices[hidden]{display:none!important}
  #modechoices button{
@@ -1082,16 +1049,8 @@
       <div><strong>Friday</strong></div>
     </div>
     <div id="transportwarning" hidden>Friday requires HTTPS on non-loopback hosts. Reopen this page using the secure URL.</div>
-    <form id="unlockform">
-      <label class="field-label" for="tokeninput">Token</label>
-      <input id="tokeninput" type="password" autocomplete="off" spellcheck="false"
-        aria-label="Friday bootstrap control token" placeholder="Token">
-      <div id="gateerror" role="alert" aria-live="polite"></div>
-      <div class="choices" id="unlockchoices">
-        <button id="unlockbtn" type="submit">Pair</button>
-      </div>
-    </form>
-    <div class="choices" id="modechoices" hidden>
+    <div id="gateerror" role="alert" aria-live="polite"></div>
+    <div class="choices" id="modechoices">
       <button id="voicebtn" type="button"><strong>Voice</strong></button>
       <button id="textbtn" type="button"><strong>Text</strong></button>
     </div>
@@ -1099,172 +1058,15 @@
 </div>
 
 <script>
-let SESSION_TOKEN='',CONTROLLER_KEY=null,CONTROLLER_RECORD=null,SESSION_RECOVERY=null;
-const nativeFetch=window.fetch.bind(window);
-window.fetch=async(input,init={})=>{
-  const requestInput=input instanceof Request;
-  const headers=new Headers(init.headers||(requestInput?input.headers:{}));
-  let sameOrigin=false;
-  try{const raw=requestInput?input.url:String(input);
-      sameOrigin=new URL(raw,location.href).origin===location.origin;}catch(_e){}
-  let retryInput=input;
-  if(requestInput&&sameOrigin){try{retryInput=input.clone();}catch(_e){retryInput=null;}}
-  const presentedToken=SESSION_TOKEN;
-  if(presentedToken&&sameOrigin)headers.set('Authorization','Bearer '+presentedToken);
-  const response=await nativeFetch(input,{...init,headers});
-  if(sameOrigin&&presentedToken&&response.status===401){
-    if(retryInput===null)return response;
-    const resumed=(SESSION_TOKEN&&SESSION_TOKEN!==presentedToken) ? true :
-      await recoverControllerSession(
-        'Controller session expired. Reconnecting securely…');
-    if(resumed&&SESSION_TOKEN){
-      const retryHeaders=new Headers(headers);
-      retryHeaders.set('Authorization','Bearer '+SESSION_TOKEN);
-      return nativeFetch(retryInput,{...init,headers:retryHeaders});
-    }
-  }
-  return response;
-};
 const $=id=>document.getElementById(id);
 const log=$('log'), body=document.body;
 let currentTaskId=null;
 const taskCards=new Map();
 const reconciliationCards=new Map();
 
-function openControllerDB(){
-  return new Promise((resolve,reject)=>{
-    const request=indexedDB.open('friday-controller-v1',1);
-    request.onupgradeneeded=()=>request.result.createObjectStore('identity');
-    request.onsuccess=()=>resolve(request.result);
-    request.onerror=()=>reject(request.error||new Error('Controller storage unavailable.'));
-  });
-}
-async function loadStoredController(){
-  const db=await openControllerDB();
-  try{return await new Promise((resolve,reject)=>{
-    const request=db.transaction('identity','readonly').objectStore('identity').get('active');
-    request.onsuccess=()=>resolve(request.result||null);
-    request.onerror=()=>reject(request.error||new Error('Controller identity could not be read.'));
-  });}finally{db.close();}
-}
-async function storeController(record){
-  const db=await openControllerDB();
-  try{await new Promise((resolve,reject)=>{
-    const tx=db.transaction('identity','readwrite');
-    tx.objectStore('identity').put(record,'active');
-    tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);
-    tx.onabort=()=>reject(tx.error||new Error('Controller identity was not stored.'));
-  });}finally{db.close();}
-}
-async function deleteStoredController(){
-  const db=await openControllerDB();
-  try{await new Promise((resolve,reject)=>{
-    const tx=db.transaction('identity','readwrite');tx.objectStore('identity').delete('active');
-    tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
-  });}finally{db.close();}
-}
-function b64url(bytes){
-  let binary='';for(const value of new Uint8Array(bytes))binary+=String.fromCharCode(value);
-  return btoa(binary).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
-}
-async function signControllerProof(payload,key=CONTROLLER_KEY){
-  if(!key)throw new Error('Controller signing key is unavailable.');
-  const signature=await crypto.subtle.sign(
-    {name:'ECDSA',hash:'SHA-256'},key,new TextEncoder().encode(payload));
-  if(signature.byteLength!==64)throw new Error('Browser returned an invalid controller signature.');
-  return b64url(signature);
-}
-async function publicJSON(path,body,headers={}){
-  return nativeFetch(path,{method:'POST',cache:'no-store',
-    headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
-}
-function unlockController(session,key,record){
-  SESSION_TOKEN=session.session_token;CONTROLLER_KEY=key;CONTROLLER_RECORD=record;
-  $('tokeninput').value='';$('unlockform').hidden=true;
-  $('gateerror').textContent='';$('modechoices').hidden=false;
-}
-function lockControlGate(message){
-  SESSION_TOKEN='';connected=false;
-  audioEnabled=false;playQ=[];
-  if(curSrc){try{curSrc.stop();}catch(_e){}curSrc=null;}playing=false;
-  playbackActive=false;
-  if(ws&&ws.readyState<2){try{ws.close();}catch(_e){}}ws=null;
-  body.classList.remove('started');$('unlockform').hidden=false;
-  $('unlockchoices').hidden=false;$('modechoices').hidden=true;
-  $('sendbtn').disabled=true;$('dot').classList.remove('on');$('modechip').textContent='Offline';
-  setState('idle');setStatus('Locked');$('activity').textContent='';
-  $('tokeninput').hidden=false;$('gateerror').textContent=message||'';
-  $('tokeninput').value='';$('tokeninput').focus();
-}
-async function recoverControllerSession(message){
-  if(SESSION_RECOVERY)return SESSION_RECOVERY;
-  SESSION_RECOVERY=(async()=>{
-    lockControlGate(message);return resumeStoredController();
-  })();
-  try{return await SESSION_RECOVERY;}finally{SESSION_RECOVERY=null;}
-}
-async function resumeStoredController(){
-  let record;
-  try{record=await loadStoredController();}catch(error){
-    $('gateerror').textContent=error.message||'Controller storage unavailable.';return false;}
-  if(!record||!record.controllerId||!record.privateKey)return false;
-  $('gateerror').textContent='Authenticating paired controller…';
-  try{
-    const challengeResponse=await publicJSON('/api/controllers/sessions/challenge',
-      {controller_id:record.controllerId});
-    if(challengeResponse.status===401){await deleteStoredController();return false;}
-    if(!challengeResponse.ok)throw new Error('Friday is not ready.');
-    const challenge=await challengeResponse.json();
-    const signature=await signControllerProof(challenge.proof_payload,record.privateKey);
-    const sessionResponse=await publicJSON('/api/controllers/sessions/complete',{
-      challenge_id:challenge.challenge_id,challenge:challenge.challenge,
-      proof_payload:challenge.proof_payload,signature_b64url:signature});
-    if(sessionResponse.status===401){await deleteStoredController();return false;}
-    if(!sessionResponse.ok)throw new Error('Controller proof was not accepted.');
-    unlockController(await sessionResponse.json(),record.privateKey,record);return true;
-  }catch(error){$('gateerror').textContent=error.message||'Unable to authenticate controller.';
-    return false;}
-}
-async function pairController(rawToken){
-  const candidate=String(rawToken||'').trim();
-  if(!candidate){$('gateerror').textContent='Enter the one-time bootstrap control token.';return false;}
-  if(!window.isSecureContext||!crypto.subtle){
-    $('gateerror').textContent='Secure HTTPS is required to pair this controller.';return false;}
-  $('unlockbtn').disabled=true;$('gateerror').textContent='Checking…';
-  try{
-    const pairingResponse=await nativeFetch('/api/controllers/pairings',{
-      method:'POST',cache:'no-store',headers:{'X-Friday-Token':candidate}});
-    if(!pairingResponse.ok)throw new Error(
-      pairingResponse.status===401?'Bootstrap token not accepted.':'Friday is not ready.');
-    const pairing=await pairingResponse.json();
-    const keys=await crypto.subtle.generateKey(
-      {name:'ECDSA',namedCurve:'P-256'},false,['sign','verify']);
-    const exported=await crypto.subtle.exportKey('jwk',keys.publicKey);
-    const publicJwk={kty:'EC',crv:'P-256',x:exported.x,y:exported.y};
-    const label=((navigator.platform||'Browser')+' on '+location.hostname).slice(0,80);
-    const preparedResponse=await publicJSON('/api/controllers/pairings/prepare',{
-      pairing_token:pairing.pairing_token,label,public_jwk:publicJwk});
-    if(!preparedResponse.ok)throw new Error('Controller pairing preparation failed.');
-    const prepared=await preparedResponse.json();
-    const signature=await signControllerProof(prepared.proof_payload,keys.privateKey);
-    const completedResponse=await publicJSON('/api/controllers/pairings/complete',{
-      pairing_token:pairing.pairing_token,label,public_jwk:publicJwk,
-      signature_b64url:signature});
-    if(!completedResponse.ok)throw new Error('Controller pairing proof was rejected.');
-    const completed=await completedResponse.json();
-    const record={schemaVersion:1,controllerId:completed.controller_id,
-      publicKeySha256:completed.public_key_sha256,privateKey:keys.privateKey,
-      publicKey:keys.publicKey,publicJwk};
-    await storeController(record);unlockController(completed,keys.privateKey,record);return true;
-  }catch(error){SESSION_TOKEN='';CONTROLLER_KEY=null;CONTROLLER_RECORD=null;
-    $('tokeninput').hidden=false;
-    $('gateerror').textContent=error.message||'Unable to unlock Friday.';return false;
-  }finally{$('unlockbtn').disabled=false;}
-}
-
 function appendInline(parent,value){
   const source=String(value||'');
-  const pattern=/(`[^`]+`|\\[[^\\]]+\\]\\(https?:\\/\\/[^) ]+\\)|[*][*][^*]+[*][*]|__[^_]+__|[*][^*]+[*]|_[^_]+_)/g;
+  const pattern=/(`[^`]+`|\[[^\]]+\]\(https?:\/\/[^) ]+\)|[*][*][^*]+[*][*]|__[^_]+__|[*][^*]+[*]|_[^_]+_)/g;
   let cursor=0,match;
   while((match=pattern.exec(source))){
     if(match.index>cursor)parent.appendChild(document.createTextNode(source.slice(cursor,match.index)));
@@ -1272,7 +1074,7 @@ function appendInline(parent,value){
     if(raw.startsWith('`')){
       node=document.createElement('code');node.textContent=raw.slice(1,-1);
     }else if(raw.startsWith('[')){
-      const link=raw.match(/^\\[([^\\]]+)\\]\\((https?:\\/\\/[^)]+)\\)$/);
+      const link=raw.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
       if(link){node=document.createElement('a');node.textContent=link[1];node.href=link[2];
         node.target='_blank';node.rel='noopener noreferrer';}
     }else if(raw.startsWith('**')||raw.startsWith('__')){
@@ -1409,11 +1211,11 @@ function showProgress(m){
   if(m.seq){progressSeq=m.seq;localStorage.setItem('friday-progress-seq',progressSeq);}
   progressInitialized=true;
   if(m.task_id&&String(m.task_id).startsWith('task_'))currentTaskId=m.task_id;
-  const detail=m.detail?(' — '+m.detail):'';
+  const detail=m.detail?(': '+m.detail):'';
   $('activity').textContent=m.label+detail;
   if(m.seq&&m.task_id&&String(m.task_id).startsWith('task_'))showTaskCard(m,detail);
   else if(m.seq)add('progress',m.label+detail);
-  dlog((m.phase||'task')+' '+m.state+' — '+m.label+detail);
+  dlog((m.phase||'task')+' '+m.state+': '+m.label+detail);
 }
 function showTaskCard(m,detail){
   let card=taskCards.get(m.task_id),label;
@@ -1439,7 +1241,7 @@ function showReconciliation(item){
   if(card)return;
   card=document.createElement('div');card.className='msg taskcard';
   const label=document.createElement('div');label.className='tasklabel';
-  label.textContent='Outcome check required — '+item.tool_name;card.appendChild(label);
+  label.textContent='Outcome check required: '+item.tool_name;card.appendChild(label);
   const preview=document.createElement('pre');preview.style.whiteSpace='pre-wrap';
   preview.style.color='var(--dim)';preview.textContent=JSON.stringify(item.args||{},null,2);
   card.appendChild(preview);
@@ -1463,7 +1265,7 @@ function showReconciliation(item){
   log.appendChild(card);log.scrollTop=log.scrollHeight;
 }
 async function pollReconciliations(){
-  if(!SESSION_TOKEN)return;
+  if(!body.classList.contains('started'))return;
   try{const r=await fetch('/api/reconciliations');if(!r.ok)return;
     const data=await r.json(),seen=new Set();for(const item of data.reconciliations||[]){
       seen.add(item.step_id);showReconciliation(item);}
@@ -1473,7 +1275,7 @@ async function pollReconciliations(){
 function showSources(m){
   const card=document.createElement('div');card.className='msg news';
   const title=document.createElement('div');title.className='news-title';
-  title.textContent='Web sources — '+(m.query||'research');card.appendChild(title);
+  title.textContent='Web sources: '+(m.query||'research');card.appendChild(title);
   for(const h of (m.results||[]).slice(0,10)){
     let url;try{url=new URL(h.url);}catch(_e){continue;}
     const item=document.createElement('div');item.className='news-item';
@@ -1486,7 +1288,7 @@ function showSources(m){
 function showNews(m){
   const card=document.createElement('div');card.className='msg news';
   const title=document.createElement('div');title.className='news-title';
-  title.textContent=(m.region||'Current')+' news — open any headline';
+  title.textContent=(m.region||'Current')+' news: open any headline';
   card.appendChild(title);
   for(const h of (m.headlines||[]).slice(0,10)){
     let url;try{url=new URL(h.url);}catch(_e){continue;}
@@ -1501,7 +1303,7 @@ function showNews(m){
   log.appendChild(card);log.scrollTop=log.scrollHeight;
 }
 async function pollProgress(){
-  if(!SESSION_TOKEN)return;
+  if(!body.classList.contains('started'))return;
   try{
     if(!progressInitialized){
       const cursor=await fetch('/api/progress?latest=true').then(r=>r.json());
@@ -1513,7 +1315,7 @@ async function pollProgress(){
   }catch(e){}
 }
 async function refreshMind(){
-  if(!SESSION_TOKEN)return;
+  if(!body.classList.contains('started'))return;
   const mind=$('mind');mind.classList.add('on');mind.textContent='loading…';
   try{
     const [s,t,m,k,c,v,u]=await Promise.all(['/api/status','/api/tasks','/api/memories',
@@ -1525,7 +1327,6 @@ async function refreshMind(){
 }
 
 async function start(){
-  if(!SESSION_TOKEN){lockControlGate('Pair this controller first.');return;}
   audioEnabled=true;
   document.body.classList.add('started');
   setState('thinking');setStatus('Starting');$('activity').textContent='';
@@ -1575,24 +1376,17 @@ async function start(){
   connect();
 }
 
-async function signAndSubmitApproval(approvalId,approved){
-  if(!SESSION_TOKEN||!CONTROLLER_KEY)throw new Error('Controller session is unavailable.');
-  const preparedResponse=await fetch('/api/approvals/'+approvalId+'/prepare',{
+async function submitApproval(approvalId,approved){
+  const decisionResponse=await fetch('/api/approvals/'+approvalId,{
     method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({approved})});
-  if(!preparedResponse.ok)throw new Error('Approval proof could not be prepared.');
-  const prepared=await preparedResponse.json();
-  const signature=await signControllerProof(prepared.proof_payload);
-  const decisionResponse=await fetch('/api/approvals/'+approvalId,{
-    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
-      approved,proof_payload:prepared.proof_payload,signature_b64url:signature})});
-  if(!decisionResponse.ok)throw new Error('Signed approval was rejected.');
+  if(!decisionResponse.ok)throw new Error('Approval was rejected.');
   return decisionResponse.json();
 }
 
 function connect(){
-  if(!SESSION_TOKEN||!body.classList.contains('started'))return;
-  ws=new WebSocket(`wss://${location.host}/ws`,['friday.v1','session.'+SESSION_TOKEN]);
+  if(!body.classList.contains('started'))return;
+  ws=new WebSocket(`wss://${location.host}/ws`,['friday.v1']);
   ws.binaryType='arraybuffer';
   ws.onopen=()=>{connected=true;$('dot').classList.add('on');$('sendbtn').disabled=false;
                  $('modechip').textContent='Connected';
@@ -1601,13 +1395,12 @@ function connect(){
                  $('activity').textContent='';};
   ws.onclose=event=>{
     connected=false;$('dot').classList.remove('on');$('sendbtn').disabled=true;
-    if(event.code===1008){$('modechip').textContent='locked';
-      void recoverControllerSession(
-        'Authorization expired. Reconnecting the paired controller…');return;}
+    if(event.code===1008){$('modechip').textContent='Rejected';
+      showBanner('Friday rejected this browser origin. Reopen the local Friday URL.');return;}
     $('modechip').textContent='Reconnecting';setStatus('Reconnecting');
     $('activity').textContent='';
-    dlog('connection lost — friday may be restarting');
-    if(SESSION_TOKEN&&body.classList.contains('started'))setTimeout(connect,2000);
+    dlog('connection lost: friday may be restarting');
+    if(body.classList.contains('started'))setTimeout(connect,2000);
   };
   ws.onmessage=ev=>{
     const m=JSON.parse(ev.data);
@@ -1641,7 +1434,7 @@ function connect(){
         for(const [label,approved] of [['approve',true],['deny',false]]){const b=document.createElement('button');
           b.className='quick '+(approved?'approve':'deny');b.textContent=label;b.onclick=async()=>{
             for(const button of row.querySelectorAll('button'))button.disabled=true;
-            try{await signAndSubmitApproval(m.approval_id,approved);b.textContent='recorded';}
+            try{await submitApproval(m.approval_id,approved);b.textContent='recorded';}
             catch(error){b.textContent='failed';showBanner(error.message);
               for(const button of row.querySelectorAll('button'))button.disabled=false;}};
           row.appendChild(b);}card.appendChild(row);break;}
@@ -1650,7 +1443,7 @@ function connect(){
                           if(curSrc){curSrc.stop();curSrc=null;}
                           setState('listening');setStatus('Listening');break;
       case 'done': if(!playbackActive&&!playing){setState(audioEnabled?'listening':'idle');setStatus(audioEnabled?'Listening':'Text');}break;
-      case 'error': showBanner(m.text);add('status','error — see banner');dlog('ERROR '+m.text);break;
+      case 'error': showBanner(m.text);add('status','error: see banner');dlog('ERROR '+m.text);break;
     }
   };
 }
@@ -1695,12 +1488,8 @@ $('textform').addEventListener('submit',event=>{
   else showBanner('Friday is reconnecting. Your message was not sent.');
 });
 
-$('unlockform').addEventListener('submit',async event=>{
-  event.preventDefault();await pairController($('tokeninput').value);
-});
 $('voicebtn').addEventListener('click',event=>{event.stopPropagation();start();});
 $('textbtn').addEventListener('click',event=>{event.stopPropagation();
-  if(!SESSION_TOKEN){lockControlGate('Pair this controller first.');return;}
   audioEnabled=false;playQ=[];
   if(curSrc){try{curSrc.stop();}catch(_e){}curSrc=null;}playing=false;
   playbackActive=false;
@@ -1710,5 +1499,4 @@ $('textbtn').addEventListener('click',event=>{event.stopPropagation();
 if(location.protocol!=='https:'&&!['localhost','127.0.0.1','::1'].includes(location.hostname)){
   $('transportwarning').hidden=false;
 }
-void resumeStoredController().then(resumed=>{if(!resumed)$('tokeninput').focus();});
 </script></body></html>

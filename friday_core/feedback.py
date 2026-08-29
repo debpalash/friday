@@ -255,6 +255,55 @@ class ApprovalService:
                 retired += 1
         return {"retired": retired, "task_ids": sorted(task_ids)}
 
+    def retire_controller_bound_requests_for_local_runtime(
+        self,
+    ) -> dict[str, Any]:
+        """Cancel pending approvals that still require a removed controller.
+
+        Friday's authless local runtime cannot safely reinterpret an old signed
+        controller request as a local approval. Retire those requests during an
+        upgrade and let the caller cancel their owning tasks. Historical
+        controller rows remain intact as audit evidence.
+        """
+        if self.controller_auth is not None or self.require_controller_decisions:
+            return {"retired": 0, "task_ids": []}
+        now = self._iso(self._now())
+        task_ids: set[str] = set()
+        retired = 0
+        with self.graph.transaction() as conn:
+            rows = conn.execute(
+                """SELECT a.approval_id,a.task_id
+                     FROM approval_state a
+                     JOIN controller_approval_requests r
+                       ON r.approval_id=a.approval_id
+                    WHERE a.status='pending'
+                    ORDER BY a.created_at,a.approval_id"""
+            ).fetchall()
+            for row in rows:
+                approval_id = str(row["approval_id"])
+                task_id = str(row["task_id"])
+                body = {
+                    "approval_id": approval_id,
+                    "task_id": task_id,
+                    "status": "cancelled",
+                    "reason_code": "controller_auth_removed",
+                }
+                _, seq = self.graph.append_event(
+                    conn, "approval.cancelled", body,
+                    actor="authless_local_migration", task_id=task_id)
+                changed = conn.execute(
+                    """UPDATE approval_state
+                          SET status='cancelled',decided_at=?,last_event_seq=?
+                        WHERE approval_id=? AND status='pending'""",
+                    (now, seq, approval_id),
+                ).rowcount
+                if changed != 1:
+                    raise RuntimeError(
+                        "controller approval retirement lost its fence")
+                task_ids.add(task_id)
+                retired += 1
+        return {"retired": retired, "task_ids": sorted(task_ids)}
+
     def _expire_controller_request(
         self, approval_id: str, *, now_value: datetime,
     ) -> bool:

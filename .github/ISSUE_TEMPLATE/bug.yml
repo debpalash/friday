@@ -5,7 +5,7 @@ labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: Do not include credentials, control tokens, transcripts, voice clips, browser data, or private documents. Report security problems privately through SECURITY.md.
+      value: Do not include credentials, transcripts, voice clips, browser data, or private documents. Report security problems privately through SECURITY.md.
   - type: input
     id: version
     attributes:

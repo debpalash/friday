@@ -822,3 +822,19 @@ ANN or sharded indexing beyond 4,096 active claims only when measurements justif
   separately.
 - Each scenario uses a disposable private state root. The retained result holds
   only aggregate measurements and bounded status evidence.
+
+### 2026-08-29: authless loopback browser path
+
+- The owner removed the browser bootstrap token, controller pairing, bearer
+  session, IndexedDB identity, and signed browser-approval flow.
+- Friday now opens directly into the voice or text choice. HTTP and WebSocket
+  requests carry no application credential.
+- This choice narrows the supported deployment boundary: startup accepts only
+  `localhost`, `127.0.0.1`, or `::1`, and exact Host and Origin checks remain.
+  Direct LAN and public listeners are rejected.
+- Consequential actions retain exact durable-step approvals, idempotent
+  dispatch, independent receipts, and unknown-outcome reconciliation. The
+  approval click is local but no longer cryptographically tied to one browser.
+- The local OS account is now the explicit access boundary. Same-user malware
+  or a hostile browser extension can call Friday's local API and is outside the
+  application's authentication protections.

@@ -354,8 +354,7 @@ class DesktopServerIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_public_decisions_reject_loose_booleans_and_evidence(self):
         with self.assertRaises(server.HTTPException) as approval:
             await server.api_decide_approval(
-                "approval_untrusted", SimpleNamespace(),
-                {"approved": "false"})
+                "approval_untrusted", {"approved": "false"})
         self.assertEqual(approval.exception.status_code, 400)
 
         for body in (

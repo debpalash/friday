@@ -9,7 +9,7 @@ discussion. Search existing threads first and include:
 - GPU model, VRAM, and driver version;
 - the exact command that failed.
 
-Use GitHub Issues for reproducible defects. Remove API keys, control tokens,
+Use GitHub Issues for reproducible defects. Remove API keys,
 home-directory names, transcripts, voice clips, browser data, and document
 contents before posting logs.
 
