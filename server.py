@@ -106,7 +106,9 @@ SILENCE_END_MS = 700
 PRE_ROLL_MS = 350
 POST_ROLL_MS = 250
 BARGE_IN_MS = 220
-PLAYBACK_ECHO_TAIL_MS = 650
+PLAYBACK_ECHO_TAIL_MS = 1_500
+MIN_UTTERANCE_SECONDS = 0.55
+MIN_UTTERANCE_DBFS = -38.0
 MAX_UTTERANCE_S = 30
 HISTORY_TURNS = 24
 LOCAL_BASE_URL = normalize_loopback_model_base_url(os.environ.get(
@@ -191,6 +193,15 @@ VOICE_RUNTIME_INTENT = re.compile(
 )
 FILLER_UTTERANCE = re.compile(r"^\s*(?:um+|uh+|erm+|hmm+|mm+)\s*[.!?]*\s*$",
                               re.IGNORECASE)
+
+
+def _voice_audio_is_admissible(
+    *, audio_seconds: float, signal_dbfs: float,
+) -> bool:
+    return (audio_seconds >= MIN_UTTERANCE_SECONDS
+            and signal_dbfs >= MIN_UTTERANCE_DBFS)
+
+
 STALE_CAPABILITY_DENIAL = re.compile(
     r"\b(?:i (?:do not|don't) have (?:a )?news feed|i (?:do not|don't) have "
     r"(?:a )?web tool|no live feed)\b", re.IGNORECASE)
@@ -3638,6 +3649,7 @@ async def ws_endpoint(ws: WebSocket):
             or not _valid_origin(ws.headers.get("origin"))):
         await ws.close(code=1008, reason="loopback origin rejected")
         return
+    voice_mode = ws.query_params.get("mode", "voice") != "text"
     await ws.accept(subprotocol="friday.v1")
     graph_session_id = GRAPH.record_node(
         "session", {"transport": "websocket", "state": "connected"},
@@ -3676,16 +3688,54 @@ async def ws_endpoint(ws: WebSocket):
                     "phase": "recovery", "state": pending["status"],
                     "seq": TASKS.latest_progress_sequence(),
                     "label": f"Task {pending['status']}: {pending['objective'][:120]}"})
+    if voice_mode:
+        await send({"type": "wake_required"})
 
     async def handle_utterance(x16: np.ndarray):
         t0 = time.time()
+        audio_seconds = len(x16) / SAMPLE_RATE
         signal_rms = float(np.sqrt(np.mean(np.square(x16)))) if x16.size else 0.0
         signal_peak = float(np.max(np.abs(x16))) if x16.size else 0.0
         signal_dbfs = 20 * np.log10(max(signal_rms, 1e-8))
         clipped_ratio = (float(np.mean(np.abs(x16) >= 0.99))
                          if x16.size else 0.0)
+        if not _voice_audio_is_admissible(
+                audio_seconds=audio_seconds, signal_dbfs=signal_dbfs):
+            await send({
+                "type": "dbg",
+                "text": (
+                    f"ignored low-confidence audio: {audio_seconds:.1f}s, "
+                    f"{signal_dbfs:.1f} dBFS, peak {signal_peak:.3f}"),
+            })
+            voice_session.mode = "listen"
+            voice_session.reset_audio_input()
+            await send({"type": "wake_required"})
+            return
         raw_text = await loop.run_in_executor(None, f.transcribe, x16)
         text, applied_corrections = FEEDBACK.apply_transcript_corrections(raw_text)
+        wake_state, command = voice_session.route_transcript(text)
+        if wake_state != "accepted" or command is None:
+            await send({
+                "type": "dbg",
+                "text": (
+                    f"ignored unaddressed speech: {audio_seconds:.1f}s, "
+                    f"{signal_dbfs:.1f} dBFS, peak {signal_peak:.3f}"),
+            })
+            voice_session.mode = "listen"
+            voice_session.reset_audio_input()
+            await send({"type": "wake_required"})
+            return
+        text = command
+        if len(text) < 2:
+            await send({"type": "dbg", "text": "ignored empty command"})
+            voice_session.mode = "listen"
+            await send({"type": "wake_required"})
+            return
+        if FILLER_UTTERANCE.fullmatch(text):
+            await send({"type": "dbg", "text": "ignored filler command"})
+            voice_session.mode = "listen"
+            await send({"type": "wake_required"})
+            return
         turn_id = GRAPH.record_node(
             "turn", {"input": "voice", "text": text}, actor="user",
             session_id=graph_session_id, event_type="turn.started")
@@ -3694,7 +3744,7 @@ async def ws_endpoint(ws: WebSocket):
             "utterance",
             {"text": text, "raw_asr_text": raw_text,
              "applied_corrections": applied_corrections,
-             "audio_seconds": round(len(x16) / SAMPLE_RATE, 3),
+             "audio_seconds": round(audio_seconds, 3),
              "asr_seconds": round(time.time() - t0, 3),
              "asr_backend": f.asr.name, "audio_dbfs": round(signal_dbfs, 2),
              "audio_peak": round(signal_peak, 5),
@@ -3709,16 +3759,8 @@ async def ws_endpoint(ws: WebSocket):
         GRAPH.record_edge(turn_id, "contains", utterance_id, actor="system")
         await send({"type": "you", "text": text, "utterance_id": utterance_id,
                     "dbg": (f"asr {f.asr.name} {time.time()-t0:.2f}s, "
-                            f"{len(x16)/SAMPLE_RATE:.1f}s audio, "
+                            f"{audio_seconds:.1f}s audio, "
                             f"{signal_dbfs:.1f} dBFS, peak {signal_peak:.3f}")})
-        if len(text) < 2:
-            await send({"type": "dbg", "text": f"ignored, too short: {text!r}"})
-            voice_session.mode = "listen"
-            return
-        if FILLER_UTTERANCE.fullmatch(text):
-            await send({"type": "dbg", "text": f"ignored filler: {text!r}"})
-            voice_session.mode = "listen"
-            return
         voice_session.interrupt.clear()
 
         async def speak_side():
@@ -3881,7 +3923,7 @@ async def ws_endpoint(ws: WebSocket):
                     await interrupt_current()
                 continue
             data = packet.get("bytes")
-            if data is None:
+            if data is None or not voice_mode:
                 continue
             x16 = np.frombuffer(data, dtype="<f4")   # browser sends 16 kHz mono
             rms = float(np.sqrt((x16 ** 2).mean()))
@@ -3905,7 +3947,8 @@ async def ws_endpoint(ws: WebSocket):
             voice_session.next_frame()
             if voice_session.frame_count % 5 == 0:
                 await send({"type": "dbg", "vad": round(p, 3),
-                            "rms": round(rms, 5), "mode": voice_session.mode})
+                            "rms": round(rms, 5),
+                            "mode": voice_session.public_mode()})
 
             if voice_session.mode == "think":
                 if voice_session.utterance.feed_barge_in(x16, p > SPEECH_THRESHOLD):

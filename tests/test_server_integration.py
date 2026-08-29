@@ -575,8 +575,16 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("if(!audioEnabled||!ctx){playQ=[];return;}", rendered)
         self.assertIn("submitApproval", rendered)
         self.assertIn("body:JSON.stringify({approved})", rendered)
-        self.assertIn("new WebSocket(`wss://${location.host}/ws`,['friday.v1'])",
-                      rendered)
+        self.assertIn(
+            "new WebSocket(`wss://${location.host}/ws?mode=${mode}`",
+            rendered,
+        )
+        self.assertIn("autoGainControl:false", rendered)
+        self.assertIn("supported.voiceIsolation", rendered)
+        self.assertIn("||!connected)return", rendered)
+        self.assertIn("RECONNECT_DELAYS_MS", rendered)
+        self.assertIn("case 'wake_required'", rendered)
+        self.assertIn("setStatus('Friday, …')", rendered)
         self.assertIn("Friday requires HTTPS", rendered)
 
     async def test_model_disclosure_rejects_loose_booleans_and_extra_fields(self):
@@ -869,6 +877,14 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             "micResumeAt=performance.now()+PLAYBACK_ECHO_TAIL_MS",
             server.HTML)
+
+    def test_voice_audio_gate_rejects_short_or_background_level_audio(self):
+        self.assertTrue(server._voice_audio_is_admissible(
+            audio_seconds=0.55, signal_dbfs=-38.0))
+        self.assertFalse(server._voice_audio_is_admissible(
+            audio_seconds=0.54, signal_dbfs=-20.0))
+        self.assertFalse(server._voice_audio_is_admissible(
+            audio_seconds=2.0, signal_dbfs=-38.1))
 
     async def test_text_display_mode_delivers_one_complete_markdown_answer(self):
         answer = "# Result\n\n- First item\n- Second item"

@@ -8,6 +8,9 @@ releases. Migrations must preserve user state.
 
 ### Changed
 
+- Voice input now requires `Friday, <request>` in one utterance. Unaddressed or
+  low-level audio is discarded before journaling and model inference, browser
+  voice isolation is requested when available, and reconnect noise is bounded.
 - Removed browser tokens, pairing, bearer sessions, and signing keys. Friday now
   opens directly and rejects any non-loopback bind host.
 - Pinned and installer-verified the WebSocket runtime backend required by live

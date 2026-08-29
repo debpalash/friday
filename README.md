@@ -57,8 +57,10 @@ after the relevant executor records evidence.
 
 ## What works today
 
-- Voice and text sessions with microphone echo suppression and a playback tail
-  gate that prevents Friday from transcribing its own speech.
+- Voice commands require `Friday, <request>` in the same utterance. Audio that
+  is not addressed to Friday is discarded before the journal and model.
+- Browser voice isolation, low-level audio rejection, and a 1.5-second playback
+  tail keep background noise and Friday's own speech out of the command path.
 - Headings, lists, tables, links, inline code, and fenced code blocks in text
   responses.
 - Durable plans and task steps that survive process restarts.
@@ -163,13 +165,13 @@ browser microphone or text
             v
 loopback HTTPS interface
             |
-      ASR -> planner -> local Qwen -> response -> TTS
-                |             |
-                v             v
-       policy and approval    SQLite graph and private state
-                |
-                v
-       bounded executor -> receipt -> reconciliation
+ VAD -> ASR -> address gate -> planner -> local Qwen -> response -> TTS
+                           |             |
+                           v             v
+                  policy and approval    SQLite graph and private state
+                           |
+                           v
+                  bounded executor -> receipt -> reconciliation
 ```
 
 `supervisor.py` owns the model process, listener identity, health probes, and
@@ -204,8 +206,10 @@ foreign Host headers, and foreign browser origins. Any process running as the
 same OS user can still reach the local API, so the operating-system account is
 the security boundary. Friday does not support direct LAN or public exposure.
 
-Raw microphone samples remain in memory for up to ten minutes so a transcript
-can be corrected. Friday writes audio only after a correction, encrypts it with
+Live microphone samples exist in memory only while VAD and ASR evaluate the
+current utterance. Unaddressed audio is then discarded. Samples from admitted
+commands remain in memory for up to ten minutes so a transcript can be
+corrected. Friday writes audio only after a correction, encrypts it with
 desktop-keyring material, and exposes a separate deletion operation. Text
 transcripts and task history persist in SQLite until removed or purged.
 

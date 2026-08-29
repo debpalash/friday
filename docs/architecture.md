@@ -28,8 +28,11 @@ parsing lives in `friday_core/transport.py`; history compilation lives in
 `conversation_runtime.py`; per-connection echo and VAD state lives in
 `voice_transport.py`; recovered-batch finalization lives in
 `task_orchestration.py`; and `frontend/index.html` is loaded through a bounded,
-no-symlink asset reader. The browser microphone is muted while TTS plays, and a
-playback tail gate prevents Friday from transcribing its own output.
+no-symlink asset reader. Voice commands must start with `Friday` and contain the
+request in the same utterance. Low-level or unaddressed speech is discarded
+before durable graph writes or model inference. The browser requests voice
+isolation, disables automatic gain control, mutes the microphone while TTS
+plays, and holds a 1.5-second playback tail before reopening input.
 
 `friday_core/` contains durable graph, task, policy, process, desktop, browser,
 memory, speech, and evaluation services. SQLite is authoritative for durable

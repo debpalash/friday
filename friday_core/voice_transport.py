@@ -3,11 +3,30 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from .endpointing import PlaybackEchoGate, UtteranceBuffer
+
+
+class WakeWordGate:
+    """Admit speech only when it is explicitly addressed to Friday."""
+
+    _prefix = re.compile(
+        r"^\s*(?:(?:hey|hi|okay|ok)\s+)?friday\b[\s,.:;!?-]*(.*)$",
+        re.IGNORECASE,
+    )
+
+    def route(self, text: str) -> tuple[str, str | None]:
+        value = text.strip()
+        match = self._prefix.match(value)
+        if match is not None:
+            command = match.group(1).strip()
+            if command:
+                return "accepted", command
+        return "ignored", None
 
 
 @dataclass
@@ -16,6 +35,7 @@ class VoiceTransportSession:
 
     utterance: UtteranceBuffer
     echo_gate: PlaybackEchoGate
+    wake_gate: WakeWordGate
     mode: str = "listen"
     interrupt: asyncio.Event = field(default_factory=asyncio.Event)
     active_speaker_task: asyncio.Task | None = None
@@ -36,6 +56,7 @@ class VoiceTransportSession:
                 barge_in_ms=barge_in_ms, max_utterance_s=max_utterance_s,
             ),
             echo_gate=PlaybackEchoGate(playback_echo_tail_ms),
+            wake_gate=WakeWordGate(),
         )
 
     def playback_started(self) -> None:
@@ -72,3 +93,11 @@ class VoiceTransportSession:
     def next_frame(self) -> int:
         self.frame_count += 1
         return self.frame_count
+
+    def route_transcript(self, text: str) -> tuple[str, str | None]:
+        return self.wake_gate.route(text)
+
+    def public_mode(self) -> str:
+        if self.mode != "listen":
+            return self.mode
+        return "wake"

@@ -17,12 +17,14 @@ reasoning provider use the network under the conditions below.
 | API keys, local model key, TLS keys | Private config, model runtime, desktop keyring, or private state | Until rotated, removed, or purged |
 | Logs | Private state root | Owner-managed |
 
-Raw microphone samples are buffered in memory for up to ten minutes to support
-transcript correction. If the user corrects that transcript during the window,
-Friday encrypts the samples with AES-256-CTR plus HMAC-SHA256 using key material
-stored in the desktop keyring. Otherwise the samples are dropped without being
-written. The correction endpoint exposes a separate delete operation for the
-encrypted artifact.
+Microphone samples exist in memory while VAD and ASR evaluate the current
+utterance. Friday discards low-level and unaddressed speech before journaling or
+model inference. Samples from an admitted `Friday, <request>` command remain in
+memory for up to ten minutes to support transcript correction. If the user
+corrects that transcript during the window, Friday encrypts the samples with
+AES-256-CTR plus HMAC-SHA256 using key material stored in the desktop keyring.
+Otherwise the samples are dropped without being written. The correction
+endpoint exposes a separate delete operation for the encrypted artifact.
 
 Transcripts and model responses are stored as conversation and task history.
 They are not equivalent to ephemeral audio.

@@ -49,6 +49,39 @@ class VoiceTransportSessionTests(unittest.TestCase):
         self.assertTrue(first.interrupt.is_set())
         self.assertFalse(second.interrupt.is_set())
 
+    def test_wake_word_routes_one_addressed_command(self):
+        state = session()
+
+        self.assertEqual(
+            state.route_transcript("Friday, stop listening"),
+            ("accepted", "stop listening"),
+        )
+        self.assertEqual(
+            state.route_transcript("background dialogue"),
+            ("ignored", None),
+        )
+
+    def test_bare_wake_word_does_not_open_an_admission_window(self):
+        state = session()
+
+        self.assertEqual(
+            state.route_transcript("Hey Friday"),
+            ("ignored", None),
+        )
+        self.assertEqual(
+            state.route_transcript("turn the volume down"),
+            ("ignored", None),
+        )
+        self.assertEqual(state.public_mode(), "wake")
+
+    def test_background_speech_is_always_rejected(self):
+        state = session()
+
+        self.assertEqual(
+            state.route_transcript("television dialogue"),
+            ("ignored", None),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1199,10 +1199,13 @@ function testTone(){
   o.start();o.stop(ctx.currentTime+0.5);dlog('test tone played');
 }
 
-const PLAYBACK_ECHO_TAIL_MS=650;
+const PLAYBACK_ECHO_TAIL_MS=1500;
+const RECONNECT_MIC_SETTLE_MS=1200;
+const RECONNECT_DELAYS_MS=[1000,2000,4000,8000,15000];
 let ws, ctx, playQ=[], playing=false, playbackActive=false, curSrc=null;
 let micResumeAt=0;
 let connected=false, audioEnabled=false;
+let reconnectTimer=null,reconnectAttempt=0;
 let progressSeq=Number(localStorage.getItem('friday-progress-seq')||0);
 let progressInitialized=localStorage.getItem('friday-progress-seq')!==null;
 
@@ -1265,7 +1268,7 @@ function showReconciliation(item){
   log.appendChild(card);log.scrollTop=log.scrollHeight;
 }
 async function pollReconciliations(){
-  if(!body.classList.contains('started'))return;
+  if(!body.classList.contains('started')||!connected)return;
   try{const r=await fetch('/api/reconciliations');if(!r.ok)return;
     const data=await r.json(),seen=new Set();for(const item of data.reconciliations||[]){
       seen.add(item.step_id);showReconciliation(item);}
@@ -1303,7 +1306,7 @@ function showNews(m){
   log.appendChild(card);log.scrollTop=log.scrollHeight;
 }
 async function pollProgress(){
-  if(!body.classList.contains('started'))return;
+  if(!body.classList.contains('started')||!connected)return;
   try{
     if(!progressInitialized){
       const cursor=await fetch('/api/progress?latest=true').then(r=>r.json());
@@ -1328,6 +1331,7 @@ async function refreshMind(){
 
 async function start(){
   audioEnabled=true;
+  micResumeAt=Infinity;
   document.body.classList.add('started');
   setState('thinking');setStatus('Starting');$('activity').textContent='';
   if(!ctx){
@@ -1335,8 +1339,12 @@ async function start(){
       ctx=new AudioContext({sampleRate:48000});
       await ctx.resume();
       dlog('audio ctx state: '+ctx.state+', sr '+ctx.sampleRate);
+      const audioConstraints={channelCount:{ideal:1},echoCancellation:{ideal:true},
+        noiseSuppression:{ideal:true},autoGainControl:false};
+      const supported=navigator.mediaDevices.getSupportedConstraints?.()||{};
+      if(supported.voiceIsolation)audioConstraints.voiceIsolation={ideal:true};
       const stream=await navigator.mediaDevices.getUserMedia(
-        {audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
+        {audio:audioConstraints});
       const src=ctx.createMediaStreamSource(stream);
       const proc=ctx.createScriptProcessor(4096,1,1);
       let carry=new Float32Array(0);
@@ -1386,23 +1394,30 @@ async function submitApproval(approvalId,approved){
 
 function connect(){
   if(!body.classList.contains('started'))return;
-  ws=new WebSocket(`wss://${location.host}/ws`,['friday.v1']);
-  ws.binaryType='arraybuffer';
-  ws.onopen=()=>{connected=true;$('dot').classList.add('on');$('sendbtn').disabled=false;
+  if(ws&&(ws.readyState===WebSocket.CONNECTING||ws.readyState===WebSocket.OPEN))return;
+  const mode=audioEnabled?'voice':'text';
+  const socket=new WebSocket(`wss://${location.host}/ws?mode=${mode}`,['friday.v1']);
+  ws=socket;socket.binaryType='arraybuffer';
+  socket.onopen=()=>{if(ws!==socket)return;
+                 connected=true;reconnectAttempt=0;
+                 if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
+                 micResumeAt=audioEnabled?performance.now()+RECONNECT_MIC_SETTLE_MS:0;
+                 $('dot').classList.add('on');$('sendbtn').disabled=false;
                  $('modechip').textContent='Connected';
                  setState(audioEnabled?'listening':'idle');
-                 setStatus(audioEnabled?'Listening':'Text');
+                 setStatus(audioEnabled?'Friday, …':'Text');
                  $('activity').textContent='';};
-  ws.onclose=event=>{
+  socket.onclose=event=>{if(ws!==socket)return;
     connected=false;$('dot').classList.remove('on');$('sendbtn').disabled=true;
+    if(audioEnabled)micResumeAt=Infinity;
     if(event.code===1008){$('modechip').textContent='Rejected';
       showBanner('Friday rejected this browser origin. Reopen the local Friday URL.');return;}
     $('modechip').textContent='Reconnecting';setStatus('Reconnecting');
     $('activity').textContent='';
-    dlog('connection lost: friday may be restarting');
-    if(body.classList.contains('started'))setTimeout(connect,2000);
+    if(reconnectAttempt===0)dlog('connection lost: friday may be restarting');
+    scheduleReconnect();
   };
-  ws.onmessage=ev=>{
+  socket.onmessage=ev=>{
     const m=JSON.parse(ev.data);
     if(m.type==='dbg'){
       if(m.vad!==undefined){
@@ -1411,12 +1426,14 @@ function connect(){
         // trust the server's own turn state machine
         if(m.mode==='speak'){setState('speaking');setStatus('Speaking');}
         else if(m.mode==='think'){setState('thinking');setStatus('Thinking');}
+        else if(m.mode==='wake'){setState('listening');setStatus('Friday, …');}
         else {setState('listening');setStatus('Listening');}
       } else dlog(m.text);
       return;
     }
     switch(m.type){
       case 'hearing': setState('hearing');setStatus('Listening');break;
+      case 'wake_required': if(audioEnabled){setState('listening');setStatus('Friday, …');}break;
       case 'you': {currentTaskId=null;const card=add('you',m.text,'you');if(m.utterance_id){
                     const row=document.createElement('div');row.className='quickrow';
                     const b=document.createElement('button');b.className='quick';b.textContent='edit transcript';
@@ -1441,11 +1458,18 @@ function connect(){
       case 'audio': if(audioEnabled)playQ.push(m);break;
       case 'interrupted': playQ=[];micResumeAt=performance.now()+PLAYBACK_ECHO_TAIL_MS;
                           if(curSrc){curSrc.stop();curSrc=null;}
-                          setState('listening');setStatus('Listening');break;
-      case 'done': if(!playbackActive&&!playing){setState(audioEnabled?'listening':'idle');setStatus(audioEnabled?'Listening':'Text');}break;
+                          setState('listening');setStatus(audioEnabled?'Friday, …':'Text');break;
+      case 'done': if(!playbackActive&&!playing){setState(audioEnabled?'listening':'idle');setStatus(audioEnabled?'Friday, …':'Text');}break;
       case 'error': showBanner(m.text);add('status','error: see banner');dlog('ERROR '+m.text);break;
     }
   };
+}
+
+function scheduleReconnect(){
+  if(reconnectTimer||!body.classList.contains('started'))return;
+  const delay=RECONNECT_DELAYS_MS[Math.min(reconnectAttempt,RECONNECT_DELAYS_MS.length-1)];
+  reconnectAttempt+=1;
+  reconnectTimer=setTimeout(()=>{reconnectTimer=null;connect();},delay);
 }
 
 function pump(){
@@ -1474,7 +1498,7 @@ function pump(){
       playbackActive=false;
       if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'playback',state:'ended'}));
     }
-    setState('listening');setStatus('Listening');
+    setState('listening');setStatus(audioEnabled?'Friday, …':'Text');
   };
   curSrc.start();
 }
