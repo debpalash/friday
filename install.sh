@@ -456,7 +456,7 @@ PY
       --require-hashes "$release_dir/requirements/runtime.lock"
   fi
   (cd "$release_dir" && venv/bin/python - <<'PY'
-import fastapi, numpy, openai, pydantic, sherpa_onnx, silero_vad, torch, uvicorn
+import fastapi, numpy, openai, pydantic, sherpa_onnx, silero_vad, torch, uvicorn, websockets
 from friday_core import GraphStore
 print("app runtime imports verified")
 PY

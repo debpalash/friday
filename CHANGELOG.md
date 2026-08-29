@@ -10,6 +10,8 @@ releases. Migrations must preserve user state.
 
 - Removed browser tokens, pairing, bearer sessions, and signing keys. Friday now
   opens directly and rejects any non-loopback bind host.
+- Pinned and installer-verified the WebSocket runtime backend required by live
+  voice and text sessions.
 - Split the control plane into explicit frontend, transport, conversation,
   voice-session, speech, and recovered-task boundaries.
 - Added a forward-only alpha compatibility contract for graph schema 15,
