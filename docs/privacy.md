@@ -16,6 +16,7 @@ reasoning provider use the network under the conditions below.
 | Model and embedding weights | Shared data root | Reused across code updates |
 | API keys, local model key, TLS keys | Private config, model runtime, desktop keyring, or private state | Until rotated, removed, or purged |
 | Logs | Private state root | Owner-managed |
+| Approved Omarchy screenshots | `~/Pictures/Friday` | Owner-managed |
 
 Microphone samples exist in memory while VAD and ASR evaluate the current
 utterance. Friday discards low-level and unaddressed speech before journaling or
@@ -28,6 +29,12 @@ endpoint exposes a separate delete operation for the encrypted artifact.
 
 Transcripts and model responses are stored as conversation and task history.
 They are not equivalent to ephemeral audio.
+
+Omarchy status receipts contain desktop settings and installed theme and font
+labels. They do not contain window titles, process IDs, or command output.
+Approved full-screen captures are written to a mode-0700 directory and their
+paths and hashes are treated as private tool payloads. Friday does not delete
+captures automatically.
 
 ## Network access
 

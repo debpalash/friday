@@ -67,6 +67,10 @@ from friday_core.desktop import (
     DesktopApplicationLaunchBinding, DesktopBindingError, DesktopBroker,
     DesktopBrokerError, HyprlandDesktopBackend,
 )
+from friday_core.omarchy import (
+    OmarchyActionBinding, OmarchyBindingError, OmarchyBrokerError,
+    OmarchyDesktopBackend, OmarchyDesktopBroker,
+)
 from friday_core.embeddings import configured_local_embedder
 from friday_core.vision_evals import has_qualified_native_vision_score
 from friday_core.tasks import (tool_arguments_are_private,
@@ -94,7 +98,8 @@ from friday_core.voice_transport import VoiceTransportSession
 from friday_core.task_orchestration import RecoveredBatchFinalizer
 from friday_core.builtin_tools import (
     BLOCKING_IO_TOOLS, BUILTIN_TOOL_NAMES, BUILTIN_TOOL_SCHEMAS,
-    DESKTOP_TOOL_NAMES, EXACT_STEP_APPROVAL_TOOLS, PROCESS_TOOL_NAMES,
+    DESKTOP_TOOL_NAMES, EXACT_STEP_APPROVAL_TOOLS, OMARCHY_ACTION_TOOLS,
+    OMARCHY_STATUS_TOOL, OMARCHY_TOOL_NAMES, PROCESS_TOOL_NAMES,
     BuiltinToolAdapters, BuiltinToolRuntime,
 )
 from friday_core.speech import pinned_omnivoice_model_path
@@ -1231,6 +1236,14 @@ class Friday:
                 _require_desktop_broker().close_window,
                 str(args.get("window_id") or ""),
                 expected_binding=claim.executor_binding), ensure_ascii=False)
+        elif name == OMARCHY_STATUS_TOOL:
+            result = json.dumps(await asyncio.to_thread(
+                _require_omarchy_broker().status), ensure_ascii=False)
+        elif name in OMARCHY_ACTION_TOOLS:
+            result = json.dumps(await asyncio.to_thread(
+                _require_omarchy_broker().execute,
+                name, args, expected_binding=claim.executor_binding),
+                ensure_ascii=False)
         elif name == "write_file":
             deployed = DEPLOYER.stage_write(
                 str(args.get("path", "")), str(args.get("content", "")),
@@ -1283,7 +1296,8 @@ class Friday:
         executed = not str(result).startswith("error:")
         verification_key = (
             None if name in {
-                "machine_list_process_specs", "machine_list_windows"}
+                "machine_list_process_specs", "machine_list_windows",
+                OMARCHY_STATUS_TOOL}
             else claim.idempotency_key)
         if name in PROCESS_TOOL_NAMES | DESKTOP_TOOL_NAMES:
             verified = await asyncio.to_thread(
@@ -1297,7 +1311,8 @@ class Friday:
         if (claim.recovery_policy == "reconcile"
                 and name in {
                     "machine_launch_process", "machine_terminate_process",
-                    "machine_focus_window", "machine_close_window"}
+                    "machine_focus_window", "machine_close_window",
+                    *OMARCHY_ACTION_TOOLS}
                 and not (
                     name in {"machine_launch_process",
                              "machine_terminate_process"}
@@ -1711,6 +1726,15 @@ class Friday:
                                 exc, "code", "invalid_desktop_request"))
                             break
                         desktop_approval_previews[c["id"]] = desktop_preview
+                    if c["name"] in OMARCHY_ACTION_TOOLS:
+                        try:
+                            executor_binding, omarchy_preview = (
+                                _bind_omarchy_step(c["name"], args))
+                        except (ValueError, OmarchyBrokerError) as exc:
+                            rejected_reason = str(getattr(
+                                exc, "code", "invalid_omarchy_request"))
+                            break
+                        desktop_approval_previews[c["id"]] = omarchy_preview
                     step_resource_claim = (
                         bound_resource_claim
                         or resource_claim_for(
@@ -1739,7 +1763,8 @@ class Friday:
                             else "reconcilable" if c["name"] in {
                                 "machine_launch_process",
                                 "machine_terminate_process",
-                                "machine_focus_window", "machine_close_window"}
+                                "machine_focus_window", "machine_close_window",
+                                *OMARCHY_ACTION_TOOLS}
                             else "idempotent" if c["name"] in {
                                 "machine_revoke_grant", "machine_write_text",
                                 "machine_rollback_write",
@@ -1964,6 +1989,7 @@ if not KEY:
         KEY = "friday-local"
 PROCESS_WORK_DIR = STATE_DIR / "process-work"
 DESKTOP_STATE_DIR = STATE_DIR / "desktop-runtime"
+OMARCHY_EXECUTABLE = "/usr/share/omarchy/bin/omarchy"
 MANAGED_BROWSER_PROFILE_DIR = STATE_DIR / "browser-profile"
 MANAGED_BROWSER_SPEC_ID = "app.managed_browser.chromium_151_0_7922_173.v2"
 MANAGED_BROWSER_EXECUTABLE = "/usr/lib/chromium/chromium"
@@ -2274,6 +2300,7 @@ ADMISSION = ResourceAdmissionController(
         str(_RESOLVED_RUNTIME.get("fingerprint") or "") or None))
 PROCESS_BROKER: ProcessBroker | None = None
 DESKTOP_BROKER: DesktopBroker | None = None
+OMARCHY_BROKER: OmarchyDesktopBroker | None = None
 TASKS = TaskService(GRAPH, admission=ADMISSION)
 MEMORY = MemoryCurator(GRAPH, embedder=configured_local_embedder(REPO))
 REFLECTION = ReflectionService(GRAPH)
@@ -2340,6 +2367,29 @@ def _verify_process_receipt(tool_name: str, result, args: dict | None,
 
 def _verify_desktop_receipt(tool_name: str, result, args: dict | None,
                             idempotency_key: str | None) -> bool:
+    if tool_name in OMARCHY_TOOL_NAMES:
+        broker = OMARCHY_BROKER
+        if broker is None:
+            return False
+        if tool_name == OMARCHY_STATUS_TOOL:
+            return broker.verify_receipt(
+                tool_name, result, args or {}, idempotency_key)
+        if not isinstance(idempotency_key, str):
+            return False
+        with GRAPH._connect() as conn:
+            step = conn.execute(
+                "SELECT tool_name,executor_binding_json FROM task_steps "
+                "WHERE idempotency_key=?", (idempotency_key,)).fetchone()
+        if step is None or step["tool_name"] != tool_name:
+            return False
+        try:
+            binding = OmarchyActionBinding.model_validate_json(
+                str(step["executor_binding_json"]))
+        except (TypeError, ValueError):
+            return False
+        return broker.verify_receipt(
+            tool_name, result, args or {}, idempotency_key,
+            expected_binding=binding)
     broker = DESKTOP_BROKER
     return bool(broker is not None and broker.verify_receipt(
         tool_name, result, args or {}, idempotency_key))
@@ -2412,6 +2462,8 @@ RECONCILIATION_IO_TASKS: set[asyncio.Task] = set()
 RECONCILIATION_PROBES: set[asyncio.Task] = set()
 DESKTOP_INITIALIZED = False
 DESKTOP_LAST_ERROR: str | None = None
+OMARCHY_INITIALIZED = False
+OMARCHY_LAST_ERROR: str | None = None
 
 
 def _remove_retired_auth_artifacts() -> None:
@@ -2490,6 +2542,12 @@ def _require_desktop_broker() -> DesktopBroker:
     return DESKTOP_BROKER
 
 
+def _require_omarchy_broker() -> OmarchyDesktopBroker:
+    if OMARCHY_BROKER is None:
+        raise RuntimeError("Omarchy desktop control is unavailable")
+    return OMARCHY_BROKER
+
+
 def _application_runtime_owner(
         broker: ProcessBroker, instance_id: str,
         presentation: ProcessPresentation):
@@ -2518,6 +2576,15 @@ def _bind_desktop_step(tool_name: str, args: dict) -> tuple[dict, dict]:
         str(args.get("window_id") or ""), operation)
     return (binding.model_dump(mode="json"),
             DesktopBroker.approval_preview(binding))
+
+
+def _bind_omarchy_step(tool_name: str, args: dict) -> tuple[dict, dict]:
+    """Bind one typed Omarchy action to exact packaged command state."""
+    binding = _require_omarchy_broker().binding_for_action(tool_name, args)
+    return (
+        binding.model_dump(mode="json"),
+        OmarchyDesktopBroker.approval_preview(binding),
+    )
 
 
 async def _continue_after_reconciliation(result: dict[str, object]) -> None:
@@ -2676,7 +2743,8 @@ async def _probe_reconciliation_impl(step_id: str) -> dict[str, object]:
         TASKS.reconciliation_candidate, step_id)
     if candidate.tool_name not in {
             "machine_focus_window", "machine_close_window",
-            "machine_launch_process", "machine_terminate_process"}:
+            "machine_launch_process", "machine_terminate_process",
+            *OMARCHY_ACTION_TOOLS}:
         return {
             "step_id": candidate.step_id,
             "task_id": candidate.task_id,
@@ -2686,7 +2754,20 @@ async def _probe_reconciliation_impl(step_id: str) -> dict[str, object]:
             "reason": "authoritative_probe_unavailable",
         }
     try:
-        if candidate.tool_name in {
+        if candidate.tool_name in OMARCHY_ACTION_TOOLS:
+            broker = OMARCHY_BROKER
+            if broker is None:
+                return {
+                    "step_id": candidate.step_id,
+                    "task_id": candidate.task_id,
+                    "batch_id": candidate.batch_id,
+                    "status": "reconcile_required",
+                    "resolved": False,
+                    "reason": "omarchy_operator_unavailable",
+                }
+            receipt = await _reconciliation_io(
+                broker.reconciliation_receipt, candidate.executor_binding)
+        elif candidate.tool_name in {
                 "machine_focus_window", "machine_close_window"}:
             broker = DESKTOP_BROKER
             if broker is None:
@@ -2756,7 +2837,8 @@ async def _probe_reconciliation_impl(step_id: str) -> dict[str, object]:
                     receipt = await _reconciliation_io(
                         desktop_broker.reconciliation_application_receipt,
                         *reconciliation_args)
-    except (DesktopBrokerError, ProcessBrokerError, ValueError) as exc:
+    except (DesktopBrokerError, OmarchyBrokerError,
+            ProcessBrokerError, ValueError) as exc:
         code = str(getattr(exc, "code", "authoritative_probe_failed"))
         return {
             "step_id": candidate.step_id,
@@ -2829,6 +2911,8 @@ async def _probe_reconciliation_impl(step_id: str) -> dict[str, object]:
         "desktop_postcondition_observed"
         if candidate.tool_name in {
             "machine_focus_window", "machine_close_window"}
+        else "omarchy_postcondition_observed"
+        if candidate.tool_name in OMARCHY_ACTION_TOOLS
         else "process_postcondition_observed")
     return await _reconciliation_critical(
         _resolve_and_continue_reconciliation(
@@ -2847,7 +2931,8 @@ async def _reconcile_uncertain_once() -> int:
     for item in queue:
         if item["tool_name"] not in {
                 "machine_focus_window", "machine_close_window",
-                "machine_launch_process", "machine_terminate_process"}:
+                "machine_launch_process", "machine_terminate_process",
+                *OMARCHY_ACTION_TOOLS}:
             continue
         try:
             outcome = await _probe_reconciliation(str(item["step_id"]))
@@ -3005,6 +3090,7 @@ async def _load():
     global PROCESS_BROKER, PROCESS_MONITOR_TASK, RECONCILIATION_TASK
     global RECONCILIATION_INITIALIZED, RECONCILIATION_SHUTTING_DOWN
     global DESKTOP_BROKER, DESKTOP_INITIALIZED, DESKTOP_LAST_ERROR
+    global OMARCHY_BROKER, OMARCHY_INITIALIZED, OMARCHY_LAST_ERROR
     global WEB_PROXY_INITIALIZED
     RECONCILIATION_SHUTTING_DOWN = False
     WEB_PROXY.start()
@@ -3047,6 +3133,22 @@ async def _load():
             print(f"desktop operator unavailable: {DESKTOP_LAST_ERROR}",
                   flush=True)
     DESKTOP_INITIALIZED = True
+    OMARCHY_BROKER = None
+    OMARCHY_LAST_ERROR = None
+    if _desktop_expected() and Path(OMARCHY_EXECUTABLE).exists():
+        try:
+            omarchy_candidate = OmarchyDesktopBroker(
+                OmarchyDesktopBackend(OMARCHY_EXECUTABLE))
+            await asyncio.to_thread(omarchy_candidate.status)
+            OMARCHY_BROKER = omarchy_candidate
+        except Exception as exc:
+            code = str(getattr(exc, "code", "omarchy_startup_failed"))
+            OMARCHY_LAST_ERROR = (
+                code if re.fullmatch(r"[a-z0-9_.:-]{1,80}", code)
+                else "omarchy_startup_failed")
+            print(f"Omarchy control unavailable: {OMARCHY_LAST_ERROR}",
+                  flush=True)
+    OMARCHY_INITIALIZED = True
     FRIDAY = Friday()
     requested_voice = os.environ.get("FRIDAY_ACTIVATE_VOICE", "").strip()
     if requested_voice and FRIDAY.voice_name != requested_voice:
@@ -3209,6 +3311,15 @@ def _desktop_ready() -> bool:
         or (DESKTOP_BROKER is not None and DESKTOP_LAST_ERROR is None))
 
 
+def _omarchy_ready() -> bool:
+    if not OMARCHY_INITIALIZED:
+        return True
+    expected = _desktop_expected() and Path(OMARCHY_EXECUTABLE).exists()
+    return bool(
+        not expected or DESKTOP_MODE != "required"
+        or (OMARCHY_BROKER is not None and OMARCHY_LAST_ERROR is None))
+
+
 def _web_proxy_ready() -> bool:
     # Pure imports do not bind the production proxy port. Once startup has
     # admitted browser egress, losing that listener is a readiness failure so
@@ -3237,6 +3348,7 @@ async def healthz():
         "process_monitor": _process_monitor_ready(),
         "action_reconciler": _reconciliation_monitor_ready(),
         "desktop_operator": _desktop_ready(),
+        "omarchy_control": _omarchy_ready(),
         "browser_network": _web_proxy_ready(),
     }
     ready = all(components.values())
@@ -3271,6 +3383,7 @@ async def api_status():
             and _process_monitor_ready()
             and _reconciliation_monitor_ready()
             and _desktop_ready()
+            and _omarchy_ready()
             and _web_proxy_ready()
             and admission_ready),
         "asr": (getattr(getattr(FRIDAY, "asr", None), "name", None)
@@ -3296,6 +3409,7 @@ async def api_status():
             "managed_processes": _managed_process_capability_ready(),
             "action_reconciler": _reconciliation_monitor_ready(),
             "desktop_operator": _desktop_ready(),
+            "omarchy_control": _omarchy_ready(),
             "browser_network": _web_proxy_ready(),
         },
         "reconciliation": {
@@ -3328,6 +3442,13 @@ async def api_status():
             "expected": _desktop_expected(),
             "available": DESKTOP_BROKER is not None,
             "error": DESKTOP_LAST_ERROR,
+            "omarchy": {
+                "expected": bool(
+                    _desktop_expected()
+                    and Path(OMARCHY_EXECUTABLE).exists()),
+                "available": OMARCHY_BROKER is not None,
+                "error": OMARCHY_LAST_ERROR,
+            },
         },
         "browser_network": WEB_PROXY.status(),
         "admission": admission_status,

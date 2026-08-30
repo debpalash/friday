@@ -14,6 +14,15 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
+OMARCHY_STATUS_TOOL = "machine_omarchy_status"
+OMARCHY_ACTION_TOOLS = frozenset({
+    "machine_omarchy_set_theme", "machine_omarchy_set_font",
+    "machine_omarchy_set_nightlight", "machine_omarchy_set_idle",
+    "machine_omarchy_set_brightness", "machine_omarchy_take_screenshot",
+    "machine_omarchy_lock",
+})
+OMARCHY_TOOL_NAMES = frozenset({OMARCHY_STATUS_TOOL, *OMARCHY_ACTION_TOOLS})
+
 BUILTIN_TOOL_SCHEMAS = [
     {"type": "function", "function": {
         "name": "fetch_news",
@@ -169,6 +178,63 @@ BUILTIN_TOOL_SCHEMAS.extend([
     {"type": "function", "function": {
         "name": "list_core_upgrades",
         "description": "Inspect staged, rejected, and awaiting-review core candidates.",
+        "parameters": {"type": "object", "properties": {}}}},
+])
+
+BUILTIN_TOOL_SCHEMAS.extend([
+    {"type": "function", "function": {
+        "name": "machine_omarchy_status",
+        "description": "Inspect the installed Omarchy version, current and available "
+                       "themes and fonts, night light, idle policy, display brightness, "
+                       "and lock state through identity-pinned commands.",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "machine_omarchy_set_theme",
+        "description": "Apply one exact installed Omarchy theme after approval and "
+                       "verify that it became current. Call machine_omarchy_status first.",
+        "parameters": {"type": "object", "properties": {
+            "theme": {"type": "string",
+                      "description": "Exact theme label returned by status"}
+        }, "required": ["theme"]}}},
+    {"type": "function", "function": {
+        "name": "machine_omarchy_set_font",
+        "description": "Apply one exact installed Omarchy monospace font after "
+                       "approval and verify that it became current. Call status first.",
+        "parameters": {"type": "object", "properties": {
+            "font": {"type": "string",
+                     "description": "Exact font label returned by status"}
+        }, "required": ["font"]}}},
+    {"type": "function", "function": {
+        "name": "machine_omarchy_set_nightlight",
+        "description": "Set Omarchy night light to an explicit enabled or disabled "
+                       "state after approval, then verify its reported state.",
+        "parameters": {"type": "object", "properties": {
+            "enabled": {"type": "boolean"}
+        }, "required": ["enabled"]}}},
+    {"type": "function", "function": {
+        "name": "machine_omarchy_set_idle",
+        "description": "Choose whether Omarchy may idle and lock or must stay awake. "
+                       "This security-sensitive change requires exact approval.",
+        "parameters": {"type": "object", "properties": {
+            "mode": {"type": "string",
+                     "enum": ["allow_idle", "stay_awake"]}
+        }, "required": ["mode"]}}},
+    {"type": "function", "function": {
+        "name": "machine_omarchy_set_brightness",
+        "description": "Set focused-display brightness to an exact percentage after "
+                       "approval and verify the observed percentage.",
+        "parameters": {"type": "object", "properties": {
+            "percent": {"type": "integer", "minimum": 1, "maximum": 100}
+        }, "required": ["percent"]}}},
+    {"type": "function", "function": {
+        "name": "machine_omarchy_take_screenshot",
+        "description": "Capture the full desktop to Friday's private Pictures/Friday "
+                       "directory after approval and return a verified PNG receipt.",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "machine_omarchy_lock",
+        "description": "Lock the Omarchy session after exact approval and verify the "
+                       "session-lock state.",
         "parameters": {"type": "object", "properties": {}}}},
 ])
 
@@ -438,7 +504,7 @@ EXACT_STEP_APPROVAL_TOOLS = {
     "machine_revoke_grant", "machine_write_text", "machine_rollback_write",
     "machine_launch_process", "machine_terminate_process",
     "machine_focus_window", "machine_close_window",
-}
+} | set(OMARCHY_ACTION_TOOLS)
 BLOCKING_IO_TOOLS = {
     "fetch_news", "web_search", "read_web", "browser_open", "browser_snapshot",
     "browser_click", "browser_type", "clipboard_read", "clipboard_write",
@@ -451,7 +517,7 @@ PROCESS_TOOL_NAMES = frozenset({
 })
 DESKTOP_TOOL_NAMES = frozenset({
     "machine_list_windows", "machine_focus_window", "machine_close_window",
-})
+}) | OMARCHY_TOOL_NAMES
 
 TOOL_POLICY_DATA: dict[str, tuple[str, tuple[str, ...], bool]] = {
     "fetch_news": ("read_only", ("network",), False),
@@ -493,6 +559,15 @@ TOOL_POLICY_DATA: dict[str, tuple[str, tuple[str, ...], bool]] = {
     "machine_list_windows": ("read_only", ("desktop",), False),
     "machine_focus_window": ("medium", ("desktop",), True),
     "machine_close_window": ("high", ("desktop",), True),
+    "machine_omarchy_status": ("read_only", ("desktop",), False),
+    "machine_omarchy_set_theme": ("medium", ("desktop",), True),
+    "machine_omarchy_set_font": ("medium", ("desktop",), True),
+    "machine_omarchy_set_nightlight": ("low", ("desktop",), True),
+    "machine_omarchy_set_idle": ("high", ("desktop",), True),
+    "machine_omarchy_set_brightness": ("low", ("desktop",), True),
+    "machine_omarchy_take_screenshot": (
+        "high", ("desktop", "filesystem_write"), True),
+    "machine_omarchy_lock": ("high", ("desktop",), True),
     "create_reminder": ("low", ("scheduling", "notifications"), False),
     "list_reminders": ("read_only", ("scheduling",), False),
     "cancel_reminder": ("low", ("scheduling",), False),
@@ -543,6 +618,14 @@ RESOURCE_OVERRIDES: dict[str, dict[str, Any]] = {
     "machine_list_windows": {"cpu_cores": 0.1, "ram_mib": 64},
     "machine_focus_window": {"cpu_cores": 0.1, "ram_mib": 64},
     "machine_close_window": {"cpu_cores": 0.1, "ram_mib": 64},
+    "machine_omarchy_status": {"cpu_cores": 0.1, "ram_mib": 64},
+    "machine_omarchy_set_theme": {"cpu_cores": 0.25, "ram_mib": 128},
+    "machine_omarchy_set_font": {"cpu_cores": 0.25, "ram_mib": 128},
+    "machine_omarchy_set_nightlight": {"cpu_cores": 0.1, "ram_mib": 64},
+    "machine_omarchy_set_idle": {"cpu_cores": 0.1, "ram_mib": 64},
+    "machine_omarchy_set_brightness": {"cpu_cores": 0.1, "ram_mib": 64},
+    "machine_omarchy_take_screenshot": {"cpu_cores": 0.5, "ram_mib": 256},
+    "machine_omarchy_lock": {"cpu_cores": 0.1, "ram_mib": 64},
 }
 
 TOOL_CRITERIA = {
@@ -573,6 +656,14 @@ TOOL_CRITERIA = {
     "machine_list_windows": ("desktop_windows_listed", "List only identity-verified windows with opaque targets", "desktop_list_receipt"),
     "machine_focus_window": ("desktop_window_focused", "Focus only the exact approved window identity", "desktop_focus_receipt"),
     "machine_close_window": ("desktop_window_closed", "Gracefully close only the exact approved window identity", "desktop_close_receipt"),
+    "machine_omarchy_status": ("omarchy_state_observed", "Inspect only the identity-pinned Omarchy desktop state", "omarchy_status_receipt"),
+    "machine_omarchy_set_theme": ("omarchy_theme_set", "Apply and re-observe the exact approved installed theme", "omarchy_theme_receipt"),
+    "machine_omarchy_set_font": ("omarchy_font_set", "Apply and re-observe the exact approved installed font", "omarchy_font_receipt"),
+    "machine_omarchy_set_nightlight": ("omarchy_nightlight_set", "Set and re-observe the exact approved night-light state", "omarchy_nightlight_receipt"),
+    "machine_omarchy_set_idle": ("omarchy_idle_set", "Set and re-observe the exact approved idle policy", "omarchy_idle_receipt"),
+    "machine_omarchy_set_brightness": ("omarchy_brightness_set", "Set and re-observe the exact approved display brightness", "omarchy_brightness_receipt"),
+    "machine_omarchy_take_screenshot": ("omarchy_screenshot_captured", "Create and hash one approved full-desktop PNG", "omarchy_screenshot_receipt"),
+    "machine_omarchy_lock": ("omarchy_session_locked", "Request and re-observe the approved session lock", "omarchy_lock_receipt"),
     "create_reminder": ("reminder_saved", "Persist the requested reminder", "reminder_receipt"),
     "cancel_reminder": ("reminder_cancelled", "Cancel the requested reminder", "reminder_receipt"),
     "set_voice": ("voice_activated", "Activate the requested voice after synthesis", "voice_receipt"),

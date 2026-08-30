@@ -10,6 +10,10 @@ from .desktop import (DesktopActionError, DesktopApplicationLaunchBinding,
                       DesktopBindingError, DesktopBroker, DesktopBrokerError, DesktopSnapshot,
                       DesktopUnavailableError, DesktopWindowBinding,
                       DesktopWindowObservation, HyprlandDesktopBackend)
+from .omarchy import (OmarchyActionBinding, OmarchyActionError,
+                      OmarchyBindingError, OmarchyBrokerError,
+                      OmarchyDesktopBackend, OmarchyDesktopBroker,
+                      OmarchyUnavailableError)
 from .endpointing import PlaybackEchoGate, UtteranceBuffer
 from .capabilities import CapabilityManager
 from .cognition import (ContractBuilder, IntentInterpreter, OutcomeVerifier, Planner,
@@ -64,6 +68,7 @@ __all__ = ["ActionHandle", "AdmissionBudget", "AdmissionDecision", "ApprovalServ
            "Accelerator", "EvolutionEngine", "GraphStore", "HardwareSnapshot",
            "MachineOperator", "MemoryCurator", "NativeVisionInput", "OperatorGrantService", "ReflectionService", "RuntimeProfile",
            "DesktopActionError", "DesktopApplicationLaunchBinding", "DesktopBindingError", "DesktopBroker", "DesktopBrokerError", "DesktopSnapshot", "DesktopUnavailableError", "DesktopWindowBinding", "DesktopWindowObservation", "HyprlandDesktopBackend",
+           "OmarchyActionBinding", "OmarchyActionError", "OmarchyBindingError", "OmarchyBrokerError", "OmarchyDesktopBackend", "OmarchyDesktopBroker", "OmarchyUnavailableError",
            "BubblewrapProfile", "ProcessApprovalPreview", "ProcessBackendError", "ProcessBindingError", "ProcessBroker", "ProcessBrokerError", "ProcessIdentityError", "ProcessInstanceBinding", "ProcessLaunchBinding", "ProcessOperationContext", "ProcessLimits", "ProcessParameter", "ProcessPresentation", "ProcessResources", "ProcessSessionAccess", "ProcessSpec", "ProcessSpecError", "ProcessSpecRegistry", "SystemdUserProcessBackend",
            "FasterWhisperASR", "FeedbackService", "IntentInterpreter", "ModelRouter", "OutcomeVerifier", "ParakeetASR",
            "PiperSpeechSynthesizer", "Planner", "PolicyEngine", "ReconciliationCandidate", "RiskClass", "SkillManager", "SkillsShRegistry", "TaskContract",

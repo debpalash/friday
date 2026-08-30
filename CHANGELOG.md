@@ -26,6 +26,9 @@ releases. Migrations must preserve user state.
 
 ### Added
 
+- Typed Omarchy desktop control with live status, exact approvals, packaged
+  command identity binding, postcondition receipts, and reconciliation for
+  themes, fonts, night light, idle policy, brightness, screenshots, and lock.
 - Private export and selective deletion across conversations, tasks, artifacts,
   memory claims, and time ranges.
 - Artifact-backed voice, semantic-scale, long-horizon project,

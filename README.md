@@ -51,7 +51,7 @@ after the relevant executor records evidence.
 | Language model | Local 27B Qwen3.8 derivative served through a pinned vLLM runtime |
 | Speech | Parakeet ASR on CPU; Piper on CPU or OmniVoice on an eligible GPU |
 | Memory | SQLite transcripts, tasks, corrections, preferences, reminders, and receipts |
-| Actions | Typed tools with policy, resource admission, approval, execution, and verification |
+| Actions | Typed tools for files, processes, Hyprland, Omarchy, browser, and public web |
 | Exposure | Single trusted OS user; UI and model endpoints bound to loopback |
 | Lifecycle | Transactional install, update, repair, rollback, stop, and uninstall |
 
@@ -68,6 +68,8 @@ after the relevant executor records evidence.
   the task that produced an answer.
 - Bounded file, process, public web, managed browser, document, and Hyprland
   desktop operations.
+- Omarchy-native inspection and approved controls for themes, fonts, night
+  light, idle policy, brightness, screenshots, and session lock.
 - Exact approval records for actions that cross a state or permission boundary.
 - Independent receipts and reconciliation for effects whose first result is
   incomplete or uncertain.
@@ -223,7 +225,7 @@ runtime network tools, and current deletion limits.
 | `server.py` | FastAPI composition root and WebSocket request lifecycle |
 | `frontend/` | Static local interface, released independently from Python composition |
 | `supervisor.py` | Qwen/vLLM lifecycle, runtime profile, identity, and readiness |
-| `friday_core/` | Tasks, policy, memory, speech, tools, processes, evidence, and evals |
+| `friday_core/` | Tasks, policy, memory, speech, tools, Omarchy, processes, evidence, and evals |
 | `ops/` | Asset installers, diagnostics, service templates, and runtime provisioning |
 | `scripts/` | Release, secret-scan, screenshot, and uninstall tooling |
 | `requirements/` | Hash-required application and Qwen dependency locks |

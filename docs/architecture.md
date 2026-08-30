@@ -38,6 +38,14 @@ plays, and holds a 1.5-second playback tail before reopening input.
 memory, speech, and evaluation services. SQLite is authoritative for durable
 task state. Model output is a proposal, not proof that a side effect occurred.
 
+`friday_core/omarchy.py` exposes a fixed Omarchy control surface. It resolves
+only packaged command routes, pins the router and route-binary identities before
+approval, rejects arbitrary arguments, and re-observes the requested state after
+dispatch. Theme and font labels must come from the installed lists. Night light,
+idle, brightness, and lock use explicit target states. Full-screen capture is
+the only non-reconcilable action and writes a hashed PNG under
+`~/Pictures/Friday`.
+
 The installer uses versioned release directories and a single atomic `current`
 link. Personal state and large shared assets live beside those releases, so a
 code rollback does not roll back or delete user data.
