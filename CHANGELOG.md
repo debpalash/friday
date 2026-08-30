@@ -41,8 +41,8 @@ releases. Migrations must preserve user state.
 ### Fixed
 
 - Reconnecting browsers now fast-forward to the live progress cursor instead
-  of replaying old task events with a new timestamp. Diagnostic events use
-  their recorded time and render as separate lines.
+  of replaying old task events with a new timestamp. Task progress renders once,
+  diagnostic events use their recorded time, and log entries use separate lines.
 
 ## 0.1.0-alpha.1
 

@@ -57,6 +57,12 @@ class FrontendAssetTests(unittest.TestCase):
             "progressSeq=Math.max(progressSeq,Number(cursor.latest)||0);",
             frontend,
         )
+        self.assertIn(
+            "const taskEvent=Boolean(m.seq&&m.task_id&&String(m.task_id)"
+            ".startsWith('task_'));",
+            frontend,
+        )
+        self.assertIn("if(taskEvent)showTaskCard(m,detail);", frontend)
 
     def test_progress_diagnostics_use_the_recorded_event_time(self):
         frontend = (

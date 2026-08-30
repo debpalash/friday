@@ -1218,9 +1218,10 @@ function showProgress(m){
   progressInitialized=true;
   if(m.task_id&&String(m.task_id).startsWith('task_'))currentTaskId=m.task_id;
   const detail=m.detail?(': '+m.detail):'';
-  $('activity').textContent=m.label+detail;
-  if(m.seq&&m.task_id&&String(m.task_id).startsWith('task_'))showTaskCard(m,detail);
-  else if(m.seq)add('progress',m.label+detail);
+  const taskEvent=Boolean(m.seq&&m.task_id&&String(m.task_id).startsWith('task_'));
+  if(taskEvent)showTaskCard(m,detail);
+  else{$('activity').textContent=m.label+detail;
+    if(m.seq)add('progress',m.label+detail);}
   dlog((m.phase||'task')+' '+m.state+': '+m.label+detail,m.occurred_at);
 }
 function showTaskCard(m,detail){
