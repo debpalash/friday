@@ -43,6 +43,34 @@ class FrontendAssetTests(unittest.TestCase):
             with self.assertRaises(FrontendAssetError):
                 load_frontend(Path(root) / "missing.html")
 
+    def test_reconnect_fast_forwards_progress_without_replaying_old_tasks(self):
+        frontend = (
+            Path(__file__).parents[1] / "frontend" / "index.html"
+        ).read_text()
+
+        self.assertIn("let progressSeq=0,progressInitialized=false;", frontend)
+        self.assertIn("localStorage.removeItem('friday-progress-seq');", frontend)
+        self.assertNotIn("localStorage.getItem('friday-progress-seq')", frontend)
+        self.assertIn("progressInitialized=false;void pollProgress();", frontend)
+        self.assertIn("/api/progress?latest=true", frontend)
+        self.assertIn(
+            "progressSeq=Math.max(progressSeq,Number(cursor.latest)||0);",
+            frontend,
+        )
+
+    def test_progress_diagnostics_use_the_recorded_event_time(self):
+        frontend = (
+            Path(__file__).parents[1] / "frontend" / "index.html"
+        ).read_text()
+
+        self.assertIn("function dlog(t,occurredAt)", frontend)
+        self.assertIn("d.textContent+=stamp+'  '+t+'\\n';", frontend)
+        self.assertNotIn("d.textContent+=stamp+'  '+t+'\\\\n';", frontend)
+        self.assertIn(
+            "dlog((m.phase||'task')+' '+m.state+': '+m.label+detail,m.occurred_at);",
+            frontend,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

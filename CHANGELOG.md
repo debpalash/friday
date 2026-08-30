@@ -38,6 +38,12 @@ releases. Migrations must preserve user state.
 - A complete threat-model checklist and 322-package plus model engineering
   license inventory.
 
+### Fixed
+
+- Reconnecting browsers now fast-forward to the live progress cursor instead
+  of replaying old task events with a new timestamp. Diagnostic events use
+  their recorded time and render as separate lines.
+
 ## 0.1.0-alpha.1
 
 Initial public developer preview.

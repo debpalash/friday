@@ -1176,8 +1176,11 @@ async function correctTranscript(utteranceId,original){
     body:JSON.stringify({corrected_text:corrected})});
   if(r.ok)add('status','transcript correction saved');else showBanner('Correction failed: '+await r.text());
 }
-function dlog(t){const d=$('dbg');
-  d.textContent+=new Date().toLocaleTimeString()+'  '+t+'\\n';
+function dlog(t,occurredAt){const d=$('dbg');
+  const observed=occurredAt?new Date(occurredAt):null;
+  const stamp=observed&&!Number.isNaN(observed.getTime())
+    ?observed.toLocaleString():new Date().toLocaleTimeString();
+  d.textContent+=stamp+'  '+t+'\n';
   d.scrollTop=d.scrollHeight;}
 function meter(id,v,max){document.querySelector('#'+id+' > div').style.width=
   Math.min(100,v/max*100)+'%';}
@@ -1206,19 +1209,19 @@ let ws, ctx, playQ=[], playing=false, playbackActive=false, curSrc=null;
 let micResumeAt=0;
 let connected=false, audioEnabled=false;
 let reconnectTimer=null,reconnectAttempt=0;
-let progressSeq=Number(localStorage.getItem('friday-progress-seq')||0);
-let progressInitialized=localStorage.getItem('friday-progress-seq')!==null;
+let progressSeq=0,progressInitialized=false;
+localStorage.removeItem('friday-progress-seq');
 
 function showProgress(m){
   if(m.seq&&m.seq<=progressSeq)return;
-  if(m.seq){progressSeq=m.seq;localStorage.setItem('friday-progress-seq',progressSeq);}
+  if(m.seq)progressSeq=m.seq;
   progressInitialized=true;
   if(m.task_id&&String(m.task_id).startsWith('task_'))currentTaskId=m.task_id;
   const detail=m.detail?(': '+m.detail):'';
   $('activity').textContent=m.label+detail;
   if(m.seq&&m.task_id&&String(m.task_id).startsWith('task_'))showTaskCard(m,detail);
   else if(m.seq)add('progress',m.label+detail);
-  dlog((m.phase||'task')+' '+m.state+': '+m.label+detail);
+  dlog((m.phase||'task')+' '+m.state+': '+m.label+detail,m.occurred_at);
 }
 function showTaskCard(m,detail){
   let card=taskCards.get(m.task_id),label;
@@ -1310,8 +1313,8 @@ async function pollProgress(){
   try{
     if(!progressInitialized){
       const cursor=await fetch('/api/progress?latest=true').then(r=>r.json());
-      progressSeq=cursor.latest;progressInitialized=true;
-      localStorage.setItem('friday-progress-seq',progressSeq);return;
+      progressSeq=Math.max(progressSeq,Number(cursor.latest)||0);
+      progressInitialized=true;return;
     }
     const r=await fetch('/api/progress?since='+progressSeq);
     const data=await r.json();for(const m of data.events)showProgress(m);
@@ -1400,6 +1403,7 @@ function connect(){
   ws=socket;socket.binaryType='arraybuffer';
   socket.onopen=()=>{if(ws!==socket)return;
                  connected=true;reconnectAttempt=0;
+                 progressInitialized=false;void pollProgress();
                  if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
                  micResumeAt=audioEnabled?performance.now()+RECONNECT_MIC_SETTLE_MS:0;
                  $('dot').classList.add('on');$('sendbtn').disabled=false;
