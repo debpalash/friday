@@ -53,10 +53,12 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          FAST_CONVERSATION_TEMPERATURE,
                          FAST_CONVERSATION_TOP_P,
                          fast_system_prompt, format_news_list,
+                         format_capability_answer,
                          format_runtime_answer, page_receipt_has_article_evidence,
                          observation_tools_only,
                          load_asr,
                          migrate_session_json,
+                         requested_capability_topic,
                          requested_news_list_count, resource_claim_for,
                          resolve_evidence_followup, runtime_topics,
                          safe_for_fast_conversation,
@@ -683,6 +685,51 @@ class Friday:
                     "backend", "device", "runtime_voice",
                     "stored_active_profile", "stored_profile_is_runtime_active",
                     "profile_activation_supported", "runtime_change_required")
+            },
+        }
+        encoded = json.dumps(
+            receipt, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":")).encode()
+        receipt["receipt_sha256"] = hashlib.sha256(encoded).hexdigest()
+        return receipt
+
+    def capability_receipt(self) -> dict:
+        """Capture supported features from live runtime objects and tool authority."""
+        tools = available_tool_names()
+
+        def has(*names: str) -> bool:
+            return all(name in tools for name in names)
+
+        receipt = {
+            "observed_at": datetime.now(UTC).isoformat(),
+            "source": "live_capability_runtime",
+            "features": {
+                "project_files": has("list_files", "read_file", "write_file"),
+                "web_research": has("fetch_news", "web_search", "read_web"),
+                "memory": has("remember_preference", "recall_memory"),
+                "reminders": has(
+                    "create_reminder", "list_reminders", "cancel_reminder"),
+                "machine_files": has(
+                    "machine_grant_path", "machine_list_path",
+                    "machine_read_text", "machine_read_document"),
+                "ocr": has("machine_ocr_image"),
+                "managed_processes": bool(
+                    globals().get("PROCESS_BROKER") is not None
+                    and has("machine_list_process_specs", "machine_launch_process",
+                            "machine_inspect_process")),
+                "desktop": bool(
+                    globals().get("DESKTOP_BROKER") is not None
+                    and has("machine_list_windows", "machine_focus_window")),
+                "omarchy": bool(
+                    globals().get("OMARCHY_BROKER") is not None
+                    and has(OMARCHY_STATUS_TOOL, *OMARCHY_ACTION_TOOLS)),
+                "browser": bool(
+                    globals().get("WEB_PROXY_INITIALIZED") is True
+                    and has("browser_open", "browser_snapshot", "browser_click",
+                            "browser_type")),
+                "voice": bool(has("list_voices") and hasattr(self, "asr")
+                              and hasattr(self, "tts_backend")),
+                "native_vision": has("machine_understand_image"),
             },
         }
         encoded = json.dumps(
@@ -1454,6 +1501,7 @@ class Friday:
             user_text, recent_web_receipt is not None)
         voice_required_tool = self._voice_required_tool(user_text)
         requested_runtime_topics = runtime_topics(user_text)
+        requested_capability = requested_capability_topic(user_text)
         if evidence_followup.status == "selected":
             required_tool = "read_web"
         elif NEWS_INTENT.search(user_text) and not news_followup:
@@ -1604,6 +1652,16 @@ class Friday:
                 await speak_q.put(full)
                 self.history.append({"role": "assistant", "content": full})
                 return
+            if (requested_capability is not None
+                    and existing_task_id is None and not resume_context):
+                receipt = self.capability_receipt()
+                self._record_runtime_receipt(
+                    receipt, session_id=session_id, turn_id=turn_id,
+                    utterance_id=utterance_id)
+                full = format_capability_answer(receipt, requested_capability)
+                await speak_q.put(full)
+                self.history.append({"role": "assistant", "content": full})
+                return
 
             fast_conversation = (
                 existing_task_id is None
@@ -1751,7 +1809,7 @@ class Friday:
                         "the page text does not answer the question, say exactly what "
                         "evidence is missing.")
                 msgs = self._chat_messages(context_sections)
-                if show_decision_progress:
+                if show_decision_progress and existing_task_id is not None:
                     await live_progress(
                         "Choosing the next verified step",
                         f"Round {_round + 1}; {len(memory_hits)} relevant memories; "
@@ -1806,6 +1864,9 @@ class Friday:
                                 await verify_task_outcome(
                                     "Verified actions recorded and response produced")
                     return
+                if (existing_task_id is None and observation_tools_only(
+                        str(call["name"]) for call in calls)):
+                    quiet_observation = True
                 await live_progress(
                     "Actions selected",
                     ", ".join(c["name"] for c in calls), "planned")

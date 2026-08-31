@@ -1172,6 +1172,35 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(graph.count_nodes("runtime_receipt"), 1)
             self.assertEqual(graph.count("task_state"), 0)
 
+    async def test_capability_answer_uses_live_receipt_without_llm_or_task(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            graph = GraphStore(Path(temporary) / "friday.db")
+            tasks = TaskService(graph)
+            friday = server.Friday.__new__(server.Friday)
+            friday.history = [{"role": "system", "content": "test"}]
+            friday.save_session = lambda: None
+            friday.capability_receipt = lambda: {"features": {
+                "project_files": True, "web_research": True, "memory": True,
+                "reminders": True, "machine_files": True, "ocr": True,
+                "managed_processes": True, "desktop": True, "omarchy": True,
+                "browser": True, "voice": True, "native_vision": False,
+            }}
+            friday._stream_once = lambda *_args, **_kwargs: self.fail(
+                "capability identity must not call the language model")
+            queue = asyncio.Queue()
+            progress = []
+
+            with patch.multiple(server, GRAPH=graph, TASKS=tasks):
+                await friday.respond(
+                    "Can you control my Omarchy desktop?", queue,
+                    progress_sink=lambda event: _collect(progress, event))
+
+            self.assertIn("Omarchy control is live", await queue.get())
+            self.assertIsNone(await queue.get())
+            self.assertEqual(progress, [])
+            self.assertEqual(graph.count_nodes("runtime_receipt"), 1)
+            self.assertEqual(graph.count("task_state"), 0)
+
     def test_runtime_receipt_covers_model_asr_tts_voice_and_devices(self):
         friday = server.Friday.__new__(server.Friday)
         friday.asr = SimpleNamespace(name="test-asr", device="cpu")
@@ -1198,6 +1227,35 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(receipt["tts"]["backend"], "piper")
         self.assertEqual(receipt["tts"]["runtime_voice"], "kristin")
         self.assertEqual(receipt["tts"]["stored_active_profile"], "scarlet")
+        self.assertEqual(len(receipt["receipt_sha256"]), 64)
+
+    def test_capability_receipt_reflects_live_broker_availability(self):
+        friday = server.Friday.__new__(server.Friday)
+        friday.asr = object()
+        friday.tts_backend = "piper"
+        tools = {
+            "list_files", "read_file", "write_file", "fetch_news", "web_search",
+            "read_web", "remember_preference", "recall_memory", "create_reminder",
+            "list_reminders", "cancel_reminder", "machine_grant_path",
+            "machine_list_path", "machine_read_text", "machine_read_document",
+            "machine_ocr_image", "machine_list_process_specs",
+            "machine_launch_process", "machine_inspect_process",
+            "machine_list_windows", "machine_focus_window",
+            server.OMARCHY_STATUS_TOOL, *server.OMARCHY_ACTION_TOOLS,
+            "browser_open", "browser_snapshot", "browser_click", "browser_type",
+            "list_voices",
+        }
+
+        with patch.multiple(
+                server, PROCESS_BROKER=object(), DESKTOP_BROKER=object(),
+                OMARCHY_BROKER=object(), WEB_PROXY_INITIALIZED=True), patch.object(
+                    server, "available_tool_names", return_value=tools):
+            receipt = friday.capability_receipt()
+
+        self.assertTrue(all(
+            value for key, value in receipt["features"].items()
+            if key != "native_vision"))
+        self.assertFalse(receipt["features"]["native_vision"])
         self.assertEqual(len(receipt["receipt_sha256"]), 64)
 
     def test_voice_intents_require_authoritative_voice_tools(self):
@@ -1519,7 +1577,7 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
                          [message.get("content") for message in messages])
         self.assertEqual(messages[-1]["content"], "Hello.")
 
-    async def test_tool_turn_creates_verified_task_and_progress(self):
+    async def test_read_tool_turn_is_verified_without_visible_task_ceremony(self):
         tmp = tempfile.TemporaryDirectory()
         graph = GraphStore(Path(tmp.name) / "friday.db")
         tasks = TaskService(graph)
@@ -1559,7 +1617,7 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(task["status"], "completed")
             self.assertEqual(receipt["status"], "succeeded")
             self.assertEqual(tasks_found, [])
-            self.assertEqual(progress[-1]["state"], "completed")
+            self.assertEqual(progress, [])
             self.assertEqual(await queue.get(), "Done.")
             self.assertIsNone(await queue.get())
         finally:

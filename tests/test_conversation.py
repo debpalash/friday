@@ -6,9 +6,12 @@ from friday_core.conversation import (FAST_CONVERSATION_TEMPERATURE,
                                       contextual_refinement_request,
                                       decide_turn,
                                       declarative_context_update,
-                                      fast_system_prompt, format_runtime_answer,
+                                      fast_system_prompt,
+                                      format_capability_answer,
+                                      format_runtime_answer,
                                       observation_tools_only,
                                       page_receipt_has_article_evidence,
+                                      requested_capability_topic,
                                       requested_news_list_count, runtime_topics,
                                       resolve_evidence_followup,
                                       safe_for_fast_conversation,
@@ -21,6 +24,8 @@ class ConversationRoutingTests(unittest.TestCase):
             "What model are you running?": ("model",),
             "Which ASR are you using?": ("asr",),
             "What TTS are you using right now?": ("tts",),
+            "What speech recognition and text-to-speech backends are active?": (
+                "asr", "tts"),
             "Are you Piper or OmniVoice?": ("tts",),
             "What device are you running on?": ("device",),
             "What's under the hood?": ("model", "asr", "tts", "device"),
@@ -120,10 +125,35 @@ class ConversationRoutingTests(unittest.TestCase):
             TurnDisposition.REMEMBER)
 
     def test_observation_tool_sets_are_exact_and_nonempty(self):
-        self.assertTrue(observation_tools_only(["fetch_news", "read_web"]))
+        self.assertTrue(observation_tools_only(
+            ["fetch_news", "read_web", "list_files", "machine_ocr_image"]))
         self.assertFalse(observation_tools_only([]))
         self.assertFalse(observation_tools_only(
             ["fetch_news", "machine_write_text"]))
+
+    def test_capability_topics_and_answers_are_receipt_bound(self):
+        self.assertEqual(requested_capability_topic(
+            "What can you actually do on this machine right now?"), "overview")
+        self.assertEqual(requested_capability_topic(
+            "Can you control my Omarchy desktop?"), "omarchy")
+        self.assertIsNone(requested_capability_topic(
+            "What can a semaphore do?"))
+
+        receipt = {"features": {
+            "project_files": True, "web_research": True, "memory": False,
+            "reminders": False, "machine_files": False, "ocr": False,
+            "managed_processes": False, "desktop": False, "omarchy": True,
+            "browser": False, "voice": True, "native_vision": False,
+        }}
+        overview = format_capability_answer(receipt, "overview")
+        self.assertIn("inspect and edit this project", overview)
+        self.assertIn("search the public web", overview)
+        self.assertIn("approval", overview)
+        self.assertIn("Omarchy control is live", format_capability_answer(
+            receipt, "omarchy"))
+        receipt["features"]["omarchy"] = False
+        self.assertIn("does not have", format_capability_answer(
+            receipt, "omarchy"))
 
     def test_declarative_context_update_is_answered_without_unasked_action(self):
         for text in (

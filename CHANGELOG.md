@@ -52,9 +52,14 @@ releases. Migrations must preserve user state.
   references ask which result to open, and redirect shells are reported as
   insufficient evidence instead of being padded with headline inference.
 - Repeated vacuous replies are removed from model context without deleting
-  meaningful short user constraints. Read-only news, search, page, and runtime
-  observations retain durable receipts and verification while their internal
-  task lifecycle stays out of the conversation, progress poll, and reconnect UI.
+  meaningful short user constraints. Read-only observations retain durable
+  receipts and verification while their internal task lifecycle stays out of
+  the conversation, progress poll, and reconnect UI, including model-selected
+  project, machine, browser, clipboard, document, and desktop reads.
+- Questions about Friday's active runtime and operational capabilities now use
+  live receipts instead of model recall. Natural combined ASR/TTS wording is
+  recognized, and Omarchy control is reported only when its verified broker is
+  live.
 - Selective deletion now checkpoints committed WAL pages before its physical
   source-integrity guard, avoiding false concurrent-write failures.
 - Broken conversational outputs are now withheld and repaired once when the

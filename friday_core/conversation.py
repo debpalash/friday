@@ -7,6 +7,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 
+from .builtin_tools import TOOL_POLICY_DATA
+
 
 FAST_CONVERSATION_TEMPERATURE = 0.0
 FAST_CONVERSATION_TOP_P = 1.0
@@ -21,15 +23,17 @@ _RUNTIME_MODEL = re.compile(
 )
 _RUNTIME_ASR = re.compile(
     r"\b(?:what|which)\b.{0,48}\b(?:asr|speech recognition|transcri(?:ber|ption))\b"
-    r".{0,24}\b(?:are you|do you use|is active|using)\b|"
+    r".{0,80}\b(?:are you|are active|do you use|is active|using)\b|"
     r"\b(?:your|active|current)\b.{0,32}\b(?:asr|speech recognition)\b|"
     r"\b(?:are you|using|running)\b.{0,32}\b(?:parakeet|whisper)\b",
     re.IGNORECASE,
 )
 _RUNTIME_TTS = re.compile(
-    r"^\s*(?:what|which)\s+(?:tts|voice|speech backend)\s*[?.!]*\s*$|"
-    r"\b(?:what|which)\b.{0,48}\b(?:tts|voice|speech backend|speech synthesis)\b"
-    r".{0,28}\b(?:are you|do you use|we are using|is active|is in use|using right now)\b|"
+    r"^\s*(?:what|which)\s+(?:tts|voice|speech backend|text[- ]to[- ]speech)"
+    r"\s*[?.!]*\s*$|"
+    r"\b(?:what|which)\b.{0,80}\b(?:tts|voice|speech backend|speech synthesis|"
+    r"text[- ]to[- ]speech)\b.{0,80}\b(?:are you|are active|do you use|we are using|"
+    r"is active|is in use|using right now)\b|"
     r"\b(?:your|active|current)\b.{0,32}\b(?:tts|voice|speech backend)\b|"
     r"\b(?:are|is|using|running|start|enable|switch(?:\s+to)?)\b.{0,48}"
     r"\b(?:piper|omni\s*voice|omnivoice|pocket\s*t\s*s|scarlet|kristin)\b|"
@@ -93,8 +97,24 @@ _DECLARATIVE_CONTEXT = re.compile(
 _OBSERVATION_TOOLS = frozenset({
     "fetch_news", "list_voices", "machine_inspect_process",
     "machine_list_process_specs", "machine_list_windows", "read_web",
-    "search_skill_catalog", "web_search",
-})
+    "search_skill_catalog", "web_search", "list_capabilities", "list_skills",
+    "list_core_upgrades", "list_reminders", "recall_memory",
+}) | frozenset(
+    name for name, (risk, _permissions, _approval) in TOOL_POLICY_DATA.items()
+    if risk == "read_only"
+)
+_CAPABILITY_OMARCHY = re.compile(
+    r"\b(?:can|could|do)\s+you\b.{0,64}\bomarchy\b|"
+    r"\bwhat\b.{0,48}\b(?:can|could)\b.{0,32}\bomarchy\b|"
+    r"\bomarchy\b.{0,48}\b(?:capabilit|control|manage|support)\w*\b",
+    re.IGNORECASE,
+)
+_CAPABILITY_OVERVIEW = re.compile(
+    r"\bwhat\s+can\s+(?:you|friday)\b(?:\s+actually)?\s+do\b|"
+    r"\bwhat\s+(?:are|is)\s+(?:your|friday(?:'s)?)\s+capabilit(?:y|ies)\b|"
+    r"\b(?:show|list|describe)\s+(?:me\s+)?(?:your|friday(?:'s)?)\s+capabilit(?:y|ies)\b",
+    re.IGNORECASE,
+)
 _EMPTY_REFERENT_REPLIES = frozenset({
     "fine", "got it", "hey", "hello", "okay", "ok", "ready", "sure",
 })
@@ -161,6 +181,18 @@ class EvidenceFollowup:
     url: str | None = None
 
 
+def requested_capability_topic(text: str) -> str | None:
+    """Return the exact capability view requested by the user."""
+    value = str(text or "").strip()
+    if not value:
+        return None
+    if _CAPABILITY_OMARCHY.search(value):
+        return "omarchy"
+    if _CAPABILITY_OVERVIEW.search(value):
+        return "overview"
+    return None
+
+
 def contextual_refinement_request(text: str) -> bool:
     """Return whether text asks to transform Friday's immediately prior answer."""
     return _CONTEXTUAL_REFINEMENT.fullmatch(str(text or "")) is not None
@@ -214,6 +246,45 @@ def observation_tools_only(tool_names: Iterable[str]) -> bool:
     """Return whether a nonempty tool set is entirely read-only observation."""
     names = tuple(str(name) for name in tool_names)
     return bool(names) and all(name in _OBSERVATION_TOOLS for name in names)
+
+
+def format_capability_answer(receipt: dict, topic: str) -> str:
+    """Render a bounded answer from a live capability receipt."""
+    features = receipt.get("features") if isinstance(receipt, dict) else None
+    if not isinstance(features, dict):
+        raise ValueError("capability receipt is invalid")
+    if topic == "omarchy":
+        if features.get("omarchy") is True:
+            return (
+                "Yes. Omarchy control is live: I can inspect its state and, with "
+                "approval, change themes, fonts, night light, idle policy, brightness, "
+                "take screenshots, and lock the session."
+            )
+        return "No. This runtime does not have a verified Omarchy control broker."
+    if topic != "overview":
+        raise ValueError("capability topic is invalid")
+    labels = [
+        label for key, label in (
+            ("project_files", "inspect and edit this project"),
+            ("web_research", "search the public web, read pages, and fetch news"),
+            ("memory", "retain and recall explicit preferences"),
+            ("reminders", "create and manage reminders"),
+            ("machine_files", "inspect granted machine files and documents"),
+            ("ocr", "extract text from images"),
+            ("managed_processes", "launch and inspect approved managed apps"),
+            ("desktop", "inspect and control verified desktop windows"),
+            ("omarchy", "control verified Omarchy settings"),
+            ("browser", "operate the managed browser"),
+            ("voice", "listen and speak locally"),
+            ("native_vision", "answer questions about granted images"),
+        ) if features.get(key) is True
+    ]
+    if not labels:
+        return "No verified operational capabilities are available in this runtime."
+    return (
+        "Right now I can " + "; ".join(labels) + ". Consequential changes require "
+        "approval, and I report actions only after receipt verification."
+    )
 
 
 def resolve_evidence_followup(
