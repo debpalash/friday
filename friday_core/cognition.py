@@ -595,6 +595,19 @@ class OutcomeVerifier:
             valid = isinstance(value, dict) and value.get("status") == "cancelled"
             effects = [{"kind": "reminder_cancelled",
                         "id": value.get("reminder_id")}] if valid else []
+        elif tool_name == "list_reminders":
+            valid = (isinstance(value, list)
+                     and all(isinstance(item, dict)
+                             and bool(item.get("reminder_id"))
+                             and bool(item.get("text"))
+                             and bool(item.get("due_at"))
+                             and item.get("status") in {
+                                 "scheduled", "fired", "cancelled"}
+                             for item in value))
+            evidence = ([str(item["reminder_id"]) for item in value]
+                        if valid else [])
+            effects = ([{"kind": "reminders_observed", "count": len(value)}]
+                       if valid else [])
         elif tool_name in {"browser_open", "browser_snapshot", "browser_click",
                            "browser_type"}:
             valid = isinstance(value, dict) and bool(value.get("url"))

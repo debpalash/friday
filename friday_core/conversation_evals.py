@@ -120,6 +120,7 @@ class ConversationQualityEvalRunner:
                            or not 1 <= value <= 2_000 for value in numeric)
                     or numeric[0] > numeric[1]
                     or not isinstance(case.get("forbid_markdown", False), bool)
+                    or not isinstance(case.get("must_end_question", False), bool)
                     or not isinstance(required_any, list) or len(required_any) > 32
                     or any(not isinstance(group, list) or not 1 <= len(group) <= 16
                            or any(not isinstance(term, str)
@@ -160,6 +161,9 @@ class ConversationQualityEvalRunner:
             "markdown_policy": (
                 not bool(case.get("forbid_markdown"))
                 or _MARKDOWN.search(graded_output) is None),
+            "question_when_ambiguous": (
+                not bool(case.get("must_end_question"))
+                or graded_output.rstrip().endswith("?")),
         }
         checks["passed"] = all(
             bool(value) for key, value in checks.items() if key != "word_count")

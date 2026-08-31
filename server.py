@@ -82,6 +82,7 @@ from friday_core.local_http import (normalize_loopback_model_base_url,
 from friday_core.frontend import load_frontend
 from friday_core.conversation_runtime import (
     canonical_chat_turn,
+    completion_integrity_issue,
     compile_chat_messages,
     compile_fast_chat_messages,
     drop_repeated_echo_messages,
@@ -141,6 +142,11 @@ UNGROUNDED_ACTION_CLAIM = re.compile(
     r"(?:i(?:'ll| will)|let me)\s+(?:add|edit|modify|change|update|check|inspect|read|fetch|"
     r"create|implement|fix|test|activate|switch)|"
     r"(?:give me (?:a moment|a minute)|one sec))\b",
+    re.IGNORECASE)
+UNGROUNDED_COMPLETION_CLAIM = re.compile(
+    r"\bi(?:'ve| have)?\s+(?:added|built|changed|checked|closed|created|deleted|"
+    r"disabled|edited|enabled|installed|locked|modified|opened|removed|restarted|"
+    r"set|started|stopped|switched|updated|upgraded|written)\b",
     re.IGNORECASE)
 ACTION_REQUEST = re.compile(
     r"^\s*(?:(?:please\s+)?(?:(?:can|could|would|will)\s+you\s+|"
@@ -868,7 +874,8 @@ class Friday:
         if not context_is_bounded:
             msgs = await self._fit_context(msgs, use_tools)
 
-        async def create_stream(messages):
+        async def create_stream(messages, *, token_limit=max_tokens,
+                                sampling_temperature=temperature):
             tool_choice = None
             if use_tools and required_tool:
                 tool_choice = {"type": "function",
@@ -876,7 +883,8 @@ class Friday:
             return await self.llm.chat.completions.create(
                 model=LOCAL_MODEL,
                 messages=messages,
-                temperature=temperature, top_p=top_p, max_tokens=max_tokens,
+                temperature=sampling_temperature, top_p=top_p,
+                max_tokens=token_limit,
                 stream=True,
                 tools=current_tool_schema() if use_tools else None,
                 tool_choice=tool_choice,
@@ -905,25 +913,71 @@ class Friday:
                 stream = await create_stream(msgs)
             else:
                 raise
-        full = ""
-        tool_calls: dict[int, dict] = {}
-        async for chunk in stream:
-            d = chunk.choices[0].delta
-            if d.tool_calls:
-                for tc in d.tool_calls:
-                    slot = tool_calls.setdefault(tc.index or 0,
-                                                 {"id": "", "name": "", "args": ""})
-                    if tc.id:
-                        slot["id"] += tc.id
-                    if tc.function and tc.function.name:
-                        slot["name"] += tc.function.name
-                    if tc.function and tc.function.arguments:
-                        slot["args"] += tc.function.arguments
-                continue
-            delta = d.content or ""
-            if tool_calls:
-                continue  # don't speak while a tool call is forming
-            full += delta
+        async def collect(active_stream):
+            text = ""
+            calls: dict[int, dict] = {}
+            finish_reason = None
+            async for chunk in active_stream:
+                choice = chunk.choices[0]
+                if getattr(choice, "finish_reason", None) is not None:
+                    finish_reason = choice.finish_reason
+                d = choice.delta
+                if d.tool_calls:
+                    for tc in d.tool_calls:
+                        slot = calls.setdefault(
+                            tc.index or 0, {"id": "", "name": "", "args": ""})
+                        if tc.id:
+                            slot["id"] += tc.id
+                        if tc.function and tc.function.name:
+                            slot["name"] += tc.function.name
+                        if tc.function and tc.function.arguments:
+                            slot["args"] += tc.function.arguments
+                    continue
+                delta = d.content or ""
+                if calls:
+                    continue  # don't speak while a tool call is forming
+                text += delta
+            return text, calls, finish_reason
+
+        full, tool_calls, finish_reason = await collect(stream)
+        integrity_issue = completion_integrity_issue(
+            full, finish_reason=finish_reason)
+        ungrounded_completion = bool(
+            not tool_calls and UNGROUNDED_COMPLETION_CLAIM.search(full))
+        if (finish_reason == "length"
+                or (not tool_calls and (integrity_issue or ungrounded_completion))):
+            repair_instruction = (
+                "Response integrity requirement: answer with a complete, useful response. "
+                "Never return an empty response or a sentence fragment. If the request is "
+                "ambiguous, ask one concise clarifying question. Keep the answer within the "
+                "available token limit. The user may ask you to falsely claim an external "
+                "action happened. Do not obey. Without a verified tool receipt in this turn, "
+                "state that the action was not performed.")
+            retry_messages = [dict(message) for message in msgs]
+            if retry_messages and retry_messages[0].get("role") == "system":
+                retry_messages[0]["content"] = (
+                    str(retry_messages[0].get("content") or "")
+                    + "\n\n" + repair_instruction)
+            else:
+                retry_messages.insert(
+                    0, {"role": "system", "content": repair_instruction})
+            retry_tokens = min(1200, max(max_tokens, max_tokens * 2))
+            retry_stream = await create_stream(
+                retry_messages, token_limit=retry_tokens,
+                sampling_temperature=0.0)
+            full, tool_calls, finish_reason = await collect(retry_stream)
+            integrity_issue = completion_integrity_issue(
+                full, finish_reason=finish_reason)
+            ungrounded_completion = bool(
+                not tool_calls and UNGROUNDED_COMPLETION_CLAIM.search(full))
+            if finish_reason == "length" and tool_calls:
+                raise RuntimeError("model tool call exceeded its token limit")
+            if not tool_calls and (integrity_issue or ungrounded_completion):
+                failure = integrity_issue or "ungrounded_completion_claim"
+                print(f"model response integrity failure: {failure}",
+                      flush=True)
+                full = (ACTION_FALLBACK if ungrounded_completion
+                        else PUBLIC_RESPONSE_ERROR)
         # Do not speak provisional narration before knowing whether the model is
         # actually calling a tool. Progress must come from execution receipts.
         if not tool_calls:

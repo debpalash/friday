@@ -3,12 +3,26 @@ import unittest
 
 from friday_core.conversation_runtime import (
     canonical_chat_turn,
+    completion_integrity_issue,
     compile_chat_messages,
+    compile_fast_chat_messages,
     drop_repeated_echo_messages,
 )
 
 
 class ConversationRuntimeTests(unittest.TestCase):
+    def test_completion_integrity_rejects_only_broken_responses(self):
+        self.assertEqual(completion_integrity_issue(""), "empty")
+        self.assertEqual(completion_integrity_issue("I"), "fragment")
+        self.assertEqual(
+            completion_integrity_issue("Partial", finish_reason="length"),
+            "token_limit")
+        self.assertEqual(
+            completion_integrity_issue("```python\nprint('x')"),
+            "unclosed_code_fence")
+        self.assertIsNone(completion_integrity_issue("No."))
+        self.assertIsNone(completion_integrity_issue("Cobalt"))
+
     def test_canonical_turn_requires_complete_tool_receipts(self):
         turn = [
             {"role": "user", "content": "inspect"},
@@ -71,6 +85,28 @@ class ConversationRuntimeTests(unittest.TestCase):
 
         self.assertNotIn("bad", [message.get("content") for message in result])
         self.assertEqual(result[-1]["content"], "verified")
+
+    def test_fast_compiler_drops_fragment_and_repeated_short_reply_runs(self):
+        history = [{"role": "system", "content": "prompt"}]
+        history.extend((
+            {"role": "user", "content": "sdef"},
+            {"role": "assistant", "content": "I"},
+        ))
+        for prompt in ("hi", "hih", "olas"):
+            history.extend((
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": "Hey"},
+            ))
+        history.append({"role": "user", "content": "Where were we?"})
+
+        result = compile_fast_chat_messages(
+            history, system_prompt="fast", history_turns=6,
+            context_chars=8_000, redacted_tool_receipt="redacted")
+
+        self.assertEqual(result, [
+            {"role": "system", "content": "fast"},
+            {"role": "user", "content": "Where were we?"},
+        ])
 
 
 if __name__ == "__main__":

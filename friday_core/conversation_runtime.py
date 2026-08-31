@@ -11,6 +11,27 @@ from typing import Pattern
 Message = dict
 Turn = list[Message]
 
+_FRAGMENT_ONLY = re.compile(
+    r"^(?:i|i\s+am|i['’]m|it|this|that|the|a|an|and|but|or|so|because|to)[.!?]*$",
+    re.IGNORECASE,
+)
+
+
+def completion_integrity_issue(
+    text: str, *, finish_reason: str | None = None,
+) -> str | None:
+    """Return the reason a model response must not be shown to the user."""
+    if finish_reason == "length":
+        return "token_limit"
+    value = str(text or "").strip()
+    if not value:
+        return "empty"
+    if _FRAGMENT_ONLY.fullmatch(value):
+        return "fragment"
+    if value.count("```") % 2:
+        return "unclosed_code_fence"
+    return None
+
 
 def canonical_chat_turn(
     turn: Sequence[Message], *, redacted_tool_receipt: str,
@@ -127,6 +148,40 @@ def drop_repeated_echo_turns(turns: Sequence[Turn]) -> list[Turn]:
     return kept
 
 
+def short_reply_turn_signature(turn: Sequence[Message]) -> str | None:
+    """Identify short repeated assistant replies that carry no durable context."""
+    if (len(turn) != 2 or turn[0].get("role") != "user"
+            or turn[1].get("role") != "assistant"
+            or turn[1].get("tool_calls")):
+        return None
+    user = turn[0].get("content")
+    assistant = turn[1].get("content")
+    if not isinstance(user, str) or not isinstance(assistant, str):
+        return None
+    normalized = re.sub(r"[^\w]+", " ", assistant.casefold()).strip()
+    if (not normalized or len(user.strip()) > 32 or len(normalized) > 24
+            or len(normalized.split()) > 4):
+        return None
+    return normalized
+
+
+def drop_repeated_short_reply_turns(turns: Sequence[Turn]) -> list[Turn]:
+    """Drop runs where several short inputs received the same short response."""
+    kept: list[Turn] = []
+    index = 0
+    while index < len(turns):
+        signature = short_reply_turn_signature(turns[index])
+        end = index + 1
+        if signature is not None:
+            while (end < len(turns)
+                   and short_reply_turn_signature(turns[end]) == signature):
+                end += 1
+        if signature is None or end - index < 3:
+            kept.extend(turns[index:end])
+        index = end
+    return kept
+
+
 def group_user_turns(messages: Iterable[Message]) -> list[Turn]:
     turns: list[Turn] = []
     for message in messages:
@@ -188,7 +243,8 @@ def compile_chat_messages(
         final = turn[-1]
         complete = (final.get("role") == "assistant"
                     and not final.get("tool_calls")
-                    and bool(final.get("content")))
+                    and completion_integrity_issue(
+                        str(final.get("content") or "")) is None)
         current_user_only = index == len(raw_turns) - 1 and len(turn) == 1
         current_tool_receipt = (
             index == len(raw_turns) - 1 and has_tools
@@ -196,7 +252,8 @@ def compile_chat_messages(
         if (not has_tools and (complete or current_user_only)) or (
                 has_tools and (complete or current_tool_receipt)):
             cleaned_turns.append(turn)
-    cleaned_turns = drop_repeated_echo_turns(cleaned_turns)
+    cleaned_turns = drop_repeated_short_reply_turns(
+        drop_repeated_echo_turns(cleaned_turns))
     cleaned = [message for turn in cleaned_turns[-history_turns:]
                for message in turn]
     return [{"role": "system", "content": prompt}] + cleaned
@@ -218,10 +275,14 @@ def compile_fast_chat_messages(
                 for message in turn):
             continue
         final = turn[-1]
-        complete = final.get("role") == "assistant" and bool(final.get("content"))
+        complete = (final.get("role") == "assistant"
+                    and completion_integrity_issue(
+                        str(final.get("content") or "")) is None)
         current_user_only = index == len(raw_turns) - 1 and len(turn) == 1
         if complete or current_user_only:
             plain_turns.append(turn)
+    plain_turns = drop_repeated_short_reply_turns(
+        drop_repeated_echo_turns(plain_turns))
     selected: list[Turn] = []
     used_chars = 0
     for turn in reversed(plain_turns[-history_turns:]):

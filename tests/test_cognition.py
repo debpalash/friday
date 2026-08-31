@@ -82,6 +82,23 @@ class CognitiveKernelTests(unittest.TestCase):
         self.assertFalse(check.passed)
         self.assertTrue(check.missing)
 
+    def test_empty_reminder_list_is_a_valid_observation(self):
+        check = self.verifier.verify_action(
+            "list_reminders", "[]", succeeded=True,
+            args={"status": "scheduled"})
+
+        self.assertTrue(check.passed)
+        self.assertEqual(check.effects, [{
+            "kind": "reminders_observed", "count": 0,
+        }])
+
+    def test_malformed_reminder_list_fails_verification(self):
+        check = self.verifier.verify_action(
+            "list_reminders", '[{"status":"scheduled"}]', succeeded=True)
+
+        self.assertFalse(check.passed)
+        self.assertEqual(check.effects, [])
+
     def test_plan_names_the_contract_verifier(self):
         contract = self.contracts.build("Search", ["web_search"])
         plan = Planner().build([{"name": "web_search"}], contract)

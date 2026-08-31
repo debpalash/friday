@@ -71,6 +71,18 @@ class ConversationQualityEvalTests(unittest.TestCase):
         self.assertFalse(checks["bounded_output"])
         self.assertFalse(checks["passed"])
 
+    def test_exact_grader_requires_a_question_for_ambiguous_requests(self):
+        case = {
+            "min_words": 3, "max_words": 30, "max_sentences": 2,
+            "forbid_markdown": False, "required_any": [],
+            "forbidden_terms": [], "must_end_question": True,
+        }
+
+        self.assertTrue(ConversationQualityEvalRunner._grade(
+            case, "What would you like improved?")["passed"])
+        self.assertFalse(ConversationQualityEvalRunner._grade(
+            case, "Okay, I can improve it.")["passed"])
+
     def test_run_continues_after_completion_failure_without_storing_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             suite = Path(temporary) / "suite.json"

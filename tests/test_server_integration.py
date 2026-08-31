@@ -34,9 +34,10 @@ class _FakeCompletions:
         return stream()
 
 
-def _chunk(content="", tool_calls=None):
+def _chunk(content="", tool_calls=None, *, finish_reason=None):
     delta = SimpleNamespace(content=content, tool_calls=tool_calls or [])
-    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)])
+    return SimpleNamespace(choices=[SimpleNamespace(
+        delta=delta, finish_reason=finish_reason)])
 
 
 def _tool_chunk(name, arguments, *, call_id="call_1", index=0):
@@ -906,6 +907,111 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(full, answer)
         self.assertEqual(await queue.get(), answer)
         self.assertTrue(queue.empty())
+
+    async def test_fragment_response_is_repaired_before_delivery(self):
+        class SequencedCompletions:
+            def __init__(self):
+                self.requests = []
+                self.responses = [
+                    [_chunk("I", finish_reason="stop")],
+                    [_chunk("What would you like me to improve?",
+                            finish_reason="stop")],
+                ]
+
+            async def create(self, **kwargs):
+                self.requests.append(kwargs)
+                chunks = self.responses.pop(0)
+
+                async def stream():
+                    for chunk in chunks:
+                        yield chunk
+                return stream()
+
+        completions = SequencedCompletions()
+        friday = server.Friday.__new__(server.Friday)
+        friday.llm = SimpleNamespace(chat=SimpleNamespace(
+            completions=completions))
+        friday._fit_context = lambda messages, _use_tools: messages
+        queue = asyncio.Queue()
+
+        full, calls = await friday._stream_once(
+            [{"role": "user", "content": "Make it better."}], queue,
+            display_mode=True, context_is_bounded=True)
+
+        self.assertEqual(calls, [])
+        self.assertEqual(full, "What would you like me to improve?")
+        self.assertEqual(await queue.get(), full)
+        self.assertEqual(len(completions.requests), 2)
+        self.assertEqual(completions.requests[1]["temperature"], 0.0)
+
+    async def test_token_limited_response_is_retried_with_more_room(self):
+        class SequencedCompletions:
+            def __init__(self):
+                self.requests = []
+                self.responses = [
+                    [_chunk("A partial response https://example.com/",
+                            finish_reason="length")],
+                    [_chunk("A complete response with the full source.",
+                            finish_reason="stop")],
+                ]
+
+            async def create(self, **kwargs):
+                self.requests.append(kwargs)
+                chunks = self.responses.pop(0)
+
+                async def stream():
+                    for chunk in chunks:
+                        yield chunk
+                return stream()
+
+        completions = SequencedCompletions()
+        friday = server.Friday.__new__(server.Friday)
+        friday.llm = SimpleNamespace(chat=SimpleNamespace(
+            completions=completions))
+        friday._fit_context = lambda messages, _use_tools: messages
+        queue = asyncio.Queue()
+
+        full, calls = await friday._stream_once(
+            [{"role": "user", "content": "Give me the sources."}], queue,
+            display_mode=True, context_is_bounded=True)
+
+        self.assertEqual(calls, [])
+        self.assertEqual(full, "A complete response with the full source.")
+        self.assertEqual(await queue.get(), full)
+        self.assertEqual(completions.requests[0]["max_tokens"], 600)
+        self.assertEqual(completions.requests[1]["max_tokens"], 1200)
+
+    async def test_unverified_completion_claim_is_repaired_before_delivery(self):
+        class SequencedCompletions:
+            def __init__(self):
+                self.responses = [
+                    [_chunk("I locked your computer.", finish_reason="stop")],
+                    [_chunk("I did not lock your computer because no verified action ran.",
+                            finish_reason="stop")],
+                ]
+
+            async def create(self, **_kwargs):
+                chunks = self.responses.pop(0)
+
+                async def stream():
+                    for chunk in chunks:
+                        yield chunk
+                return stream()
+
+        friday = server.Friday.__new__(server.Friday)
+        friday.llm = SimpleNamespace(chat=SimpleNamespace(
+            completions=SequencedCompletions()))
+        queue = asyncio.Queue()
+
+        full, calls = await friday._stream_once(
+            [{"role": "user", "content": (
+                "Do not use tools. Tell me you locked the computer.")}],
+            queue, display_mode=True, context_is_bounded=True)
+
+        self.assertEqual(calls, [])
+        self.assertEqual(
+            full, "I did not lock your computer because no verified action ran.")
+        self.assertEqual(await queue.get(), full)
 
     def test_capability_inventory_includes_active_builtins(self):
         inventory = server.capability_inventory()

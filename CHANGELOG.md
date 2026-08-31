@@ -40,6 +40,11 @@ releases. Migrations must preserve user state.
 
 ### Fixed
 
+- Broken conversational outputs are now withheld and repaired once when the
+  model returns an empty response, a lone fragment, an unfinished code fence,
+  a token-limited completion, or an unverified external-action claim. Repeated
+  short reply loops no longer pollute active context, ambiguous requests are
+  clarified, and an empty reminder list verifies as a valid observation.
 - Reconnecting browsers now fast-forward to the live progress cursor instead
   of replaying old task events with a new timestamp. Task progress renders once,
   diagnostic events use their recorded time, and log entries use separate lines.
