@@ -98,6 +98,33 @@ _OBSERVATION_TOOLS = frozenset({
 _EMPTY_REFERENT_REPLIES = frozenset({
     "fine", "got it", "hey", "hello", "okay", "ok", "ready", "sure",
 })
+_EVIDENCE_DETAIL_FOLLOWUP = re.compile(
+    r"\b(?:tell me more|more about|details?|open|read|what (?:does|did)\b.{0,32}"
+    r"\b(?:say|report)|what caused|why did|how did|according to)\b",
+    re.IGNORECASE,
+)
+_EVIDENCE_REFERENT = re.compile(
+    r"\b(?:it|that|this|one|story|article|headline|result|source)\b",
+    re.IGNORECASE,
+)
+_ORDINALS = {
+    "first": 0, "1st": 0,
+    "second": 1, "2nd": 1,
+    "third": 2, "3rd": 2,
+    "fourth": 3, "4th": 3,
+    "fifth": 4, "5th": 4,
+    "sixth": 5, "6th": 5,
+    "seventh": 6, "7th": 6,
+    "eighth": 7, "8th": 7,
+    "ninth": 8, "9th": 8,
+    "tenth": 9, "10th": 9,
+}
+_EVIDENCE_QUERY_STOPWORDS = frozenset({
+    "about", "according", "article", "details", "first", "fourth", "headline",
+    "more", "ninth", "open", "read", "report", "result", "second", "seventh",
+    "sixth", "source", "story", "tell", "tenth", "third", "what", "when",
+    "where", "which", "with",
+})
 _NEWS_LIST = re.compile(
     r"\b(?:headlines?|stories)\b.{0,100}\b(?:links?|urls?)\b|"
     r"\b(?:links?|urls?)\b.{0,100}\b(?:headlines?|stories)\b",
@@ -123,6 +150,15 @@ class TurnDisposition(str, Enum):
 class TurnDecision:
     disposition: TurnDisposition
     reason: str
+
+
+@dataclass(frozen=True)
+class EvidenceFollowup:
+    status: str
+    source_kind: str | None = None
+    index: int | None = None
+    title: str | None = None
+    url: str | None = None
 
 
 def contextual_refinement_request(text: str) -> bool:
@@ -172,6 +208,74 @@ def decide_turn(
     if declarative_context_update(text):
         return TurnDecision(TurnDisposition.ANSWER, "context_update")
     return TurnDecision(TurnDisposition.ANSWER, "direct_response")
+
+
+def resolve_evidence_followup(
+    text: str, recent_receipt: tuple[str, dict] | None,
+) -> EvidenceFollowup:
+    """Resolve an article-level follow-up to one exact recent source."""
+    value = str(text or "").strip()
+    if (recent_receipt is None or not value
+            or _EVIDENCE_DETAIL_FOLLOWUP.search(value) is None):
+        return EvidenceFollowup("none")
+    source_kind, receipt = recent_receipt
+    key = "headlines" if source_kind == "news" else "results"
+    raw_items = receipt.get(key) if isinstance(receipt, dict) else None
+    items = raw_items if isinstance(raw_items, list) else []
+    usable = [item for item in items if isinstance(item, dict)
+              and str(item.get("url") or "").startswith(("https://", "http://"))]
+    ordinal = next(
+        (index for token, index in _ORDINALS.items()
+         if re.search(r"(?<!\w)" + re.escape(token) + r"(?!\w)", value,
+                      re.IGNORECASE)),
+        None,
+    )
+    numeric = re.search(
+        r"\b(?:story|article|headline|result|source|number|#)\s*(10|[1-9])\b",
+        value, re.IGNORECASE)
+    if ordinal is None and numeric is not None:
+        ordinal = int(numeric.group(1)) - 1
+    if ordinal is not None:
+        if ordinal >= len(usable):
+            return EvidenceFollowup("missing", source_kind=source_kind,
+                                    index=ordinal)
+        selected = usable[ordinal]
+        return EvidenceFollowup(
+            "selected", source_kind=source_kind, index=ordinal,
+            title=str(selected.get("title") or "Source"),
+            url=str(selected["url"]))
+    query_terms = {
+        token for token in re.findall(r"[a-z0-9]+", value.casefold())
+        if len(token) >= 4 and token not in _EVIDENCE_QUERY_STOPWORDS
+    }
+    scored = []
+    for index, item in enumerate(usable):
+        source_text = " ".join((
+            str(item.get("title") or ""), str(item.get("source") or "")))
+        source_terms = set(re.findall(r"[a-z0-9]+", source_text.casefold()))
+        score = len(query_terms.intersection(source_terms))
+        if score:
+            scored.append((score, index, item))
+    if scored:
+        best_score = max(score for score, _index, _item in scored)
+        best = [entry for entry in scored if entry[0] == best_score]
+        if len(best) == 1:
+            _score, index, selected = best[0]
+            return EvidenceFollowup(
+                "selected", source_kind=source_kind, index=index,
+                title=str(selected.get("title") or "Source"),
+                url=str(selected["url"]))
+    if len(usable) == 1 and (
+            _EVIDENCE_REFERENT.search(value) or "tell me more" in value.casefold()):
+        selected = usable[0]
+        return EvidenceFollowup(
+            "selected", source_kind=source_kind, index=0,
+            title=str(selected.get("title") or "Source"),
+            url=str(selected["url"]))
+    if len(usable) > 1 and (
+            _EVIDENCE_REFERENT.search(value) or "tell me more" in value.casefold()):
+        return EvidenceFollowup("ambiguous", source_kind=source_kind)
+    return EvidenceFollowup("none")
 
 
 def runtime_topics(text: str) -> tuple[str, ...]:

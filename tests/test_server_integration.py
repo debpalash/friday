@@ -1700,6 +1700,121 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
                 old_tasks, old_exec, old_reflection, old_blocking_tools)
             tmp.cleanup()
 
+    async def test_article_followup_reads_exact_recent_source_before_answering(self):
+        tmp = tempfile.TemporaryDirectory()
+        graph = GraphStore(Path(tmp.name) / "friday.db")
+        tasks = TaskService(graph)
+        old_tasks, old_exec, old_reflection = (server.TASKS, server.exec_tool,
+                                               server.REFLECTION)
+        old_blocking_tools = server.BLOCKING_IO_TOOLS
+        server.TASKS = tasks
+        server.REFLECTION = ReflectionService(graph)
+        server.BLOCKING_IO_TOOLS = old_blocking_tools - {"read_web"}
+        selected_url = "https://example.com/bravo"
+
+        def fake_exec(name, args):
+            self.assertEqual(name, "read_web")
+            self.assertEqual(args["url"], selected_url)
+            return json.dumps({
+                "url": selected_url,
+                "title": "Bravo report",
+                "text": "The launch was delayed because a valve inspection failed.",
+                "fetched_at": "2026-08-31T08:00:00Z",
+            })
+
+        server.exec_tool = fake_exec
+        try:
+            friday = server.Friday.__new__(server.Friday)
+            friday.history = [
+                {"role": "system", "content": "test"},
+                {"role": "user", "content": "Give me two headlines."},
+                {"role": "assistant", "content": None, "tool_calls": [{
+                    "id": "old_news", "type": "function",
+                    "function": {"name": "fetch_news", "arguments": "{}"},
+                }]},
+                {"role": "tool", "tool_call_id": "old_news", "content": json.dumps({
+                    "fetched_at": datetime.now(UTC).isoformat(),
+                    "headlines": [
+                        {"title": "Alpha", "source": "A",
+                         "url": "https://example.com/alpha"},
+                        {"title": "Bravo", "source": "B", "url": selected_url},
+                    ],
+                })},
+                {"role": "assistant", "content": "Alpha and Bravo are the latest."},
+            ]
+            friday.save_session = lambda: None
+            rounds = 0
+
+            async def fake_stream(messages, speak_q, use_tools=True,
+                                  required_tool=None, **_kwargs):
+                nonlocal rounds
+                rounds += 1
+                self.assertIsNone(required_tool)
+                self.assertFalse(use_tools)
+                system = str(messages[0].get("content") or "")
+                self.assertIn("Current verified page receipt", system)
+                self.assertIn("valve inspection failed", system)
+                answer = "It was delayed because a valve inspection failed."
+                await speak_q.put(answer)
+                return answer, []
+
+            friday._stream_once = fake_stream
+            queue = asyncio.Queue()
+
+            await friday.respond(
+                "Why did the second one get delayed?", queue,
+                display_mode=True)
+
+            self.assertEqual(
+                await queue.get(),
+                "It was delayed because a valve inspection failed.")
+            self.assertIsNone(await queue.get())
+            self.assertEqual(rounds, 1)
+            with graph._connect() as conn:
+                task = conn.execute("SELECT * FROM task_state").fetchone()
+                step = conn.execute(
+                    "SELECT tool_name,args_redacted_json FROM task_steps").fetchone()
+            self.assertEqual(task["status"], "completed")
+            self.assertEqual(step["tool_name"], "read_web")
+            self.assertEqual(
+                json.loads(step["args_redacted_json"])["url"], selected_url)
+        finally:
+            (server.TASKS, server.exec_tool, server.REFLECTION,
+             server.BLOCKING_IO_TOOLS) = (
+                old_tasks, old_exec, old_reflection, old_blocking_tools)
+            tmp.cleanup()
+
+    async def test_ambiguous_article_followup_asks_before_opening(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            graph = GraphStore(Path(temporary) / "friday.db")
+            tasks = TaskService(graph)
+            friday = server.Friday.__new__(server.Friday)
+            friday.history = [
+                {"role": "system", "content": "test"},
+                {"role": "user", "content": "News."},
+                {"role": "assistant", "content": None, "tool_calls": [{
+                    "id": "old_news", "type": "function",
+                    "function": {"name": "fetch_news", "arguments": "{}"},
+                }]},
+                {"role": "tool", "tool_call_id": "old_news", "content": json.dumps({
+                    "fetched_at": datetime.now(UTC).isoformat(),
+                    "headlines": [
+                        {"title": "Alpha", "url": "https://example.com/alpha"},
+                        {"title": "Bravo", "url": "https://example.com/bravo"},
+                    ],
+                })},
+                {"role": "assistant", "content": "Two stories."},
+            ]
+            queue = asyncio.Queue()
+
+            with patch.object(server, "TASKS", tasks):
+                await friday.respond(
+                    "Tell me more about it.", queue, display_mode=True)
+
+            self.assertEqual(await queue.get(), "Which headline should I open?")
+            self.assertIsNone(await queue.get())
+            self.assertEqual(tasks.nonterminal(), [])
+
     async def test_explicit_news_list_is_rendered_without_model_truncation(self):
         tmp = tempfile.TemporaryDirectory()
         graph = GraphStore(Path(tmp.name) / "friday.db")

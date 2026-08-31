@@ -57,7 +57,8 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          load_asr,
                          migrate_session_json,
                          requested_news_list_count, resource_claim_for,
-                         runtime_topics, safe_for_fast_conversation,
+                         resolve_evidence_followup, runtime_topics,
+                         safe_for_fast_conversation,
                          TurnDisposition)
 from friday_core.processes import (
     BubblewrapProfile, ProcessBindingError, ProcessBroker,
@@ -1441,6 +1442,8 @@ class Friday:
         task_id = existing_task_id
         task_failed = False
         recent_web_receipt = self._latest_web_receipt()
+        evidence_followup = resolve_evidence_followup(
+            user_text, recent_web_receipt)
         requested_news_count = requested_news_list_count(user_text)
         explicit_news_style = bool(NEWS_STYLE_PREFERENCE.search(user_text))
         news_preference_recorded = (
@@ -1450,7 +1453,9 @@ class Friday:
             user_text, recent_web_receipt is not None)
         voice_required_tool = self._voice_required_tool(user_text)
         requested_runtime_topics = runtime_topics(user_text)
-        if NEWS_INTENT.search(user_text) and not news_followup:
+        if evidence_followup.status == "selected":
+            required_tool = "read_web"
+        elif NEWS_INTENT.search(user_text) and not news_followup:
             required_tool = "fetch_news"
         elif REMINDER_INTENT.search(user_text):
             required_tool = "create_reminder"
@@ -1469,6 +1474,7 @@ class Friday:
         successful_tools: set[str] = set()
         grounded_news: dict | None = None
         grounded_search: dict | None = None
+        grounded_page: dict | None = None
         intent_id: str | None = None
         show_decision_progress = bool(
             existing_task_id or turn_decision.disposition in {
@@ -1560,6 +1566,20 @@ class Friday:
             return False
 
         try:
+            if (existing_task_id is None
+                    and evidence_followup.status == "ambiguous"):
+                noun = ("headline" if evidence_followup.source_kind == "news"
+                        else "search result")
+                full = f"Which {noun} should I open?"
+                await speak_q.put(full)
+                self.history.append({"role": "assistant", "content": full})
+                return
+            if (existing_task_id is None
+                    and evidence_followup.status == "missing"):
+                full = "That source is not in the recent results."
+                await speak_q.put(full)
+                self.history.append({"role": "assistant", "content": full})
+                return
             if (existing_task_id is None
                     and turn_decision.disposition is TurnDisposition.CLARIFY):
                 full = "What should I improve?"
@@ -1701,6 +1721,14 @@ class Friday:
                         "sentence using only titles, snippets, dates, and sources in this "
                         "receipt. Do not recite a numbered link list. If those fields do "
                         "not answer the question, say exactly what evidence is missing.")
+                elif grounded_page:
+                    context_sections.append(
+                        "Current verified page receipt:\n" + json.dumps(
+                            grounded_page, ensure_ascii=False) +
+                        "\nAnswer the follow-up using only the page text in this receipt. "
+                        "Do not infer missing causes, numbers, quotes, or conclusions. If "
+                        "the page text does not answer the question, say exactly what "
+                        "evidence is missing.")
                 msgs = self._chat_messages(context_sections)
                 if show_decision_progress:
                     await live_progress(
@@ -1710,14 +1738,26 @@ class Friday:
                         f"{len(active_skills)} relevant skills; context is token-budgeted.")
                 force_tool = (required_tool if required_tool not in successful_tools
                               else None)
-                if force_tool:
+                if (force_tool == "read_web"
+                        and evidence_followup.status == "selected"):
+                    full = ""
+                    calls = [{
+                        "id": "call_source_" + secrets.token_hex(8),
+                        "name": "read_web",
+                        "args": json.dumps({
+                            "url": evidence_followup.url,
+                            "max_chars": 12000,
+                        }, separators=(",", ":")),
+                    }]
+                elif force_tool:
                     render_options = ({"display_mode": True}
                                       if display_mode else {})
                     full, calls = await self._stream_once(
                         msgs, speak_q, required_tool=force_tool,
                         **render_options)
                 else:
-                    grounded_answer = bool(grounded_news or grounded_search)
+                    grounded_answer = bool(
+                        grounded_news or grounded_search or grounded_page)
                     preference_only = news_preference_recorded and required_tool is None
                     render_options = ({"display_mode": True}
                                       if display_mode else {})
@@ -2041,6 +2081,7 @@ class Friday:
                             grounded_search = json.loads(result_text)
                         elif c_name == "read_web":
                             page_receipt = json.loads(result_text)
+                            grounded_page = page_receipt
                             await progress({
                                 "type": "sources",
                                 "query": page_receipt.get("title") or "Web page",

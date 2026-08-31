@@ -47,6 +47,9 @@ releases. Migrations must preserve user state.
 - Follow-up rewrites such as "make that shorter" now stay in the conversation
   lane when a prior answer supplies the target. Context-only updates cannot
   trigger unsolicited essays and are repaired against a strict word limit.
+- Article-level follow-ups now resolve an ordinal or uniquely named recent
+  source, read that exact URL, and answer from the page receipt. Ambiguous source
+  references ask which result to open instead of guessing or fetching new news.
 - Selective deletion now checkpoints committed WAL pages before its physical
   source-integrity guard, avoiding false concurrent-write failures.
 - Broken conversational outputs are now withheld and repaired once when the

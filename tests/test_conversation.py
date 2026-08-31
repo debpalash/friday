@@ -8,6 +8,7 @@ from friday_core.conversation import (FAST_CONVERSATION_TEMPERATURE,
                                       declarative_context_update,
                                       fast_system_prompt, format_runtime_answer,
                                       requested_news_list_count, runtime_topics,
+                                      resolve_evidence_followup,
                                       safe_for_fast_conversation,
                                       underspecified_action_request)
 
@@ -138,6 +139,38 @@ class ConversationRoutingTests(unittest.TestCase):
             "Give me headlines with sources and URLs."), 3)
         self.assertIsNone(requested_news_list_count(
             "Summarize today's news in one sentence."))
+
+    def test_evidence_followup_resolves_only_one_exact_recent_source(self):
+        receipt = ("news", {"headlines": [
+            {"title": "Alpha", "url": "https://example.com/alpha"},
+            {"title": "Bravo", "url": "https://example.com/bravo"},
+        ]})
+
+        selected = resolve_evidence_followup(
+            "Tell me more about the second one.", receipt)
+        ambiguous = resolve_evidence_followup(
+            "Why did that happen?", receipt)
+        missing = resolve_evidence_followup(
+            "Open the fifth article.", receipt)
+        named = resolve_evidence_followup(
+            "Tell me more about the Bravo story.", receipt)
+
+        self.assertEqual(selected.status, "selected")
+        self.assertEqual(selected.index, 1)
+        self.assertEqual(selected.url, "https://example.com/bravo")
+        self.assertEqual(ambiguous.status, "ambiguous")
+        self.assertEqual(missing.status, "missing")
+        self.assertEqual(named.url, "https://example.com/bravo")
+
+    def test_evidence_followup_does_not_hijack_unrelated_questions(self):
+        receipt = ("search", {"results": [
+            {"title": "Result", "url": "https://example.com/result"},
+        ]})
+
+        self.assertEqual(resolve_evidence_followup(
+            "Why does the sky look blue?", receipt).status, "none")
+        self.assertEqual(resolve_evidence_followup(
+            "Tell me more about it.", receipt).status, "selected")
 
     def test_runtime_answer_preserves_exact_backend_names_and_runtime_voice(self):
         receipt = {
