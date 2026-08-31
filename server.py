@@ -345,8 +345,6 @@ BUILTIN_TOOL_RUNTIME = BuiltinToolRuntime()
 
 def _safe_path(path: str):
     return BUILTIN_TOOL_RUNTIME.safe_project_path(REPO, path)
-
-
 def _builtin_tool_adapters() -> BuiltinToolAdapters:
     return BuiltinToolAdapters(
         repo=REPO,
@@ -357,8 +355,6 @@ def _builtin_tool_adapters() -> BuiltinToolAdapters:
         run_process=subprocess.run,
         start_process=subprocess.Popen,
     )
-
-
 def exec_tool(name: str, args: dict) -> str:
     return BUILTIN_TOOL_RUNTIME.execute(
         name, args, _builtin_tool_adapters())
@@ -1933,7 +1929,8 @@ class Friday:
                         }, separators=(",", ":")),
                     }]
                 elif force_tool:
-                    render_options = ({"display_mode": True}
+                    render_options = ({"display_mode": True,
+                                       "response_max_words": 60}
                                       if display_mode else {})
                     if display_mode and grounded_pages:
                         render_options["response_max_words"] = 190
@@ -1943,9 +1940,11 @@ class Friday:
                 else:
                     grounded_answer = bool(
                         grounded_news or grounded_search or grounded_page
-                        or grounded_pages)
+                        or grounded_pages or (required_tool == "search_project"
+                        and "read_file" in successful_tools))
                     preference_only = news_preference_recorded and required_tool is None
-                    render_options = ({"display_mode": True}
+                    render_options = ({"display_mode": True,
+                                       "response_max_words": 60}
                                       if display_mode else {})
                     full, calls = await self._stream_once(
                         msgs, speak_q,
