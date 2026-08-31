@@ -1094,7 +1094,7 @@ class Friday:
         # Do not speak provisional narration before knowing whether the model is
         # actually calling a tool. Progress must come from execution receipts.
         if not tool_calls:
-            if (not grounded_receipt and self._is_action_request(msgs)
+            if (self._is_action_request(msgs)
                     and UNGROUNDED_ACTION_CLAIM.search(full)):
                 print(f"blocked ungrounded action claim: {full[:180]}", flush=True)
                 full = ACTION_FALLBACK

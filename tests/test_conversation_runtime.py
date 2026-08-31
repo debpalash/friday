@@ -34,6 +34,7 @@ class ConversationRuntimeTests(unittest.TestCase):
 
         self.assertEqual([item["role"] for item in result], ["system", "user"])
         self.assertIn("worker.py: lease fence", result[0]["content"])
+        self.assertIn("inspection is complete", result[0]["content"])
 
     def test_isolated_history_scope_restores_owner_and_keeps_updates(self):
         owner = type("Owner", (), {})()

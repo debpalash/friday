@@ -92,7 +92,9 @@ def grounded_project_messages(
     system["content"] = (
         str(system.get("content") or "")
         + "\n\nCurrent verified project evidence:\n"
-        + "\n\n".join(receipts))
+        + "\n\n".join(receipts)
+        + "\n\nThe inspection is complete. Answer from this evidence now; do not "
+          "say you will inspect or call another tool.")
     return [system, {"role": "user", "content": user_text}]
 
 
