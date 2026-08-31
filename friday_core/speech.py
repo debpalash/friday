@@ -148,6 +148,29 @@ def choose_speech_backend(
     return "omnivoice"
 
 
+def load_omnivoice_runtime(repo: Path, device: str):
+    """Load the pinned local OmniVoice model and its bounded CUDA reserve."""
+    import torch
+    from omnivoice.models.omnivoice import OmniVoice
+
+    if device.startswith("cuda") and not torch.cuda.is_available():
+        raise RuntimeError(
+            "the selected runtime profile requires CUDA for speech synthesis")
+    model = OmniVoice.from_pretrained(
+        str(pinned_omnivoice_model_path(repo)), device_map=device).eval()
+    model.audio_tokenizer.to("cpu")
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    torch.manual_seed(20260821)
+    reserve = None
+    if device.startswith("cuda"):
+        _ = (torch.zeros(64, 64, device=device)
+             @ torch.zeros(64, 64, device=device))
+        reserve = torch.empty(
+            96 * 1024 * 1024 // 4, dtype=torch.float32, device=device)
+    return model, reserve
+
+
 class PiperSpeechSynthesizer:
     """Persistent CPU Piper voice with bounded, validated float output."""
 

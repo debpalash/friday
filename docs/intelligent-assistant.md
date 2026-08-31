@@ -334,6 +334,22 @@ receipt-backed project inspection, and live news source follow-up. The news
 case depends on public network access. Raw answers are hashed rather than
 stored in the result.
 
+Run the broader installed general-assistant benchmark through the same verified
+transport with:
+
+```bash
+~/.local/share/friday/current/venv/bin/python \
+  ~/.local/share/friday/current/ops/run_live_assistant_evals.py \
+  --suite general-assistant-v1.json
+```
+
+Its thirteen families test unfamiliar deduction, arithmetic state updates,
+contradiction detection, uncertainty, quoted hostile instructions, response
+constraints, corrections, underspecified planning, live capability limits,
+receipt-backed source inspection, two-source research, false-action refusal,
+and an actual Scarlet voice transition. Passing is evidence for those cases,
+not proof of AGI.
+
 The v2 held-out suite has thirteen deterministic cases across intent routing, task contracts,
 approval policy, receipt verification, false-completion prevention, exact read-only restart,
 nonrepeatable reconciliation, memory provenance, public-network isolation, and hardware

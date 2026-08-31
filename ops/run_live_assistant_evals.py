@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import os
+import re
 import ssl
 import stat
 import sys
@@ -76,6 +78,13 @@ class InstalledFridayClient:
             open_timeout=15,
             max_size=2_000_000,
         ) as socket:
+            # Reconnect status belongs to the session envelope, not the first
+            # evaluated turn. Drain the bounded initial snapshot before send.
+            for _ in range(128):
+                try:
+                    await asyncio.wait_for(socket.recv(), timeout=0.05)
+                except TimeoutError:
+                    break
             for turn in case["turns"]:
                 before = await asyncio.to_thread(
                     self.get_json, "/api/progress?latest=true")
@@ -116,7 +125,21 @@ class InstalledFridayClient:
         return asyncio.run(self.run_case_async(case))
 
 
+def _suite_path(name: str) -> Path:
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,79}\.json", name):
+        raise RuntimeError("live assistant suite name is invalid")
+    path = (REPO / "evals" / name).resolve()
+    if path.parent != (REPO / "evals").resolve():
+        raise RuntimeError("live assistant suite must be under evals")
+    return path
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--suite", default="live-assistant-v1.json",
+        help="bounded suite filename under evals")
+    args = parser.parse_args()
     runtime = read_live_runtime(REPO)
     environment = runtime_environment()
     if str(environment.get("FRIDAY_BIND_HOST", "127.0.0.1")) != "127.0.0.1":
@@ -132,7 +155,7 @@ def main() -> int:
     result = LiveAssistantEvalRunner(
         client.run_case,
         runtime_fingerprint=runtime.fingerprint,
-    ).run(REPO / "evals" / "live-assistant-v1.json")
+    ).run(_suite_path(args.suite))
     print(json.dumps(result, indent=2))
     return 0 if result["passed"] == result["total"] else 1
 

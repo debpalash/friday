@@ -110,7 +110,7 @@ from friday_core.builtin_tools import (
     OMARCHY_STATUS_TOOL, OMARCHY_TOOL_NAMES, PROCESS_TOOL_NAMES,
     BuiltinToolAdapters, BuiltinToolRuntime,
 )
-from friday_core.speech import pinned_omnivoice_model_path
+from friday_core.speech import load_omnivoice_runtime
 
 SAMPLE_RATE = 16000
 TTS_RATE = 24000
@@ -200,6 +200,11 @@ REMINDER_INTENT = re.compile(r"\bremind me\b", re.IGNORECASE)
 VOICE_ACTIVATION_INTENT = re.compile(
     r"\b(?:use|set|activate|load|lord|switch(?:\s+to)?|change(?:\s+to)?)\b"
     r".{0,48}\b(?:voice|scarlet|base)\b",
+    re.IGNORECASE,
+)
+PROJECT_READ_INTENT = re.compile(
+    r"\b(?:inspect|read|review|check)\b.{0,96}"
+    r"\b(?:this\s+)?(?:project|repo(?:sitory)?|codebase|module|source)\b",
     re.IGNORECASE,
 )
 VOICE_RUNTIME_INTENT = re.compile(
@@ -367,6 +372,7 @@ class Friday:
 
         self.vad = load_silero_vad()
         self._session_lock = threading.RLock()
+        self._voice_lock = threading.RLock()
         print("loading asr...", flush=True)
         self.asr = load_asr(REPO / "models" / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8")
         print(f"asr backend: {self.asr.name}", flush=True)
@@ -382,28 +388,8 @@ class Friday:
             self._reserve = None
             print("tts backend: piper (kristin, cpu, local)", flush=True)
         else:
-            from omnivoice.models.omnivoice import OmniVoice
-            if TTS_DEVICE.startswith("cuda") and not torch.cuda.is_available():
-                raise RuntimeError(
-                    "the selected runtime profile requires CUDA for speech synthesis")
-            self.tts = OmniVoice.from_pretrained(
-                str(pinned_omnivoice_model_path(REPO)),
-                device_map=self.tts_device).eval()
-            # The audio codec is used only to encode a voice reference and decode
-            # final waveform tokens. Keeping it on CUDA adds several GB of peak
-            # memory beside Qwen; CPU placement preserves GPU speech generation.
-            self.tts.audio_tokenizer.to("cpu")
-            _empty_cuda_cache()
-            torch.manual_seed(20260821)   # stable TTS sampling -> one steady voice
-            # cuBLAS handles + small reserve so decode-time allocs never fail
-            if self.tts_device.startswith("cuda"):
-                _ = (torch.zeros(64, 64, device=self.tts_device)
-                     @ torch.zeros(64, 64, device=self.tts_device))
-                self._reserve = torch.empty(
-                    96 * 1024 * 1024 // 4, dtype=torch.float32,
-                    device=self.tts_device)
-            else:
-                self._reserve = None
+            self.tts, self._reserve = load_omnivoice_runtime(
+                REPO, self.tts_device)
         print("models loaded", flush=True)
         self.llm = _new_local_llm_client()
         self.clone_enabled = (self.tts_backend == "omnivoice"
@@ -416,12 +402,23 @@ class Friday:
         self.clone_prompt = None
         self.voice_name = (self.piper.voice_name
                            if self.piper is not None else "base")
+        active_voice = VOICES.active()
         if self.tts_backend == "omnivoice":
             try:
-                self._configure_voice(VOICES.active())
+                self._configure_voice(active_voice)
             except Exception as exc:
                 print(f"active voice unavailable, using base: {exc}", flush=True)
                 self._configure_voice(VOICES.get("base"))
+        elif str(active_voice.get("name") or "base") != "base":
+            try:
+                self._transition_to_omnivoice(active_voice)
+                print(
+                    f"restored active voice: {self.voice_name} (omnivoice, "
+                    f"{self.tts_device})", flush=True)
+            except Exception as exc:
+                print(
+                    f"active voice unavailable, keeping {self.voice_name}: {exc}",
+                    flush=True)
 
         system_prompt = (PROMPT_FILE.read_text() if PROMPT_FILE.is_file()
                          else DEFAULT_PROMPT)
@@ -491,7 +488,12 @@ class Friday:
     def _latest_web_receipt(self, *, max_age_seconds: int = 900
                             ) -> tuple[str, dict] | None:
         """Return recent structured web evidence retained in conversation history."""
+        visible_urls: list[str] = []
         for message in reversed(self.history[-40:]):
+            if message.get("role") == "assistant" and not visible_urls:
+                visible_urls = re.findall(
+                    r"https?://[^\s<>]+", str(message.get("content") or ""))
+                visible_urls = [url.rstrip(").,]") for url in visible_urls]
             if message.get("role") != "tool":
                 continue
             try:
@@ -502,8 +504,10 @@ class Friday:
                 continue
             if value.get("headlines"):
                 kind = "news"
+                key = "headlines"
             elif value.get("results"):
                 kind = "search"
+                key = "results"
             else:
                 continue
             fetched = value.get("fetched_at")
@@ -518,6 +522,15 @@ class Friday:
                         continue
                 except (TypeError, ValueError):
                     continue
+            if visible_urls:
+                visible = set(visible_urls)
+                filtered = [
+                    item for item in value.get(key, [])
+                    if isinstance(item, dict)
+                    and str(item.get("url") or "") in visible]
+                if filtered:
+                    value = dict(value)
+                    value[key] = filtered
             return kind, value
         return None
 
@@ -583,6 +596,40 @@ class Friday:
         self.voice_name = profile["name"]
         print(f"voice profile: {self.voice_name} ({kind})", flush=True)
 
+    def _transition_to_omnivoice(self, profile: dict) -> None:
+        """Replace Piper only after OmniVoice and the requested profile load."""
+        old = (
+            getattr(self, "tts_backend", "unknown"),
+            getattr(self, "piper", None), getattr(self, "tts", None),
+            getattr(self, "_reserve", None),
+            getattr(self, "clone_enabled", False),
+            getattr(self, "instruct", "female, young adult, moderate pitch"),
+            getattr(self, "ref_audio", None),
+            getattr(self, "clone_prompt", None),
+            getattr(self, "voice_name", "unknown"),
+        )
+        model = None
+        try:
+            model, reserve = load_omnivoice_runtime(REPO, self.tts_device)
+            self.tts_backend = "omnivoice"
+            self.tts = model
+            self._reserve = reserve
+            self.clone_enabled = os.environ.get(
+                "FRIDAY_VOICE_CLONE", "1").lower() not in {
+                    "0", "false", "off", "no"
+                }
+            self._configure_voice(profile)
+            self.piper = None
+        except Exception:
+            (
+                self.tts_backend, self.piper, self.tts, self._reserve,
+                self.clone_enabled, self.instruct, self.ref_audio,
+                self.clone_prompt, self.voice_name,
+            ) = old
+            del model
+            _empty_cuda_cache()
+            raise
+
     def _verify_current_voice(self) -> dict:
         with torch.no_grad():
             if self.ref_audio:
@@ -594,35 +641,39 @@ class Friday:
                     text="Friday voice verification.", language="English",
                     instruct=self.instruct)
         audio = out[0]
-        samples = int(audio.numel() if hasattr(audio, "numel") else len(audio))
+        samples = int(
+            audio.numel() if callable(getattr(audio, "numel", None))
+            else np.asarray(audio).size)
         if samples < TTS_RATE // 4:
             raise RuntimeError("voice verification produced insufficient audio")
         return {"passed": True, "samples": samples, "sample_rate": TTS_RATE}
 
     def activate_voice(self, name: str) -> str:
-        if getattr(self, "tts_backend", "omnivoice") != "omnivoice":
-            backend = str(getattr(self, "tts_backend", "unknown"))
-            runtime_voice = str(getattr(self, "voice_name", "unknown"))
-            device = str(getattr(self, "tts_device", "unknown"))
-            raise RuntimeError(
-                f"current synthesis is {backend} with {runtime_voice} on {device}; "
-                "voice-profile activation requires an OmniVoice runtime restart")
-        proposed = VOICES.get(name)
-        current = VOICES.active()
-        old = (self.instruct, self.ref_audio, self.clone_prompt, self.voice_name)
-        try:
-            self._configure_voice(proposed)
-            verification = self._verify_current_voice()
-            VOICES.activate(proposed["name"], verification)
-            return (f"activated voice {proposed['name']} after a "
-                    f"{verification['samples']}-sample synthesis test")
-        except Exception:
-            self.instruct, self.ref_audio, self.clone_prompt, self.voice_name = old
-            raise
-        finally:
-            # Voice verification has a large temporary decode workspace. Keeping
-            # it cached can starve a concurrent Qwen request on the shared GPU.
-            _empty_cuda_cache()
+        lock = getattr(self, "_voice_lock", None)
+        if lock is None:
+            lock = self._voice_lock = threading.RLock()
+        with lock:
+            proposed = VOICES.get(name)
+            transitioned = getattr(self, "tts_backend", "unknown") != "omnivoice"
+            old = (self.instruct, self.ref_audio, self.clone_prompt, self.voice_name)
+            try:
+                if transitioned:
+                    self._transition_to_omnivoice(proposed)
+                else:
+                    self._configure_voice(proposed)
+                verification = self._verify_current_voice()
+                VOICES.activate(proposed["name"], verification)
+                transition = " using OmniVoice" if transitioned else ""
+                return (f"activated voice {proposed['name']}{transition} after a "
+                        f"{verification['samples']}-sample synthesis test")
+            except Exception:
+                if not transitioned:
+                    (self.instruct, self.ref_audio,
+                     self.clone_prompt, self.voice_name) = old
+                raise
+            finally:
+                # Voice verification has a large temporary decode workspace.
+                _empty_cuda_cache()
 
     def rollback_voice(self) -> str:
         previous = VOICES.previous()
@@ -637,16 +688,17 @@ class Friday:
         stored = VOICES.active()
         stored_name = str(stored.get("name") or "base")
         profile_active = backend == "omnivoice" and runtime_voice == stored_name
+        activation_supported = backend in {"omnivoice", "piper"}
         return {
             "backend": backend,
             "device": device,
             "runtime_voice": runtime_voice,
             "stored_active_profile": stored_name,
             "stored_profile_is_runtime_active": profile_active,
-            "profile_activation_supported": backend == "omnivoice",
+            "profile_activation_supported": activation_supported,
             "runtime_change_required": (
-                None if backend == "omnivoice"
-                else "restart Friday with a compatible OmniVoice runtime profile"
+                None if backend == "omnivoice" else
+                "activating a profile will load OmniVoice locally and replace Piper"
             ),
             "profiles": VOICES.list(),
         }
@@ -882,6 +934,13 @@ class Friday:
         return self.asr.transcribe_samples(x16, SAMPLE_RATE)
 
     def synth(self, text: str) -> np.ndarray:
+        lock = getattr(self, "_voice_lock", None)
+        if lock is None:
+            lock = self._voice_lock = threading.RLock()
+        with lock:
+            return self._synth_locked(text)
+
+    def _synth_locked(self, text: str) -> np.ndarray:
         piper = getattr(self, "piper", None)
         if piper is not None:
             return piper.synthesize(text)
@@ -995,10 +1054,21 @@ class Friday:
         full, tool_calls, finish_reason = await collect(stream)
 
         def response_contract_issue(text: str, calls: dict[int, dict]) -> str | None:
-            if calls or response_max_words is None:
+            if calls:
                 return None
-            if len(re.findall(r"\b[\w'-]+\b", text)) > response_max_words:
+            words = re.findall(r"\b[\w'-]+\b", text)
+            if (response_max_words is not None
+                    and len(words) > response_max_words):
                 return "word_limit"
+            latest_user = next((
+                str(message.get("content") or "")
+                for message in reversed(msgs)
+                if message.get("role") == "user"), "")
+            if (len(words) <= 3 and re.search(
+                    r"\b(?:explain|why|based|evidence|verified|plan|exact|"
+                    r"tell me|recommend|compare)\b",
+                    latest_user, re.IGNORECASE)):
+                return "thin_answer"
             return None
 
         integrity_issue = completion_integrity_issue(
@@ -1015,7 +1085,10 @@ class Friday:
                 "ambiguous, ask one concise clarifying question. Keep the answer within the "
                 "available token limit. The user may ask you to falsely claim an external "
                 "action happened. Do not obey. Without a verified tool receipt in this turn, "
-                "state that the action was not performed.")
+                "state that the action was not performed. Never answer an evidence question "
+                "with only yes, no, or I don't know: state the evidence basis or what is "
+                "missing. When a plan lacks essential inputs, ask one precise question that "
+                "names those inputs.")
             if response_max_words is not None:
                 repair_instruction += (
                     f" This response must contain at most {response_max_words} words.")
@@ -1143,9 +1216,10 @@ class Friday:
         elif name == "list_voices":
             result = json.dumps(self.voice_runtime_status())
         elif name == "set_voice":
-            result = self.activate_voice(str(args.get("name", "")))
+            result = await asyncio.to_thread(
+                self.activate_voice, str(args.get("name", "")))
         elif name == "rollback_voice":
-            result = self.rollback_voice()
+            result = await asyncio.to_thread(self.rollback_voice)
         elif name == "upgrade_core":
             outcome = await asyncio.to_thread(
                 HARNESS.upgrade, str(args.get("objective", "")), task_id=task_id)
@@ -1502,7 +1576,7 @@ class Friday:
         voice_required_tool = self._voice_required_tool(user_text)
         requested_runtime_topics = runtime_topics(user_text)
         requested_capability = requested_capability_topic(user_text)
-        if evidence_followup.status == "selected":
+        if evidence_followup.status in {"selected", "multiple"}:
             required_tool = "read_web"
         elif NEWS_INTENT.search(user_text) and not news_followup:
             required_tool = "fetch_news"
@@ -1514,6 +1588,8 @@ class Friday:
             required_tool = "web_search"
         elif SKILL_SEARCH_INTENT.search(user_text):
             required_tool = "search_skill_catalog"
+        elif PROJECT_READ_INTENT.search(user_text):
+            required_tool = "read_file"
         else:
             required_tool = None
         turn_decision = decide_turn(
@@ -1524,6 +1600,7 @@ class Friday:
         grounded_news: dict | None = None
         grounded_search: dict | None = None
         grounded_page: dict | None = None
+        grounded_pages: list[dict] = []
         intent_id: str | None = None
         show_decision_progress = bool(
             existing_task_id or turn_decision.disposition in {
@@ -1541,7 +1618,10 @@ class Friday:
 
         async def record_intent(tool_names: list[str]) -> tuple[str, str]:
             nonlocal intent_id
-            intent_type = INTENTS.interpret(user_text, tool_names).value
+            intent_type = (
+                "conversation" if not tool_names and turn_decision.disposition in {
+                    TurnDisposition.ANSWER, TurnDisposition.CLARIFY}
+                else INTENTS.interpret(user_text, tool_names).value)
             if intent_id is None:
                 links = ([('derived_from', utterance_id)] if utterance_id else [])
                 intent_id = TASKS.graph.record_node(
@@ -1808,6 +1888,13 @@ class Friday:
                         "sentence using only titles, snippets, dates, and sources in this "
                         "receipt. Do not recite a numbered link list. If those fields do "
                         "not answer the question, say exactly what evidence is missing.")
+                elif grounded_pages:
+                    context_sections.append(
+                        "Current verified page receipts:\n" + json.dumps(
+                            grounded_pages, ensure_ascii=False) +
+                        "\nCompare only claims supported by these receipts. Identify "
+                        "missing or conflicting evidence explicitly. Do not infer beyond "
+                        "the retrieved text.")
                 elif grounded_page:
                     context_sections.append(
                         "Current verified page receipt:\n" + json.dumps(
@@ -1826,6 +1913,16 @@ class Friday:
                 force_tool = (required_tool if required_tool not in successful_tools
                               else None)
                 if (force_tool == "read_web"
+                        and evidence_followup.status == "multiple"):
+                    full = ""
+                    calls = [{
+                        "id": "call_source_" + secrets.token_hex(8),
+                        "name": "read_web",
+                        "args": json.dumps({
+                            "url": url, "max_chars": 12000,
+                        }, separators=(",", ":")),
+                    } for url in evidence_followup.urls]
+                elif (force_tool == "read_web"
                         and evidence_followup.status == "selected"):
                     full = ""
                     calls = [{
@@ -1844,7 +1941,8 @@ class Friday:
                         **render_options)
                 else:
                     grounded_answer = bool(
-                        grounded_news or grounded_search or grounded_page)
+                        grounded_news or grounded_search or grounded_page
+                        or grounded_pages)
                     preference_only = news_preference_recorded and required_tool is None
                     render_options = ({"display_mode": True}
                                       if display_mode else {})
@@ -1854,7 +1952,7 @@ class Friday:
                         **render_options)
                 if not calls:
                     await record_intent([])
-                    if show_decision_progress:
+                    if task_id:
                         await live_progress(
                             "Response ready",
                             ("Grounded response synthesized from verified receipts."
@@ -2171,7 +2269,10 @@ class Friday:
                             grounded_search = json.loads(result_text)
                         elif c_name == "read_web":
                             page_receipt = json.loads(result_text)
-                            grounded_page = page_receipt
+                            if evidence_followup.status == "multiple":
+                                grounded_pages.append(page_receipt)
+                            else:
+                                grounded_page = page_receipt
                             await progress({
                                 "type": "sources",
                                 "query": page_receipt.get("title") or "Web page",

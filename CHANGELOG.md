@@ -26,6 +26,10 @@ releases. Migrations must preserve user state.
 
 ### Added
 
+- A thirteen-family installed general-assistant benchmark for deductive and
+  quantitative reasoning, contradiction detection, uncertainty, instruction
+  resistance, constraints, planning, grounded inspection and research, action
+  integrity, and real voice control.
 - An installed-server assistant scorecard that exercises the verified local
   TLS WebSocket, conversation continuity, ambiguity handling, runtime truth,
   receipt-backed reads, live evidence follow-ups, and quiet task progress.
@@ -47,6 +51,14 @@ releases. Migrations must preserve user state.
 
 ### Fixed
 
+- Stored voice profiles now survive restart as the audible voice. A requested
+  profile can replace Piper with local CPU OmniVoice after a synthesis test,
+  without taking GPU memory from the language model. CPU NumPy verification
+  output is accepted correctly.
+- Thin evidence and planning replies are repaired with their missing basis,
+  explicit project inspections require a read receipt, multi-source follow-ups
+  remain bound to the URLs shown to the user, and capability answers name the
+  unavailable native-scene boundary.
 - Explicit requests to claim an external action without tools are now refused
   deterministically, without invoking the model or creating a task.
 - Follow-up rewrites such as "make that shorter" now stay in the conversation

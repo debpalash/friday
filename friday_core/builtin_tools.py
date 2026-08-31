@@ -593,7 +593,7 @@ RESOURCE_OVERRIDES: dict[str, dict[str, Any]] = {
                           "latency_class": "batch"},
     "upgrade_core": {"cpu_cores": 2.0, "ram_mib": 2048,
                      "latency_class": "batch"},
-    "set_voice": {"cpu_cores": 1.0, "ram_mib": 2048,
+    "set_voice": {"cpu_cores": 4.0, "ram_mib": 6144,
                   "latency_class": "batch"},
     "machine_understand_image": {
         "cpu_cores": 1.0, "ram_mib": 768,

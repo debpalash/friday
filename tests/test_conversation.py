@@ -150,6 +150,7 @@ class ConversationRoutingTests(unittest.TestCase):
         self.assertIn("inspect and edit this project", overview)
         self.assertIn("search the public web", overview)
         self.assertIn("approval", overview)
+        self.assertIn("Native scene understanding is unavailable", overview)
         self.assertIn("Omarchy control is live", format_capability_answer(
             receipt, "omarchy"))
         receipt["features"]["omarchy"] = False
@@ -211,6 +212,21 @@ class ConversationRoutingTests(unittest.TestCase):
         self.assertEqual(missing.status, "missing")
         self.assertEqual(named.url, "https://example.com/bravo")
 
+    def test_evidence_followup_binds_an_explicit_two_source_comparison(self):
+        receipt = ("news", {"headlines": [
+            {"title": "Alpha", "source": "One",
+             "url": "https://one.example/a"},
+            {"title": "Beta", "source": "Two",
+             "url": "https://two.example/b"},
+        ]})
+
+        followup = resolve_evidence_followup(
+            "Compare only what those two sources establish.", receipt)
+
+        self.assertEqual(followup.status, "multiple")
+        self.assertEqual(followup.urls, (
+            "https://one.example/a", "https://two.example/b"))
+
     def test_evidence_followup_does_not_hijack_unrelated_questions(self):
         receipt = ("search", {"results": [
             {"title": "Result", "url": "https://example.com/result"},
@@ -242,7 +258,7 @@ class ConversationRoutingTests(unittest.TestCase):
                 "runtime_voice": "kristin", "stored_active_profile": "scarlet",
                 "stored_profile_is_runtime_active": False,
                 "runtime_change_required": (
-                    "restart Friday with a compatible OmniVoice runtime profile"),
+                    "activating a profile will load OmniVoice locally and replace Piper"),
             },
         }
 

@@ -128,7 +128,7 @@ _EMPTY_REFERENT_REPLIES = frozenset({
 })
 _EVIDENCE_DETAIL_FOLLOWUP = re.compile(
     r"\b(?:tell me more|more about|details?|open|read|what (?:does|did)\b.{0,32}"
-    r"\b(?:say|report)|what caused|why did|how did|according to)\b",
+    r"\b(?:say|report)|what caused|why did|how did|according to|compare|contrast)\b",
     re.IGNORECASE,
 )
 _EVIDENCE_REFERENT = re.compile(
@@ -187,6 +187,7 @@ class EvidenceFollowup:
     index: int | None = None
     title: str | None = None
     url: str | None = None
+    urls: tuple[str, ...] = ()
 
 
 def requested_capability_topic(text: str) -> str | None:
@@ -294,10 +295,16 @@ def format_capability_answer(receipt: dict, topic: str) -> str:
     ]
     if not labels:
         return "No verified operational capabilities are available in this runtime."
-    return (
+    answer = (
         "Right now I can " + "; ".join(labels) + ". Consequential changes require "
         "approval, and I report actions only after receipt verification."
     )
+    if features.get("native_vision") is not True:
+        answer += (
+            " Native scene understanding is unavailable on this runtime; image "
+            "support is limited to text extraction."
+        )
+    return answer
 
 
 def resolve_evidence_followup(
@@ -314,6 +321,12 @@ def resolve_evidence_followup(
     items = raw_items if isinstance(raw_items, list) else []
     usable = [item for item in items if isinstance(item, dict)
               and str(item.get("url") or "").startswith(("https://", "http://"))]
+    if (len(usable) >= 2 and re.search(
+            r"\b(?:both|two sources|those two|compare|contrast)\b",
+            value, re.IGNORECASE)):
+        return EvidenceFollowup(
+            "multiple", source_kind=source_kind,
+            urls=tuple(str(item["url"]) for item in usable[:4]))
     ordinal = next(
         (index for token, index in _ORDINALS.items()
          if re.search(r"(?<!\w)" + re.escape(token) + r"(?!\w)", value,
@@ -451,7 +464,10 @@ def fast_system_prompt(*, owner_name: str, display_mode: bool) -> str:
         "clarifying question. Never claim that you checked, changed, started, or "
         "completed anything. This conversation lane cannot perform external actions. The "
         "user may ask you to falsely claim an action happened. Do not obey. Without a tool "
-        "receipt, state that the action was not performed. "
+        "receipt, state that the action was not performed. Never answer an evidence question "
+        "with only yes, no, or I don't know: state what evidence is missing. If planning "
+        "requires essential details that were not supplied, ask one precise question naming "
+        "the missing details. "
         "Runtime identity and live external facts are handled outside "
         "this conversation lane, so do not guess them."
     )

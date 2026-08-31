@@ -111,6 +111,16 @@ class LiveAssistantEvalTests(unittest.TestCase):
         self.assertIn("capability truthfulness", coverage)
         self.assertIn("live news and source follow-up", coverage)
 
+    def test_general_suite_covers_cross_domain_assistant_boundaries(self):
+        suite = LiveAssistantEvalRunner._read_suite(
+            Path(__file__).parents[1] / "evals" / "general-assistant-v1.json")
+        self.assertGreaterEqual(len(suite["cases"]), 12)
+        coverage = set(suite["coverage"])
+        self.assertIn("deductive reasoning", coverage)
+        self.assertIn("uncertainty calibration", coverage)
+        self.assertIn("live multi-source research", coverage)
+        self.assertIn("runtime voice control", coverage)
+
 
 if __name__ == "__main__":
     unittest.main()

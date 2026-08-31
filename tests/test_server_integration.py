@@ -12,6 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy as np
+
 import server
 from friday_core import (Accelerator, AdmissionBudget, GraphStore,
                          HardwareSnapshot, MemoryCurator, ReflectionService,
@@ -944,6 +946,64 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(completions.requests), 2)
         self.assertEqual(completions.requests[1]["temperature"], 0.0)
 
+    async def test_thin_evidence_answer_is_repaired_with_a_basis(self):
+        class SequencedCompletions:
+            def __init__(self):
+                self.requests = []
+                self.responses = [
+                    [_chunk("I don't know", finish_reason="stop")],
+                    [_chunk("I can't determine it without a recorded measurement "
+                            "from that time.", finish_reason="stop")],
+                ]
+
+            async def create(self, **kwargs):
+                self.requests.append(kwargs)
+                chunks = self.responses.pop(0)
+
+                async def stream():
+                    for chunk in chunks:
+                        yield chunk
+                return stream()
+
+        completions = SequencedCompletions()
+        friday = server.Friday.__new__(server.Friday)
+        friday.llm = SimpleNamespace(chat=SimpleNamespace(
+            completions=completions))
+        queue = asyncio.Queue()
+
+        full, calls = await friday._stream_once(
+            [{"role": "user", "content":
+              "Tell me the exact temperature without tools."}], queue,
+            display_mode=True, context_is_bounded=True)
+
+        self.assertEqual(calls, [])
+        self.assertIn("recorded measurement", full)
+        self.assertEqual(await queue.get(), full)
+        self.assertEqual(len(completions.requests), 2)
+        self.assertIn(
+            "state the evidence basis",
+            completions.requests[1]["messages"][0]["content"])
+
+    def test_latest_web_receipt_is_limited_to_urls_shown_to_the_user(self):
+        friday = server.Friday.__new__(server.Friday)
+        friday.history = [
+            {"role": "tool", "content": json.dumps({
+                "headlines": [
+                    {"title": "One", "url": "https://example.com/one"},
+                    {"title": "Two", "url": "https://example.com/two"},
+                    {"title": "Hidden", "url": "https://example.com/hidden"},
+                ],
+            })},
+            {"role": "assistant", "content": (
+                "One https://example.com/one\nTwo https://example.com/two")},
+        ]
+
+        kind, receipt = friday._latest_web_receipt()
+
+        self.assertEqual(kind, "news")
+        self.assertEqual(
+            [item["title"] for item in receipt["headlines"]], ["One", "Two"])
+
     async def test_response_word_contract_is_repaired_before_delivery(self):
         class SequencedCompletions:
             def __init__(self):
@@ -1127,7 +1187,7 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status["runtime_voice"], "kristin")
         self.assertEqual(status["stored_active_profile"], "scarlet")
         self.assertFalse(status["stored_profile_is_runtime_active"])
-        self.assertFalse(status["profile_activation_supported"])
+        self.assertTrue(status["profile_activation_supported"])
         self.assertIn("OmniVoice", status["runtime_change_required"])
 
     async def test_runtime_identity_answer_uses_live_receipt_without_llm_or_task(self):
@@ -1297,15 +1357,49 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(text=text):
                 self.assertEqual(friday._voice_required_tool(text), "list_voices")
 
-    def test_piper_voice_activation_error_names_audible_runtime(self):
+    def test_piper_voice_activation_hot_switches_to_verified_omnivoice(self):
+        class AudioTokenizer:
+            def to(self, _device):
+                return self
+
+        model = SimpleNamespace(
+            audio_tokenizer=AudioTokenizer(),
+            generate=lambda **_kwargs: [np.zeros(server.TTS_RATE, dtype=np.float32)],
+        )
+        activated = []
+        profile = {
+            "name": "scarlet", "kind": "instruction",
+            "config": {"instruct": "low, calm voice"},
+        }
         friday = server.Friday.__new__(server.Friday)
         friday.tts_backend = "piper"
         friday.tts_device = "cpu"
         friday.voice_name = "kristin"
+        friday.piper = object()
+        friday.tts = None
+        friday._reserve = None
+        friday.clone_enabled = False
+        friday.instruct = "old"
+        friday.ref_audio = None
+        friday.clone_prompt = None
+        voices = SimpleNamespace(
+            get=lambda _name: profile,
+            active=lambda: {"name": "base"},
+            activate=lambda name, verification: activated.append(
+                (name, verification)) or profile,
+        )
 
-        with self.assertRaisesRegex(
-                RuntimeError, "current synthesis is piper with kristin on cpu"):
-            friday.activate_voice("scarlet")
+        with patch.object(server, "VOICES", voices), patch.object(
+                server, "load_omnivoice_runtime",
+                return_value=(model, None)):
+            result = friday.activate_voice("scarlet")
+
+        self.assertIn("activated voice scarlet using OmniVoice", result)
+        self.assertEqual(friday.tts_backend, "omnivoice")
+        self.assertEqual(friday.voice_name, "scarlet")
+        self.assertIsNone(friday.piper)
+        self.assertEqual(activated[0][0], "scarlet")
+        self.assertTrue(activated[0][1]["passed"])
 
     def test_runtime_context_uses_one_leading_system_message(self):
         friday = server.Friday.__new__(server.Friday)
