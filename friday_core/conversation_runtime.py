@@ -83,6 +83,19 @@ def bounded_response_fallback(text: str, max_words: int) -> str:
     return prefix if prefix.endswith((".", "!", "?")) else prefix + "."
 
 
+def grounded_project_messages(
+        messages: list[dict], user_text: str, receipts: list[str]) -> list[dict]:
+    """Present private project receipts as transient context, not tool protocol."""
+    if not receipts or not messages:
+        return messages
+    system = dict(messages[0])
+    system["content"] = (
+        str(system.get("content") or "")
+        + "\n\nCurrent verified project evidence:\n"
+        + "\n\n".join(receipts))
+    return [system, {"role": "user", "content": user_text}]
+
+
 def canonical_chat_turn(
     turn: Sequence[Message], *, redacted_tool_receipt: str,
 ) -> Turn | None:

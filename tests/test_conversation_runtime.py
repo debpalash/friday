@@ -9,6 +9,7 @@ from friday_core.conversation_runtime import (
     compile_fast_chat_messages,
     conversation_history_scope,
     drop_repeated_echo_messages,
+    grounded_project_messages,
     response_contract_issue,
 )
 
@@ -20,6 +21,19 @@ class ConversationRuntimeTests(unittest.TestCase):
             "one two three.")
         self.assertEqual(bounded_response_fallback("Already short.", 3),
                          "Already short.")
+
+    def test_grounded_project_messages_remove_tool_protocol(self):
+        messages = [
+            {"role": "system", "content": "prompt"},
+            {"role": "user", "content": "inspect"},
+            {"role": "tool", "content": "receipt"},
+        ]
+
+        result = grounded_project_messages(
+            messages, "inspect", ["worker.py: lease fence"])
+
+        self.assertEqual([item["role"] for item in result], ["system", "user"])
+        self.assertIn("worker.py: lease fence", result[0]["content"])
 
     def test_isolated_history_scope_restores_owner_and_keeps_updates(self):
         owner = type("Owner", (), {})()

@@ -99,6 +99,7 @@ from friday_core.conversation_runtime import (
     echo_turn_signature,
     is_action_request,
     latest_user_only,
+    grounded_project_messages,
     response_contract_issue,
 )
 from friday_core.transport import (
@@ -311,8 +312,6 @@ def available_tool_names() -> set[str]:
     if not _native_vision_qualified():
         names.discard("machine_understand_image")
     return names | (capabilities.active_names() if capabilities else set())
-
-
 def capability_inventory() -> list[dict]:
     router = globals().get("MODEL_ROUTER")
     builtins = [
@@ -331,11 +330,7 @@ def capability_inventory() -> list[dict]:
     dynamic = ([{**item, "kind": "dynamic"} for item in capabilities.list()]
                if capabilities else [])
     return builtins + dynamic
-
-
 BUILTIN_TOOL_RUNTIME = BuiltinToolRuntime()
-
-
 def _safe_path(path: str):
     return BUILTIN_TOOL_RUNTIME.safe_project_path(REPO, path)
 def _builtin_tool_adapters() -> BuiltinToolAdapters:
@@ -351,8 +346,6 @@ def _builtin_tool_adapters() -> BuiltinToolAdapters:
 def exec_tool(name: str, args: dict) -> str:
     return BUILTIN_TOOL_RUNTIME.execute(
         name, args, _builtin_tool_adapters())
-
-
 class Friday:
     def __init__(self):
         from silero_vad import load_silero_vad
@@ -1578,6 +1571,7 @@ class Friday:
         grounded_search: dict | None = None
         grounded_page: dict | None = None
         grounded_pages: list[dict] = []
+        project_receipts: list[str] = []
         intent_id: str | None = None
         show_decision_progress = bool(
             existing_task_id or turn_decision.disposition in {
@@ -1900,6 +1894,8 @@ class Friday:
                         "the page text does not answer the question, say exactly what "
                         "evidence is missing.")
                 msgs = self._chat_messages(context_sections)
+                msgs = grounded_project_messages(
+                    msgs, user_text, project_receipts)
                 if show_decision_progress and existing_task_id is not None:
                     await live_progress(
                         "Choosing the next verified step",
@@ -2264,6 +2260,8 @@ class Friday:
                                    else json.dumps(result, ensure_ascii=False))
                     if completed.succeeded:
                         successful_tools.add(c_name)
+                        if c_name in {"search_project", "read_file"}:
+                            project_receipts.append(result_text)
                         if c_name == "fetch_news":
                             grounded_news = json.loads(result_text)
                         elif c_name == "web_search":
