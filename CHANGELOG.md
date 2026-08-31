@@ -53,8 +53,8 @@ releases. Migrations must preserve user state.
 
 - Capability grading now treats inline Markdown emphasis as presentation, not
   a change in required-term meaning, and accepts observed equivalent wording
-  for the constrained SQLite recommendation without weakening its factual,
-  one-sentence, or two-reason contract.
+  for the constrained SQLite recommendation and historical-evidence basis
+  without weakening their factual or response-shape contracts.
 - Direct fact lookups can now return a concise name or value even when the
   question contains a noun such as "plan"; substantive planning, explanation,
   evidence, comparison, and recommendation requests still reject thin replies.
