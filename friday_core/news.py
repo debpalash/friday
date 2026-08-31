@@ -153,3 +153,22 @@ def format_news_segments(receipt: dict, *, max_headlines: int = 3) -> list[str]:
 def format_news_brief(receipt: dict, *, max_headlines: int = 3) -> str:
     """Return the same grounded news delivery as one text transcript."""
     return " ".join(format_news_segments(receipt, max_headlines=max_headlines))
+
+
+def format_news_list(receipt: dict, *, count: int) -> str:
+    """Render an exact, receipt-backed Markdown list with complete source URLs."""
+    requested = min(max(int(count), 1), 10)
+    headlines = list(receipt.get("headlines") or [])
+    if len(headlines) < requested:
+        raise ValueError(
+            f"news receipt has {len(headlines)} usable headlines; {requested} required")
+    rendered = []
+    for index, headline in enumerate(headlines[:requested], 1):
+        title = str(headline.get("title") or "").strip()
+        source = str(headline.get("source") or "").strip()
+        url = str(headline.get("url") or "").strip()
+        if (not title or not source
+                or not url.startswith(("https://", "http://"))):
+            raise ValueError("news receipt contains an incomplete headline")
+        rendered.append(f"{index}. **{title}** ({source})\n   <{url}>")
+    return "\n\n".join(rendered)

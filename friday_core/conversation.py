@@ -61,6 +61,20 @@ _FAST_PATH_BLOCKER = re.compile(
     r"do not|don't|status)\b",
     re.IGNORECASE,
 )
+_UNDERSPECIFIED_ACTION = re.compile(
+    r"^\s*(?:(?:make|fix|change|edit|modify|update|improve)\s+"
+    r"(?:it|this|that)(?:\s+better)?|improve\s+(?:it|this|that))\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
+_NEWS_LIST = re.compile(
+    r"\b(?:headlines?|stories)\b.{0,100}\b(?:links?|urls?)\b|"
+    r"\b(?:links?|urls?)\b.{0,100}\b(?:headlines?|stories)\b",
+    re.IGNORECASE,
+)
+_COUNT_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
 
 
 def runtime_topics(text: str) -> tuple[str, ...]:
@@ -91,6 +105,26 @@ def safe_for_fast_conversation(text: str, *, action_request: bool = False) -> bo
         and value.count("\n") <= 12
         and not _FAST_PATH_BLOCKER.search(value)
     )
+
+
+def underspecified_action_request(text: str) -> bool:
+    """Return whether an action phrase lacks any concrete target or outcome."""
+    return _UNDERSPECIFIED_ACTION.fullmatch(str(text or "")) is not None
+
+
+def requested_news_list_count(text: str) -> int | None:
+    """Return an explicitly requested headline-and-link count, if present."""
+    value = str(text or "")
+    if not _NEWS_LIST.search(value):
+        return None
+    count_match = re.search(
+        r"\b(?:exactly\s+)?(10|[1-9]|one|two|three|four|five|six|seven|eight|"
+        r"nine|ten)\b.{0,48}\b(?:headlines?|stories)\b",
+        value, re.IGNORECASE)
+    if count_match is None:
+        return 3
+    token = count_match.group(1).casefold()
+    return int(token) if token.isdigit() else _COUNT_WORDS[token]
 
 
 def fast_system_prompt(*, owner_name: str, display_mode: bool) -> str:

@@ -44,7 +44,8 @@ releases. Migrations must preserve user state.
   model returns an empty response, a lone fragment, an unfinished code fence,
   a token-limited completion, or an unverified external-action claim. Repeated
   short reply loops no longer pollute active context, ambiguous requests are
-  clarified, and an empty reminder list verifies as a valid observation.
+  clarified, exact headline-and-link requests render directly from verified
+  receipts, and an empty reminder list verifies as a valid observation.
 - Reconnecting browsers now fast-forward to the live progress cursor instead
   of replaying old task events with a new timestamp. Task progress renders once,
   diagnostic events use their recorded time, and log entries use separate lines.

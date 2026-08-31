@@ -1663,6 +1663,74 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
                 old_tasks, old_exec, old_reflection, old_blocking_tools)
             tmp.cleanup()
 
+    async def test_explicit_news_list_is_rendered_without_model_truncation(self):
+        tmp = tempfile.TemporaryDirectory()
+        graph = GraphStore(Path(tmp.name) / "friday.db")
+        tasks = TaskService(graph)
+        old_tasks, old_exec, old_reflection = (server.TASKS, server.exec_tool,
+                                               server.REFLECTION)
+        old_blocking_tools = server.BLOCKING_IO_TOOLS
+        server.TASKS = tasks
+        server.REFLECTION = ReflectionService(graph)
+        server.BLOCKING_IO_TOOLS = old_blocking_tools - {"fetch_news"}
+        headlines = [
+            {"title": f"Story {index}", "source": f"Source {index}",
+             "url": f"https://example.com/{index}?full=" + "x" * 300}
+            for index in range(1, 4)
+        ]
+        server.exec_tool = lambda _name, _args: json.dumps({
+            "region": "India", "headlines": headlines,
+        })
+        try:
+            friday = server.Friday.__new__(server.Friday)
+            friday.history = [{"role": "system", "content": "test"}]
+            friday.save_session = lambda: None
+            rounds = 0
+
+            async def fake_stream(_msgs, _speak_q, use_tools=True,
+                                  required_tool=None, **_kwargs):
+                nonlocal rounds
+                rounds += 1
+                self.assertEqual(required_tool, "fetch_news")
+                return "", [{"id": "call_news", "name": "fetch_news",
+                             "args": '{"region":"India","limit":3}'}]
+
+            friday._stream_once = fake_stream
+            queue = asyncio.Queue()
+
+            await friday.respond(
+                "Give me exactly three India headlines with full URLs.", queue,
+                display_mode=True)
+
+            answer = await queue.get()
+            self.assertEqual(rounds, 1)
+            self.assertEqual(answer.count("https://"), 3)
+            self.assertIn("3. **Story 3** (Source 3)", answer)
+            self.assertTrue(answer.endswith(">"))
+            with graph._connect() as conn:
+                task = conn.execute("SELECT * FROM task_state").fetchone()
+            self.assertEqual(task["status"], "completed")
+        finally:
+            (server.TASKS, server.exec_tool, server.REFLECTION,
+             server.BLOCKING_IO_TOOLS) = (
+                old_tasks, old_exec, old_reflection, old_blocking_tools)
+            tmp.cleanup()
+
+    async def test_underspecified_action_clarifies_without_creating_task(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            graph = GraphStore(Path(temporary) / "friday.db")
+            tasks = TaskService(graph)
+            friday = server.Friday.__new__(server.Friday)
+            friday.history = [{"role": "system", "content": "test"}]
+            queue = asyncio.Queue()
+
+            with patch.object(server, "TASKS", tasks):
+                await friday.respond("Make it better.", queue, display_mode=True)
+
+            self.assertEqual(await queue.get(), "What should I improve?")
+            self.assertIsNone(await queue.get())
+            self.assertEqual(tasks.nonterminal(), [])
+
     async def test_casual_response_does_not_emit_agent_workflow_progress(self):
         with tempfile.TemporaryDirectory() as temporary:
             graph = GraphStore(Path(temporary) / "friday.db")

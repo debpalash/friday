@@ -51,11 +51,13 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          choose_speech_backend,
                          FAST_CONVERSATION_TEMPERATURE,
                          FAST_CONVERSATION_TOP_P,
-                         fast_system_prompt, format_runtime_answer,
+                         fast_system_prompt, format_news_list,
+                         format_runtime_answer,
                          load_asr,
                          migrate_session_json,
-                         resource_claim_for, runtime_topics,
-                         safe_for_fast_conversation)
+                         requested_news_list_count, resource_claim_for,
+                         runtime_topics, safe_for_fast_conversation,
+                         underspecified_action_request)
 from friday_core.processes import (
     BubblewrapProfile, ProcessBindingError, ProcessBroker,
     ProcessBrokerError, ProcessCleanupBlocked, ProcessLimits,
@@ -1412,11 +1414,15 @@ class Friday:
                                   display_mode: bool = False):
         if existing_task_id is None:
             self.history.append({"role": "user", "content": user_text})
+        needs_clarification = (
+            existing_task_id is None
+            and underspecified_action_request(user_text))
         seen_calls: set[tuple] = set()
         n_calls = 0
         task_id = existing_task_id
         task_failed = False
         recent_web_receipt = self._latest_web_receipt()
+        requested_news_count = requested_news_list_count(user_text)
         explicit_news_style = bool(NEWS_STYLE_PREFERENCE.search(user_text))
         news_preference_recorded = (
             self._remember_news_style(utterance_id)
@@ -1528,6 +1534,11 @@ class Friday:
             return False
 
         try:
+            if needs_clarification:
+                full = "What should I improve?"
+                await speak_q.put(full)
+                self.history.append({"role": "assistant", "content": full})
+                return
             if (requested_runtime_topics
                     and voice_required_tool != "set_voice"
                     and existing_task_id is None and not resume_context):
@@ -1565,6 +1576,24 @@ class Friday:
 
             for _round in range(MAX_TOOL_ROUNDS):
                 if task_id and TASKS.is_cancelled(task_id):
+                    return
+                if grounded_news is not None and requested_news_count is not None:
+                    try:
+                        full = format_news_list(
+                            grounded_news, count=requested_news_count)
+                    except (TypeError, ValueError) as exc:
+                        await fail_task(exc)
+                        await speak_q.put(
+                            "I couldn't produce the complete requested headline list.")
+                        return
+                    await record_intent([])
+                    await speak_q.put(full)
+                    self.history.append({"role": "assistant", "content": full})
+                    if task_id:
+                        state = TASKS.get(task_id)
+                        if state and state["status"] == "running":
+                            await verify_task_outcome(
+                                "Verified news receipt rendered as the requested list")
                     return
                 memory_hits = MEMORY.retrieve(user_text, limit=5)
                 context_sections = []

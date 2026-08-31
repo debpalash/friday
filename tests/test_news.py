@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 import server
 from friday_core.news import (MAX_FEED_BYTES, fetch_news, format_news_brief,
-                              format_news_segments, parse_news_feed)
+                              format_news_list, format_news_segments,
+                              parse_news_feed)
 from friday_core.public_http import PublicHTTPResponse
 
 
@@ -97,6 +98,23 @@ class NewsTests(unittest.TestCase):
         segments = format_news_segments(receipt)
         self.assertEqual(len(segments), 3)
         self.assertEqual(segments[0], "Here are today's top India stories.")
+
+    def test_explicit_list_contains_exact_complete_receipt_urls(self):
+        receipt = {"headlines": [
+            {"title": "First", "source": "One",
+             "url": "https://example.com/first?complete=1"},
+            {"title": "Second", "source": "Two",
+             "url": "https://example.com/second?complete=1"},
+        ]}
+
+        rendered = format_news_list(receipt, count=2)
+
+        self.assertEqual(rendered.count("https://"), 2)
+        self.assertIn("1. **First** (One)", rendered)
+        self.assertTrue(rendered.endswith(
+            "<https://example.com/second?complete=1>"))
+        with self.assertRaisesRegex(ValueError, "2 usable headlines; 3 required"):
+            format_news_list(receipt, count=3)
 
     def test_oversized_feed_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "response-size"):

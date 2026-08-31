@@ -26,8 +26,9 @@ from .controller_auth import (ControllerAuthError, ControllerAuthService,
                               verify_p256_signature)
 from .conversation import (FAST_CONVERSATION_TEMPERATURE,
                            FAST_CONVERSATION_TOP_P, fast_system_prompt,
-                           format_runtime_answer, runtime_topics,
-                           safe_for_fast_conversation)
+                           format_runtime_answer, requested_news_list_count,
+                           runtime_topics, safe_for_fast_conversation,
+                           underspecified_action_request)
 from .conversation_evals import ConversationQualityEvalRunner
 from .evolution import EvolutionEngine
 from .evals import CognitiveEvalRunner
@@ -40,7 +41,8 @@ from .memory import MemoryCurator
 from .machine import MachineOperator, NativeVisionInput, OperatorGrantService
 from .model_router import ModelRouter
 from .migrations import migrate_session_json
-from .news import fetch_news, format_news_brief, format_news_segments
+from .news import (fetch_news, format_news_brief, format_news_list,
+                   format_news_segments)
 from .operator import WebOperator, format_search_result
 from .web_proxy import PublicWebProxy
 from .processes import (BubblewrapProfile, ProcessApprovalPreview,
@@ -73,11 +75,12 @@ __all__ = ["ActionHandle", "AdmissionBudget", "AdmissionDecision", "ApprovalServ
            "FasterWhisperASR", "FeedbackService", "IntentInterpreter", "ModelRouter", "OutcomeVerifier", "ParakeetASR",
            "PiperSpeechSynthesizer", "Planner", "PolicyEngine", "ReconciliationCandidate", "RiskClass", "SkillManager", "SkillsShRegistry", "TaskContract",
            "ResourceAdmissionController", "ResourceClaim", "ResourceSnapshot", "TaskPlan", "TaskService", "ReminderService", "ReminderWorker", "StepExecutionResult", "VerificationResult", "VerificationStatus", "WebOperator", "PublicWebProxy",
-           "PlaybackEchoGate", "UtteranceBuffer", "VoiceManager", "fetch_news", "format_news_brief", "format_search_result",
+           "PlaybackEchoGate", "UtteranceBuffer", "VoiceManager", "fetch_news", "format_news_brief", "format_news_list", "format_search_result",
            "detect_hardware", "format_news_segments", "load_asr",
            "FAST_CONVERSATION_TEMPERATURE", "FAST_CONVERSATION_TOP_P",
-           "fast_system_prompt", "format_runtime_answer", "runtime_topics",
-           "safe_for_fast_conversation",
+           "fast_system_prompt", "format_runtime_answer",
+           "requested_news_list_count", "runtime_topics",
+           "safe_for_fast_conversation", "underspecified_action_request",
            "choose_speech_backend", "pinned_piper_model_path", "select_runtime_profile", "verify_pinned_piper_voice", "write_runtime_profile",
            "migrate_session_json", "normalize_https_origin",
            "normalize_public_jwk", "public_key_sha256",

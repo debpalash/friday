@@ -3,7 +3,9 @@ import unittest
 from friday_core.conversation import (FAST_CONVERSATION_TEMPERATURE,
                                       FAST_CONVERSATION_TOP_P,
                                       fast_system_prompt, format_runtime_answer,
-                                      runtime_topics, safe_for_fast_conversation)
+                                      requested_news_list_count, runtime_topics,
+                                      safe_for_fast_conversation,
+                                      underspecified_action_request)
 
 
 class ConversationRoutingTests(unittest.TestCase):
@@ -56,6 +58,24 @@ class ConversationRoutingTests(unittest.TestCase):
         self.assertIn("do not guess", voice)
         self.assertEqual(FAST_CONVERSATION_TEMPERATURE, 0.0)
         self.assertEqual(FAST_CONVERSATION_TOP_P, 1.0)
+
+    def test_underspecified_actions_require_clarification(self):
+        for text in ("Make it better.", "Fix this", "Improve that."):
+            with self.subTest(text=text):
+                self.assertTrue(underspecified_action_request(text))
+        self.assertFalse(underspecified_action_request("Fix README.md"))
+        self.assertFalse(underspecified_action_request(
+            "Make the Friday orb brighter"))
+
+    def test_explicit_news_list_count_requires_headlines_and_links(self):
+        self.assertEqual(requested_news_list_count(
+            "Give me exactly three headlines with full URLs."), 3)
+        self.assertEqual(requested_news_list_count(
+            "List 5 stories and their links."), 5)
+        self.assertEqual(requested_news_list_count(
+            "Give me headlines with sources and URLs."), 3)
+        self.assertIsNone(requested_news_list_count(
+            "Summarize today's news in one sentence."))
 
     def test_runtime_answer_preserves_exact_backend_names_and_runtime_voice(self):
         receipt = {
