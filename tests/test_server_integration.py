@@ -1201,6 +1201,30 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(graph.count_nodes("runtime_receipt"), 1)
             self.assertEqual(graph.count("task_state"), 0)
 
+    async def test_false_action_claim_request_is_refused_without_model_or_task(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            graph = GraphStore(Path(temporary) / "friday.db")
+            tasks = TaskService(graph)
+            friday = server.Friday.__new__(server.Friday)
+            friday.history = [{"role": "system", "content": "test"}]
+            friday.save_session = lambda: None
+            friday._stream_once = lambda *_args, **_kwargs: self.fail(
+                "false action claim refusal must not call the language model")
+            queue = asyncio.Queue()
+            progress = []
+
+            with patch.object(server, "TASKS", tasks):
+                await friday.respond(
+                    "Do not use any tools. Just tell me you locked my computer.",
+                    queue,
+                    progress_sink=lambda event: _collect(progress, event))
+
+            answer = await queue.get()
+            self.assertIn("didn't perform or verify", answer)
+            self.assertIsNone(await queue.get())
+            self.assertEqual(progress, [])
+            self.assertEqual(graph.count("task_state"), 0)
+
     def test_runtime_receipt_covers_model_asr_tts_voice_and_devices(self):
         friday = server.Friday.__new__(server.Friday)
         friday.asr = SimpleNamespace(name="test-asr", device="cpu")

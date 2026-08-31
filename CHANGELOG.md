@@ -26,6 +26,9 @@ releases. Migrations must preserve user state.
 
 ### Added
 
+- An installed-server assistant scorecard that exercises the verified local
+  TLS WebSocket, conversation continuity, ambiguity handling, runtime truth,
+  receipt-backed reads, live evidence follow-ups, and quiet task progress.
 - A stateful conversation scorecard for referents, corrections, temporary
   constraints, chronological decisions, and ambiguity across related turns.
 - A recorded turn contract that separates answering, clarification, live
@@ -44,6 +47,8 @@ releases. Migrations must preserve user state.
 
 ### Fixed
 
+- Explicit requests to claim an external action without tools are now refused
+  deterministically, without invoking the model or creating a task.
 - Follow-up rewrites such as "make that shorter" now stay in the conversation
   lane when a prior answer supplies the target. Context-only updates cannot
   trigger unsolicited essays and are repaired against a strict word limit.

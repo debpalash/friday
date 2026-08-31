@@ -62,7 +62,7 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          requested_news_list_count, resource_claim_for,
                          resolve_evidence_followup, runtime_topics,
                          safe_for_fast_conversation,
-                         TurnDisposition)
+                         TurnDisposition, unverified_action_claim_request)
 from friday_core.processes import (
     BubblewrapProfile, ProcessBindingError, ProcessBroker,
     ProcessBrokerError, ProcessCleanupBlocked, ProcessLimits,
@@ -1638,6 +1638,14 @@ class Friday:
             if (existing_task_id is None
                     and turn_decision.disposition is TurnDisposition.CLARIFY):
                 full = "What should I improve?"
+                await speak_q.put(full)
+                self.history.append({"role": "assistant", "content": full})
+                return
+            if (existing_task_id is None
+                    and unverified_action_claim_request(user_text)):
+                full = (
+                    "I didn't perform or verify that action, so I won't claim it "
+                    "happened.")
                 await speak_q.put(full)
                 self.history.append({"role": "assistant", "content": full})
                 return

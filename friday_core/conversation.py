@@ -115,6 +115,14 @@ _CAPABILITY_OVERVIEW = re.compile(
     r"\b(?:show|list|describe)\s+(?:me\s+)?(?:your|friday(?:'s)?)\s+capabilit(?:y|ies)\b",
     re.IGNORECASE,
 )
+_UNVERIFIED_ACTION_CLAIM_REQUEST = re.compile(
+    r"\b(?:(?:do\s+not|don't)\s+use\s+(?:any\s+)?tools?|"
+    r"without\s+(?:using\s+)?tools?)\b.{0,120}"
+    r"\b(?:tell|say|claim|pretend)\b.{0,120}"
+    r"\b(?:completed|did|done|executed|finished|locked|opened|restarted|"
+    r"started|stopped|wrote|changed|deleted|sent)\b",
+    re.IGNORECASE | re.DOTALL,
+)
 _EMPTY_REFERENT_REPLIES = frozenset({
     "fine", "got it", "hey", "hello", "okay", "ok", "ready", "sure",
 })
@@ -191,6 +199,11 @@ def requested_capability_topic(text: str) -> str | None:
     if _CAPABILITY_OVERVIEW.search(value):
         return "overview"
     return None
+
+
+def unverified_action_claim_request(text: str) -> bool:
+    """Detect requests to report an external effect without executing it."""
+    return _UNVERIFIED_ACTION_CLAIM_REQUEST.search(str(text or "")) is not None
 
 
 def contextual_refinement_request(text: str) -> bool:

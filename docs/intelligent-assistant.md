@@ -319,6 +319,21 @@ it does not use a model as a judge or retain raw answers.
 venv/bin/python ops/run_conversation_evals.py
 ```
 
+Run the installed-server scenario scorecard while Friday is running:
+
+```bash
+~/.local/share/friday/current/venv/bin/python \
+  ~/.local/share/friday/current/ops/run_live_assistant_evals.py
+```
+
+It connects to the real loopback-only TLS WebSocket with Friday's private local
+CA and grades response content, visible event order, and hidden progress-cursor
+movement. Its seven cases cover capability and runtime truth, stateful
+correction, ambiguous requests, refusal to invent an unverified action,
+receipt-backed project inspection, and live news source follow-up. The news
+case depends on public network access. Raw answers are hashed rather than
+stored in the result.
+
 The v2 held-out suite has thirteen deterministic cases across intent routing, task contracts,
 approval policy, receipt verification, false-completion prevention, exact read-only restart,
 nonrepeatable reconciliation, memory provenance, public-network isolation, and hardware

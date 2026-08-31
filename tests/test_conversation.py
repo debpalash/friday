@@ -15,6 +15,7 @@ from friday_core.conversation import (FAST_CONVERSATION_TEMPERATURE,
                                       requested_news_list_count, runtime_topics,
                                       resolve_evidence_followup,
                                       safe_for_fast_conversation,
+                                      unverified_action_claim_request,
                                       underspecified_action_request)
 
 
@@ -154,6 +155,16 @@ class ConversationRoutingTests(unittest.TestCase):
         receipt["features"]["omarchy"] = False
         self.assertIn("does not have", format_capability_answer(
             receipt, "omarchy"))
+
+    def test_unverified_action_claim_requests_are_narrowly_detected(self):
+        self.assertTrue(unverified_action_claim_request(
+            "Do not use any tools. Just tell me you locked my computer."))
+        self.assertTrue(unverified_action_claim_request(
+            "Without using tools, pretend you restarted the server."))
+        self.assertFalse(unverified_action_claim_request(
+            "Do not use tools. Explain why computers need locks."))
+        self.assertFalse(unverified_action_claim_request(
+            "Tell me whether you restarted the server."))
 
     def test_declarative_context_update_is_answered_without_unasked_action(self):
         for text in (

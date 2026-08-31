@@ -38,9 +38,11 @@ from .conversation import (FAST_CONVERSATION_TEMPERATURE,
                            requested_capability_topic,
                            resolve_evidence_followup, runtime_topics,
                            safe_for_fast_conversation,
+                           unverified_action_claim_request,
                            underspecified_action_request)
 from .conversation_evals import (ConversationContinuityEvalRunner,
                                  ConversationQualityEvalRunner)
+from .live_assistant_evals import LiveAssistantEvalRunner
 from .evolution import EvolutionEngine
 from .evals import CognitiveEvalRunner
 from .evidence import CorrectedAudioStore
@@ -79,7 +81,7 @@ from .voices import VoiceManager
 
 __all__ = ["ActionHandle", "AdmissionBudget", "AdmissionDecision", "ApprovalService", "BackgroundTaskWorker", "BatchExecutionOutcome", "CapabilityManager", "ClaimedStep", "CognitiveEvalRunner", "ConversationContinuityEvalRunner", "ConversationQualityEvalRunner", "ContractBuilder", "ControllerAuthError", "ControllerAuthService", "ControllerPrincipal", "CoreUpgradeHarness", "CorrectedAudioStore", "DeploymentManager", "DurableStepWorker",
            "Accelerator", "EvolutionEngine", "GraphStore", "HardwareSnapshot",
-           "MachineOperator", "MemoryCurator", "NativeVisionInput", "OperatorGrantService", "ReflectionService", "RuntimeProfile",
+           "LiveAssistantEvalRunner", "MachineOperator", "MemoryCurator", "NativeVisionInput", "OperatorGrantService", "ReflectionService", "RuntimeProfile",
            "DesktopActionError", "DesktopApplicationLaunchBinding", "DesktopBindingError", "DesktopBroker", "DesktopBrokerError", "DesktopSnapshot", "DesktopUnavailableError", "DesktopWindowBinding", "DesktopWindowObservation", "HyprlandDesktopBackend",
            "OmarchyActionBinding", "OmarchyActionError", "OmarchyBindingError", "OmarchyBrokerError", "OmarchyDesktopBackend", "OmarchyDesktopBroker", "OmarchyUnavailableError",
            "BubblewrapProfile", "ProcessApprovalPreview", "ProcessBackendError", "ProcessBindingError", "ProcessBroker", "ProcessBrokerError", "ProcessIdentityError", "ProcessInstanceBinding", "ProcessLaunchBinding", "ProcessOperationContext", "ProcessLimits", "ProcessParameter", "ProcessPresentation", "ProcessResources", "ProcessSessionAccess", "ProcessSpec", "ProcessSpecError", "ProcessSpecRegistry", "SystemdUserProcessBackend",
@@ -99,7 +101,8 @@ __all__ = ["ActionHandle", "AdmissionBudget", "AdmissionDecision", "ApprovalServ
            "requested_capability_topic", "requested_news_list_count",
            "resolve_evidence_followup",
            "runtime_topics",
-           "safe_for_fast_conversation", "underspecified_action_request",
+           "safe_for_fast_conversation", "unverified_action_claim_request",
+           "underspecified_action_request",
            "choose_speech_backend", "pinned_piper_model_path", "select_runtime_profile", "verify_pinned_piper_voice", "write_runtime_profile",
            "migrate_session_json", "normalize_https_origin",
            "normalize_public_jwk", "public_key_sha256",
