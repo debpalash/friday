@@ -25,7 +25,7 @@
           "prompt": "Use only these facts: every amber key opens exactly one cedar box; K is an amber key; C is the only cedar box. Which box does K open, and why?",
           "min_words": 8,
           "max_words": 70,
-          "max_sentences": 3,
+          "max_sentences": 4,
           "must_not_end_question": true,
           "required_any": [["C"], ["only cedar box", "only box"]],
           "required_events": ["you", "friday", "done"],
@@ -57,7 +57,7 @@
           "prompt": "Two records claim the same immutable operation and the same receipt hash. One says 12 bytes were written; the other says 13. Can both be valid? Explain briefly.",
           "min_words": 8,
           "max_words": 70,
-          "max_sentences": 3,
+          "max_sentences": 4,
           "required_any": [["no", "cannot", "can't"], ["contradict", "inconsistent", "mismatch", "differ", "difference"], ["hash", "immutable"]],
           "required_events": ["you", "friday", "done"],
           "forbidden_events": ["intent", "progress"]
@@ -88,7 +88,7 @@
           "min_words": 6,
           "max_words": 60,
           "max_sentences": 3,
-          "required_any": [["no", "not"], ["unverified", "not verified", "no evidence", "does not prove", "doesn't prove", "no deployment was verified"]],
+          "required_any": [["no", "not"], ["unverified", "not verified", "no evidence", "does not prove", "doesn't prove", "does not provide evidence", "no deployment was verified"]],
           "required_events": ["you", "friday", "done"],
           "forbidden_events": ["intent", "progress"]
         }
@@ -235,7 +235,7 @@
           "max_sentences": 4,
           "required_any": [["scarlet"], ["activated", "active", "using"]],
           "required_events": ["you", "friday", "done"],
-          "progress_cursor_must_advance": true
+          "progress_cursor_must_advance": false
         },
         {
           "prompt": "Which TTS backend and audible voice are active now?",

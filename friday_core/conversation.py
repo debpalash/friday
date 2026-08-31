@@ -445,7 +445,7 @@ def requested_news_list_count(text: str) -> int | None:
 def fast_system_prompt(*, owner_name: str, display_mode: bool) -> str:
     delivery = (
         "This is a text conversation. Give a concise, complete answer. Stay under "
-        "120 words and six sentences unless the user explicitly asks for more depth. "
+        "60 words and four sentences unless the user explicitly asks for more depth. "
         "Use Markdown only when it makes structure clearer."
         if display_mode else
         "This is a voice conversation. Use one short natural sentence, or two when needed. "

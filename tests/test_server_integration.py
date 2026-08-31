@@ -1752,8 +1752,11 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
                 ("Done.", []),
             ])
 
-            async def fake_stream(_msgs, speak_q, use_tools=True):
+            async def fake_stream(_msgs, speak_q, use_tools=True,
+                                  required_tool=None):
                 full, calls = next(rounds)
+                self.assertEqual(required_tool,
+                                 "list_files" if calls else None)
                 if not calls:
                     await speak_q.put(full)
                 return full, calls
@@ -1763,7 +1766,7 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             progress = []
 
             await friday.respond(
-                "Check the files", queue,
+                "Inspect this project", queue,
                 progress_sink=lambda event: _collect(progress, event))
 
             tasks_found = tasks.nonterminal()

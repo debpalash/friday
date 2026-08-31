@@ -1579,7 +1579,7 @@ class Friday:
         elif SKILL_SEARCH_INTENT.search(user_text):
             required_tool = "search_skill_catalog"
         elif PROJECT_READ_INTENT.search(user_text):
-            required_tool = "read_file"
+            required_tool = "list_files"
         else:
             required_tool = None
         turn_decision = decide_turn(
@@ -2293,7 +2293,8 @@ class Friday:
                     self.history.append({
                         "role": "tool",
                         "tool_call_id": completed.claim.tool_call_id,
-                        "content": result_text[:4000],
+                        "content": result_text[:20000 if c_name in {
+                            "fetch_news", "web_search"} else 4000],
                     })
                 if stop:
                     reason = re.sub(

@@ -65,7 +65,7 @@ class ConversationRoutingTests(unittest.TestCase):
         self.assertIn("one short natural sentence", voice)
         self.assertIn("Do not use Markdown", voice)
         self.assertIn("complete answer", text)
-        self.assertIn("under 120 words and six sentences", text)
+        self.assertIn("under 60 words and four sentences", text)
         self.assertIn("ask one precise clarifying question", text)
         self.assertIn("acknowledgement as a substitute", text)
         self.assertIn("do not guess", voice)

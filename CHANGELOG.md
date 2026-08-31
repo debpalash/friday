@@ -61,7 +61,7 @@ releases. Migrations must preserve user state.
   progress evidence. Repeated runs cannot inherit or overwrite the owner's
   saved chat history.
 - Thin evidence and planning replies are repaired with their missing basis,
-  explicit project inspections require a read receipt, multi-source follow-ups
+  explicit project inspections begin with a directory receipt, multi-source follow-ups
   remain bound to the URLs shown to the user, and capability answers name the
   unavailable native-scene boundary.
 - Explicit requests to claim an external action without tools are now refused
