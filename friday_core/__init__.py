@@ -25,11 +25,15 @@ from .controller_auth import (ControllerAuthError, ControllerAuthService,
                               normalize_public_jwk, public_key_sha256,
                               verify_p256_signature)
 from .conversation import (FAST_CONVERSATION_TEMPERATURE,
-                           FAST_CONVERSATION_TOP_P, fast_system_prompt,
+                           FAST_CONVERSATION_TOP_P, TurnDecision,
+                           TurnDisposition, contextual_refinement_request,
+                           decide_turn, declarative_context_update,
+                           fast_system_prompt,
                            format_runtime_answer, requested_news_list_count,
                            runtime_topics, safe_for_fast_conversation,
                            underspecified_action_request)
-from .conversation_evals import ConversationQualityEvalRunner
+from .conversation_evals import (ConversationContinuityEvalRunner,
+                                 ConversationQualityEvalRunner)
 from .evolution import EvolutionEngine
 from .evals import CognitiveEvalRunner
 from .evidence import CorrectedAudioStore
@@ -66,7 +70,7 @@ from .worker import (BackgroundTaskWorker, BatchExecutionOutcome,
                      DurableStepWorker, StepExecutionResult)
 from .voices import VoiceManager
 
-__all__ = ["ActionHandle", "AdmissionBudget", "AdmissionDecision", "ApprovalService", "BackgroundTaskWorker", "BatchExecutionOutcome", "CapabilityManager", "ClaimedStep", "CognitiveEvalRunner", "ConversationQualityEvalRunner", "ContractBuilder", "ControllerAuthError", "ControllerAuthService", "ControllerPrincipal", "CoreUpgradeHarness", "CorrectedAudioStore", "DeploymentManager", "DurableStepWorker",
+__all__ = ["ActionHandle", "AdmissionBudget", "AdmissionDecision", "ApprovalService", "BackgroundTaskWorker", "BatchExecutionOutcome", "CapabilityManager", "ClaimedStep", "CognitiveEvalRunner", "ConversationContinuityEvalRunner", "ConversationQualityEvalRunner", "ContractBuilder", "ControllerAuthError", "ControllerAuthService", "ControllerPrincipal", "CoreUpgradeHarness", "CorrectedAudioStore", "DeploymentManager", "DurableStepWorker",
            "Accelerator", "EvolutionEngine", "GraphStore", "HardwareSnapshot",
            "MachineOperator", "MemoryCurator", "NativeVisionInput", "OperatorGrantService", "ReflectionService", "RuntimeProfile",
            "DesktopActionError", "DesktopApplicationLaunchBinding", "DesktopBindingError", "DesktopBroker", "DesktopBrokerError", "DesktopSnapshot", "DesktopUnavailableError", "DesktopWindowBinding", "DesktopWindowObservation", "HyprlandDesktopBackend",
@@ -78,7 +82,9 @@ __all__ = ["ActionHandle", "AdmissionBudget", "AdmissionDecision", "ApprovalServ
            "PlaybackEchoGate", "UtteranceBuffer", "VoiceManager", "fetch_news", "format_news_brief", "format_news_list", "format_search_result",
            "detect_hardware", "format_news_segments", "load_asr",
            "FAST_CONVERSATION_TEMPERATURE", "FAST_CONVERSATION_TOP_P",
-           "fast_system_prompt", "format_runtime_answer",
+           "TurnDecision", "TurnDisposition", "contextual_refinement_request",
+           "decide_turn", "declarative_context_update", "fast_system_prompt",
+           "format_runtime_answer",
            "requested_news_list_count", "runtime_topics",
            "safe_for_fast_conversation", "underspecified_action_request",
            "choose_speech_backend", "pinned_piper_model_path", "select_runtime_profile", "verify_pinned_piper_voice", "write_runtime_profile",

@@ -3,11 +3,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from friday_core.conversation_evals import ConversationQualityEvalRunner
+from friday_core.conversation_evals import (ConversationContinuityEvalRunner,
+                                            ConversationQualityEvalRunner)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SUITE = ROOT / "evals" / "conversation-quality-v1.json"
+CONTINUITY_SUITE = ROOT / "evals" / "conversation-continuity-v1.json"
 
 
 class ConversationQualityEvalTests(unittest.TestCase):
@@ -144,6 +146,52 @@ class ConversationQualityEvalTests(unittest.TestCase):
             ConversationQualityEvalRunner(
                 lambda _system, _user: "answer", model="test-model",
                 runtime_fingerprint="not-a-fingerprint")
+
+    def test_continuity_suite_covers_stateful_conversation_dimensions(self):
+        suite = ConversationContinuityEvalRunner._load_suite(CONTINUITY_SUITE)
+
+        self.assertGreaterEqual(len(suite["cases"]), 5)
+        self.assertIn("referent resolution", suite["coverage"])
+        self.assertIn("user correction precedence", suite["coverage"])
+        self.assertTrue(all(len(case["turns"]) >= 2
+                            for case in suite["cases"]))
+
+    def test_continuity_runner_passes_history_to_each_completion(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            suite = Path(temporary) / "continuity.json"
+            suite.write_text(json.dumps({
+                "name": "continuity", "version": 1, "coverage": [],
+                "cases": [{
+                    "name": "correction", "mode": "text", "turns": [
+                        {"prompt": "Call it Atlas.", "required_any": [["Atlas"]]},
+                        {"prompt": "Now call it Ember.",
+                         "required_any": [["Ember"]]},
+                    ],
+                }],
+            }))
+            seen = []
+
+            def complete(_system, history):
+                seen.append(list(history))
+                return "Atlas." if len(history) == 1 else "Ember."
+
+            result = ConversationContinuityEvalRunner(
+                complete, model="test-model",
+                runtime_fingerprint="a" * 64).run(suite)
+
+        self.assertEqual((result["passed"], result["total"]), (1, 1))
+        self.assertEqual([message["role"] for message in seen[1]],
+                         ["user", "assistant", "user"])
+        self.assertEqual(seen[1][1]["content"], "Atlas.")
+
+    def test_continuity_grader_distinguishes_answer_from_question(self):
+        answer = ConversationQualityEvalRunner._grade(
+            {"must_not_end_question": True}, "Ember.")
+        question = ConversationQualityEvalRunner._grade(
+            {"must_not_end_question": True}, "Which one?")
+
+        self.assertTrue(answer["answer_when_context_clear"])
+        self.assertFalse(question["answer_when_context_clear"])
 
 
 if __name__ == "__main__":

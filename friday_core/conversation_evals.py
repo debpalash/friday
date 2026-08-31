@@ -18,6 +18,7 @@ MAX_SUITE_BYTES = 128_000
 MAX_CASES = 64
 MAX_PROMPT_CHARS = 4_000
 MAX_OUTPUT_CHARS = 8_000
+MAX_TURNS_PER_CASE = 8
 _MODES = frozenset({"voice", "text"})
 _CEREMONY = re.compile(
     r"\b(?:task (?:created|planned|completed|failed)|verified actions?|"
@@ -164,6 +165,9 @@ class ConversationQualityEvalRunner:
             "question_when_ambiguous": (
                 not bool(case.get("must_end_question"))
                 or graded_output.rstrip().endswith("?")),
+            "answer_when_context_clear": (
+                not bool(case.get("must_not_end_question"))
+                or not graded_output.rstrip().endswith("?")),
         }
         checks["passed"] = all(
             bool(value) for key, value in checks.items() if key != "word_count")
@@ -191,6 +195,152 @@ class ConversationQualityEvalRunner:
                 "passed": bool(checks["passed"]), "checks": checks,
                 "failure": failure,
                 "output_sha256": hashlib.sha256(output.encode()).hexdigest(),
+            })
+        passed = sum(1 for result in results if result["passed"])
+        return {
+            "suite": suite["name"], "version": suite["version"],
+            "coverage": suite.get("coverage", []),
+            "model": self.model,
+            "runtime_fingerprint": self.runtime_fingerprint,
+            "passed": passed, "total": len(results), "results": results,
+        }
+
+
+class ConversationContinuityEvalRunner:
+    """Exact-graded, stateful evaluation across related conversation turns."""
+
+    def __init__(self, complete: Callable[[str, list[dict]], str], *, model: str,
+                 runtime_fingerprint: str):
+        if not callable(complete):
+            raise TypeError("continuity evaluator requires a completion callback")
+        if not isinstance(model, str) or not 1 <= len(model) <= 160:
+            raise ValueError("continuity evaluator model identity is invalid")
+        if (not isinstance(runtime_fingerprint, str)
+                or re.fullmatch(r"[0-9a-f]{64}", runtime_fingerprint) is None):
+            raise ValueError("continuity evaluator runtime fingerprint is invalid")
+        self.complete = complete
+        self.model = model
+        self.runtime_fingerprint = runtime_fingerprint
+
+    @staticmethod
+    def _load_suite(suite_path: str | Path) -> dict[str, Any]:
+        try:
+            descriptor = os.open(
+                Path(suite_path), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            with os.fdopen(descriptor, "rb") as stream:
+                metadata = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(metadata.st_mode)
+                        or not 2 <= metadata.st_size <= MAX_SUITE_BYTES):
+                    raise ValueError(
+                        "continuity evaluation suite must be a bounded regular file")
+                encoded = stream.read(MAX_SUITE_BYTES + 1)
+        except OSError as exc:
+            raise ValueError(
+                "continuity evaluation suite must be a bounded regular file") from exc
+        if len(encoded) != metadata.st_size:
+            raise ValueError("continuity evaluation suite changed while being read")
+
+        def reject_constant(_value: str):
+            raise ValueError("continuity suite contains a non-finite number")
+
+        suite = json.loads(encoded.decode("utf-8"), parse_constant=reject_constant)
+        if not isinstance(suite, dict):
+            raise ValueError("continuity evaluation suite must be an object")
+        name = suite.get("name")
+        version = suite.get("version")
+        coverage = suite.get("coverage", [])
+        cases = suite.get("cases")
+        if (not isinstance(name, str) or not 1 <= len(name) <= 128
+                or isinstance(version, bool) or not isinstance(version, int)
+                or not 1 <= version <= 1_000_000
+                or not isinstance(coverage, list) or len(coverage) > 32
+                or any(not isinstance(item, str) or not 1 <= len(item) <= 80
+                       for item in coverage)
+                or len(set(coverage)) != len(coverage)
+                or not isinstance(cases, list)
+                or not 1 <= len(cases) <= MAX_CASES):
+            raise ValueError("continuity evaluation suite metadata is invalid")
+
+        seen: set[str] = set()
+        total_turns = 0
+        for case in cases:
+            if not isinstance(case, dict):
+                raise ValueError("continuity evaluation case must be an object")
+            case_name = case.get("name")
+            turns = case.get("turns")
+            if (not isinstance(case_name, str) or not 1 <= len(case_name) <= 160
+                    or case_name in seen or case.get("mode") not in _MODES
+                    or not isinstance(turns, list)
+                    or not 2 <= len(turns) <= MAX_TURNS_PER_CASE):
+                raise ValueError("continuity evaluation case is invalid")
+            seen.add(case_name)
+            total_turns += len(turns)
+            for turn in turns:
+                if not isinstance(turn, dict):
+                    raise ValueError("continuity evaluation turn must be an object")
+                prompt = turn.get("prompt")
+                required_any = turn.get("required_any", [])
+                forbidden = turn.get("forbidden_terms", [])
+                numeric = [turn.get("min_words", 1), turn.get("max_words", 200),
+                           turn.get("max_sentences", 8)]
+                if (not isinstance(prompt, str)
+                        or not 1 <= len(prompt) <= MAX_PROMPT_CHARS
+                        or any(isinstance(value, bool) or not isinstance(value, int)
+                               or not 1 <= value <= 2_000 for value in numeric)
+                        or numeric[0] > numeric[1]
+                        or any(not isinstance(turn.get(field, False), bool)
+                               for field in ("forbid_markdown", "must_end_question",
+                                             "must_not_end_question"))
+                        or (turn.get("must_end_question", False)
+                            and turn.get("must_not_end_question", False))
+                        or not isinstance(required_any, list)
+                        or len(required_any) > 32
+                        or any(not isinstance(group, list)
+                               or not 1 <= len(group) <= 16
+                               or any(not isinstance(term, str)
+                                      or not 1 <= len(term) <= 120
+                                      for term in group)
+                               for group in required_any)
+                        or not isinstance(forbidden, list) or len(forbidden) > 32
+                        or any(not isinstance(term, str)
+                               or not 1 <= len(term) <= 120 for term in forbidden)):
+                    raise ValueError("continuity evaluation turn is invalid")
+        if total_turns > MAX_CASES * MAX_TURNS_PER_CASE:
+            raise ValueError("continuity evaluation suite has too many turns")
+        return suite
+
+    def run(self, suite_path: str | Path) -> dict[str, Any]:
+        suite = self._load_suite(suite_path)
+        results = []
+        for case in suite["cases"]:
+            system = fast_system_prompt(
+                owner_name="the user", display_mode=case["mode"] == "text")
+            history: list[dict] = []
+            turn_results = []
+            for index, turn in enumerate(case["turns"]):
+                output = ""
+                failure = None
+                history.append({"role": "user", "content": turn["prompt"]})
+                try:
+                    output = self.complete(system, list(history))
+                    if not isinstance(output, str):
+                        raise TypeError("completion output must be text")
+                    checks = ConversationQualityEvalRunner._grade(turn, output)
+                except Exception as exc:
+                    failure = type(exc).__name__
+                    checks = {"passed": False}
+                history.append({"role": "assistant", "content": output})
+                turn_results.append({
+                    "index": index + 1,
+                    "passed": bool(checks["passed"]),
+                    "checks": checks,
+                    "failure": failure,
+                    "output_sha256": hashlib.sha256(output.encode()).hexdigest(),
+                })
+            results.append({
+                "name": case["name"], "mode": case["mode"],
+                "passed": all(turn["passed"] for turn in turn_results),
+                "turns": turn_results,
             })
         passed = sum(1 for result in results if result["passed"])
         return {

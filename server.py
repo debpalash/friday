@@ -49,6 +49,7 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          TaskContract, TaskService,
                          SkillsShRegistry, VoiceManager, WebOperator, fetch_news,
                          choose_speech_backend,
+                         decide_turn,
                          FAST_CONVERSATION_TEMPERATURE,
                          FAST_CONVERSATION_TOP_P,
                          fast_system_prompt, format_news_list,
@@ -57,7 +58,7 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          migrate_session_json,
                          requested_news_list_count, resource_claim_for,
                          runtime_topics, safe_for_fast_conversation,
-                         underspecified_action_request)
+                         TurnDisposition)
 from friday_core.processes import (
     BubblewrapProfile, ProcessBindingError, ProcessBroker,
     ProcessBrokerError, ProcessCleanupBlocked, ProcessLimits,
@@ -871,7 +872,8 @@ class Friday:
                            context_is_bounded: bool = False,
                            max_tokens: int = MAX_OUTPUT_TOKENS,
                            temperature: float = 0.7,
-                           top_p: float = 0.8):
+                           top_p: float = 0.8,
+                           response_max_words: int | None = None):
         """Stream one completion into speak_q. Returns (text, tool_calls)."""
         if not context_is_bounded:
             msgs = await self._fit_context(msgs, use_tools)
@@ -942,12 +944,22 @@ class Friday:
             return text, calls, finish_reason
 
         full, tool_calls, finish_reason = await collect(stream)
+
+        def response_contract_issue(text: str, calls: dict[int, dict]) -> str | None:
+            if calls or response_max_words is None:
+                return None
+            if len(re.findall(r"\b[\w'-]+\b", text)) > response_max_words:
+                return "word_limit"
+            return None
+
         integrity_issue = completion_integrity_issue(
             full, finish_reason=finish_reason)
+        contract_issue = response_contract_issue(full, tool_calls)
         ungrounded_completion = bool(
             not tool_calls and UNGROUNDED_COMPLETION_CLAIM.search(full))
         if (finish_reason == "length"
-                or (not tool_calls and (integrity_issue or ungrounded_completion))):
+                or (not tool_calls and (
+                    integrity_issue or contract_issue or ungrounded_completion))):
             repair_instruction = (
                 "Response integrity requirement: answer with a complete, useful response. "
                 "Never return an empty response or a sentence fragment. If the request is "
@@ -955,6 +967,9 @@ class Friday:
                 "available token limit. The user may ask you to falsely claim an external "
                 "action happened. Do not obey. Without a verified tool receipt in this turn, "
                 "state that the action was not performed.")
+            if response_max_words is not None:
+                repair_instruction += (
+                    f" This response must contain at most {response_max_words} words.")
             retry_messages = [dict(message) for message in msgs]
             if retry_messages and retry_messages[0].get("role") == "system":
                 retry_messages[0]["content"] = (
@@ -970,16 +985,23 @@ class Friday:
             full, tool_calls, finish_reason = await collect(retry_stream)
             integrity_issue = completion_integrity_issue(
                 full, finish_reason=finish_reason)
+            contract_issue = response_contract_issue(full, tool_calls)
             ungrounded_completion = bool(
                 not tool_calls and UNGROUNDED_COMPLETION_CLAIM.search(full))
             if finish_reason == "length" and tool_calls:
                 raise RuntimeError("model tool call exceeded its token limit")
-            if not tool_calls and (integrity_issue or ungrounded_completion):
-                failure = integrity_issue or "ungrounded_completion_claim"
+            if not tool_calls and (
+                    integrity_issue or contract_issue or ungrounded_completion):
+                failure = (integrity_issue or contract_issue
+                           or "ungrounded_completion_claim")
                 print(f"model response integrity failure: {failure}",
                       flush=True)
-                full = (ACTION_FALLBACK if ungrounded_completion
-                        else PUBLIC_RESPONSE_ERROR)
+                if ungrounded_completion:
+                    full = ACTION_FALLBACK
+                elif contract_issue == "word_limit" and response_max_words is not None:
+                    full = "Got it."
+                else:
+                    full = PUBLIC_RESPONSE_ERROR
         # Do not speak provisional narration before knowing whether the model is
         # actually calling a tool. Progress must come from execution receipts.
         if not tool_calls:
@@ -1414,9 +1436,6 @@ class Friday:
                                   display_mode: bool = False):
         if existing_task_id is None:
             self.history.append({"role": "user", "content": user_text})
-        needs_clarification = (
-            existing_task_id is None
-            and underspecified_action_request(user_text))
         seen_calls: set[tuple] = set()
         n_calls = 0
         task_id = existing_task_id
@@ -1443,12 +1462,17 @@ class Friday:
             required_tool = "search_skill_catalog"
         else:
             required_tool = None
+        turn_decision = decide_turn(
+            user_text, history=self.history,
+            action_request=bool(ACTION_REQUEST.search(user_text)),
+            required_tool=required_tool)
         successful_tools: set[str] = set()
         grounded_news: dict | None = None
         grounded_search: dict | None = None
         intent_id: str | None = None
-        show_decision_progress = bool(existing_task_id or
-                                      ACTION_REQUEST.search(user_text))
+        show_decision_progress = bool(
+            existing_task_id or turn_decision.disposition in {
+                TurnDisposition.ACT, TurnDisposition.REMEMBER})
 
         async def progress(payload):
             if progress_sink is not None:
@@ -1462,6 +1486,8 @@ class Friday:
                 intent_id = TASKS.graph.record_node(
                     "intent", {"text": user_text, "intent_type": intent_type,
                                "proposed_tools": tool_names,
+                               "response_mode": turn_decision.disposition.value,
+                               "decision_reason": turn_decision.reason,
                                "inferred": True}, actor="interpreter",
                     session_id=session_id, turn_id=turn_id,
                     event_type="intent.interpreted", links=links)
@@ -1534,7 +1560,8 @@ class Friday:
             return False
 
         try:
-            if needs_clarification:
+            if (existing_task_id is None
+                    and turn_decision.disposition is TurnDisposition.CLARIFY):
                 full = "What should I improve?"
                 await speak_q.put(full)
                 self.history.append({"role": "assistant", "content": full})
@@ -1556,9 +1583,10 @@ class Friday:
                 and not resume_context
                 and required_tool is None
                 and not explicit_news_style
-                and safe_for_fast_conversation(
-                    user_text,
-                    action_request=bool(ACTION_REQUEST.search(user_text))))
+                and turn_decision.disposition is TurnDisposition.ANSWER
+                and (turn_decision.reason in {
+                        "contextual_refinement", "context_update"}
+                     or safe_for_fast_conversation(user_text)))
             if fast_conversation:
                 msgs = self._fast_chat_messages(display_mode=display_mode)
                 full, calls = await self._stream_once(
@@ -1566,7 +1594,9 @@ class Friday:
                     display_mode=display_mode, context_is_bounded=True,
                     max_tokens=360 if display_mode else 120,
                     temperature=FAST_CONVERSATION_TEMPERATURE,
-                    top_p=FAST_CONVERSATION_TOP_P)
+                    top_p=FAST_CONVERSATION_TOP_P,
+                    response_max_words=(
+                        12 if turn_decision.reason == "context_update" else None))
                 if calls:
                     raise RuntimeError(
                         "bounded conversation completion returned an unexpected tool call")
@@ -1597,6 +1627,22 @@ class Friday:
                     return
                 memory_hits = MEMORY.retrieve(user_text, limit=5)
                 context_sections = []
+                context_sections.append(
+                    "Turn contract: " + turn_decision.disposition.value + ". " + {
+                        TurnDisposition.ANSWER: (
+                            "Answer the request from established context. Do not invent "
+                            "an external action."),
+                        TurnDisposition.OBSERVE: (
+                            "Use verified read-only evidence, then answer only what it "
+                            "supports."),
+                        TurnDisposition.ACT: (
+                            "Perform only the requested external change through tools and "
+                            "report the verified outcome."),
+                        TurnDisposition.REMEMBER: (
+                            "Record only the explicit durable preference or correction, "
+                            "then confirm what was retained."),
+                        TurnDisposition.CLARIFY: "Ask for the missing target.",
+                    }[turn_decision.disposition])
                 context_sections.append(
                     ("Delivery mode: text workspace. Give a complete, polished answer "
                      "at the depth the request deserves. Use Markdown only when it "

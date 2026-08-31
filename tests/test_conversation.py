@@ -2,6 +2,10 @@ import unittest
 
 from friday_core.conversation import (FAST_CONVERSATION_TEMPERATURE,
                                       FAST_CONVERSATION_TOP_P,
+                                      TurnDisposition,
+                                      contextual_refinement_request,
+                                      decide_turn,
+                                      declarative_context_update,
                                       fast_system_prompt, format_runtime_answer,
                                       requested_news_list_count, runtime_topics,
                                       safe_for_fast_conversation,
@@ -66,6 +70,64 @@ class ConversationRoutingTests(unittest.TestCase):
         self.assertFalse(underspecified_action_request("Fix README.md"))
         self.assertFalse(underspecified_action_request(
             "Make the Friday orb brighter"))
+
+    def test_contextual_refinement_requires_a_real_prior_answer(self):
+        self.assertTrue(contextual_refinement_request("Make that shorter."))
+        self.assertTrue(contextual_refinement_request("Simplify your answer"))
+        self.assertFalse(contextual_refinement_request("Make the orb brighter"))
+
+        without_context = decide_turn("Make it better.", action_request=True)
+        with_context = decide_turn(
+            "Make it better.", action_request=True,
+            history=[
+                {"role": "user", "content": "Draft a title."},
+                {"role": "assistant", "content": "Meet Less, Make More"},
+                {"role": "user", "content": "Make it better."},
+            ])
+        acknowledgement_only = decide_turn(
+            "Make it better.", action_request=True,
+            history=[
+                {"role": "user", "content": "I have two drafts."},
+                {"role": "assistant", "content": "Okay."},
+                {"role": "user", "content": "Make it better."},
+            ])
+
+        self.assertEqual(
+            without_context.disposition, TurnDisposition.CLARIFY)
+        self.assertEqual(with_context, decide_turn(
+            "Make that shorter.", action_request=True,
+            history=[{"role": "assistant", "content": "A useful answer."}]))
+        self.assertEqual(with_context.disposition, TurnDisposition.ANSWER)
+        self.assertEqual(with_context.reason, "contextual_refinement")
+        self.assertEqual(
+            acknowledgement_only.disposition, TurnDisposition.CLARIFY)
+
+    def test_turn_decision_separates_answer_observe_act_and_remember(self):
+        self.assertEqual(
+            decide_turn("Explain recursion.").disposition,
+            TurnDisposition.ANSWER)
+        self.assertEqual(
+            decide_turn("Get the news.", required_tool="fetch_news").disposition,
+            TurnDisposition.OBSERVE)
+        self.assertEqual(
+            decide_turn("Restart Friday.", action_request=True).disposition,
+            TurnDisposition.ACT)
+        self.assertEqual(
+            decide_turn("Remember that I prefer terse replies.").disposition,
+            TurnDisposition.REMEMBER)
+
+    def test_declarative_context_update_is_answered_without_unasked_action(self):
+        for text in (
+                "I'm choosing between SQLite and Postgres.",
+                "My priorities are offline use and simple deployment.",
+                "I ruled out Postgres for the first release."):
+            with self.subTest(text=text):
+                self.assertTrue(declarative_context_update(text))
+                decision = decide_turn(text)
+                self.assertEqual(decision.disposition, TurnDisposition.ANSWER)
+                self.assertEqual(decision.reason, "context_update")
+        self.assertFalse(declarative_context_update(
+            "Should I choose SQLite or Postgres?"))
 
     def test_explicit_news_list_count_requires_headlines_and_links(self):
         self.assertEqual(requested_news_list_count(

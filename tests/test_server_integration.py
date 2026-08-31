@@ -944,6 +944,43 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(completions.requests), 2)
         self.assertEqual(completions.requests[1]["temperature"], 0.0)
 
+    async def test_response_word_contract_is_repaired_before_delivery(self):
+        class SequencedCompletions:
+            def __init__(self):
+                self.requests = []
+                self.responses = [
+                    [_chunk("Here is a long analysis you did not request.")],
+                    [_chunk("Got it.")],
+                ]
+
+            async def create(self, **kwargs):
+                self.requests.append(kwargs)
+                chunks = self.responses.pop(0)
+
+                async def stream():
+                    for chunk in chunks:
+                        yield chunk
+                return stream()
+
+        completions = SequencedCompletions()
+        friday = server.Friday.__new__(server.Friday)
+        friday.llm = SimpleNamespace(chat=SimpleNamespace(
+            completions=completions))
+        queue = asyncio.Queue()
+
+        full, calls = await friday._stream_once(
+            [{"role": "user", "content": "I ruled out Postgres."}], queue,
+            display_mode=True, context_is_bounded=True,
+            response_max_words=3)
+
+        self.assertEqual(calls, [])
+        self.assertEqual(full, "Got it.")
+        self.assertEqual(await queue.get(), "Got it.")
+        self.assertEqual(len(completions.requests), 2)
+        self.assertIn(
+            "at most 3 words",
+            completions.requests[1]["messages"][0]["content"])
+
     async def test_token_limited_response_is_retried_with_more_room(self):
         class SequencedCompletions:
             def __init__(self):
@@ -1730,6 +1767,45 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await queue.get(), "What should I improve?")
             self.assertIsNone(await queue.get())
             self.assertEqual(tasks.nonterminal(), [])
+
+    async def test_contextual_refinement_stays_in_conversation_lane(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            graph = GraphStore(Path(temporary) / "friday.db")
+            tasks = TaskService(graph)
+            friday = server.Friday.__new__(server.Friday)
+            friday.history = [
+                {"role": "system", "content": "test"},
+                {"role": "user", "content": "Draft a meeting-reduction title."},
+                {"role": "assistant", "content": "Meet Less, Make More"},
+            ]
+
+            async def fake_stream(messages, speak_q, use_tools=True, **kwargs):
+                self.assertFalse(use_tools)
+                self.assertTrue(kwargs["context_is_bounded"])
+                self.assertEqual(messages[-3]["content"],
+                                 "Draft a meeting-reduction title.")
+                self.assertEqual(messages[-2]["content"],
+                                 "Meet Less, Make More")
+                self.assertEqual(messages[-1]["content"], "Make that shorter.")
+                await speak_q.put("Fewer Meetings, More Making")
+                return "Fewer Meetings, More Making", []
+
+            friday._stream_once = fake_stream
+            queue = asyncio.Queue()
+
+            with patch.object(server, "TASKS", tasks):
+                await friday.respond(
+                    "Make that shorter.", queue, display_mode=True)
+
+            self.assertEqual(await queue.get(), "Fewer Meetings, More Making")
+            self.assertIsNone(await queue.get())
+            self.assertEqual(tasks.nonterminal(), [])
+            with graph._connect() as conn:
+                intent = conn.execute(
+                    "SELECT body_json FROM nodes WHERE kind='intent'").fetchone()
+            body = json.loads(intent["body_json"])
+            self.assertEqual(body["response_mode"], "answer")
+            self.assertEqual(body["decision_reason"], "contextual_refinement")
 
     async def test_casual_response_does_not_emit_agent_workflow_progress(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -212,6 +212,22 @@ class SelectiveDeletionTests(unittest.TestCase):
             )
         self._assert_database_valid(path)
 
+    def test_deletion_checkpoints_committed_wal_before_guarding_source(self):
+        path, graph = self._database("pending-wal")
+        idle_connection = sqlite3.connect(path)
+        try:
+            removed = graph.record_node(
+                "artifact", {"content": "pending-wal-private"})
+
+            result = delete_private_data(
+                path, "artifact", value=removed, runtime_stopped=True)
+        finally:
+            idle_connection.close()
+
+        self.assertEqual(result["status"], "deleted")
+        self.assertNotIn(b"pending-wal-private", path.read_bytes())
+        self._assert_database_valid(path)
+
     def test_memory_claim_deletion_removes_search_projection(self):
         path, graph = self._database("memory")
         memory = MemoryCurator(graph)

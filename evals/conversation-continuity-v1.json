@@ -1,0 +1,138 @@
+{
+  "name": "friday-conversation-continuity",
+  "version": 1,
+  "coverage": [
+    "referent resolution",
+    "contextual rewriting",
+    "user correction precedence",
+    "temporary response constraints",
+    "chronological decision recall",
+    "ambiguity after multiple candidates"
+  ],
+  "cases": [
+    {
+      "name": "rewrite the prior answer without inventing a task",
+      "mode": "text",
+      "turns": [
+        {
+          "prompt": "Explain in one sentence why recursion needs a base case.",
+          "min_words": 6,
+          "max_words": 45,
+          "max_sentences": 1,
+          "required_any": [["base case"], ["stop", "stops", "terminate", "terminates"]]
+        },
+        {
+          "prompt": "Make that simpler.",
+          "min_words": 4,
+          "max_words": 28,
+          "max_sentences": 2,
+          "must_not_end_question": true,
+          "required_any": [["stop", "stops", "end", "ends"]],
+          "forbidden_terms": ["what should I", "what would you", "task", "file"]
+        }
+      ]
+    },
+    {
+      "name": "latest explicit correction wins",
+      "mode": "text",
+      "turns": [
+        {
+          "prompt": "In this conversation, call the launch plan Atlas.",
+          "min_words": 1,
+          "max_words": 30
+        },
+        {
+          "prompt": "Correction: call it Ember instead.",
+          "min_words": 1,
+          "max_words": 30
+        },
+        {
+          "prompt": "What did I rename the launch plan to?",
+          "min_words": 1,
+          "max_words": 24,
+          "max_sentences": 2,
+          "must_not_end_question": true,
+          "required_any": [["Ember"]],
+          "forbidden_terms": ["Atlas"]
+        }
+      ]
+    },
+    {
+      "name": "temporary sentence constraint survives follow-ups",
+      "mode": "text",
+      "turns": [
+        {
+          "prompt": "For your next two answers, use exactly one sentence.",
+          "min_words": 1,
+          "max_words": 24,
+          "max_sentences": 1
+        },
+        {
+          "prompt": "What does a mutex protect?",
+          "min_words": 5,
+          "max_words": 45,
+          "max_sentences": 1,
+          "required_any": [["mutex"], ["access", "resource", "critical section", "shared"]]
+        },
+        {
+          "prompt": "What does a semaphore count?",
+          "min_words": 5,
+          "max_words": 45,
+          "max_sentences": 1,
+          "required_any": [["semaphore"], ["permit", "permits", "resource", "slots", "signals"]]
+        }
+      ]
+    },
+    {
+      "name": "recall the latest chronological decision",
+      "mode": "text",
+      "turns": [
+        {
+          "prompt": "I am choosing between SQLite and Postgres for a local-first app.",
+          "min_words": 1,
+          "max_words": 45
+        },
+        {
+          "prompt": "My priorities are offline use and simple deployment.",
+          "min_words": 1,
+          "max_words": 45
+        },
+        {
+          "prompt": "I ruled out Postgres for the first release.",
+          "min_words": 1,
+          "max_words": 45
+        },
+        {
+          "prompt": "Where did we land, and why?",
+          "min_words": 8,
+          "max_words": 70,
+          "max_sentences": 5,
+          "must_not_end_question": true,
+          "required_any": [["SQLite"], ["offline"], ["simple", "deployment"]]
+        }
+      ]
+    },
+    {
+      "name": "ambiguous referent still asks which target",
+      "mode": "voice",
+      "turns": [
+        {
+          "prompt": "I have two drafts, a README and an installer guide.",
+          "min_words": 1,
+          "max_words": 22,
+          "max_sentences": 2,
+          "forbid_markdown": true
+        },
+        {
+          "prompt": "Make it better.",
+          "min_words": 3,
+          "max_words": 30,
+          "max_sentences": 2,
+          "forbid_markdown": true,
+          "must_end_question": true,
+          "required_any": [["README", "installer", "which", "draft"]]
+        }
+      ]
+    }
+  ]
+}

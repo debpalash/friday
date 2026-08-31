@@ -26,6 +26,10 @@ releases. Migrations must preserve user state.
 
 ### Added
 
+- A stateful conversation scorecard for referents, corrections, temporary
+  constraints, chronological decisions, and ambiguity across related turns.
+- A recorded turn contract that separates answering, clarification, live
+  observation, external action, and durable memory before generation begins.
 - Typed Omarchy desktop control with live status, exact approvals, packaged
   command identity binding, postcondition receipts, and reconciliation for
   themes, fonts, night light, idle policy, brightness, screenshots, and lock.
@@ -40,6 +44,11 @@ releases. Migrations must preserve user state.
 
 ### Fixed
 
+- Follow-up rewrites such as "make that shorter" now stay in the conversation
+  lane when a prior answer supplies the target. Context-only updates cannot
+  trigger unsolicited essays and are repaired against a strict word limit.
+- Selective deletion now checkpoints committed WAL pages before its physical
+  source-integrity guard, avoiding false concurrent-write failures.
 - Broken conversational outputs are now withheld and repaired once when the
   model returns an empty response, a lone fragment, an unfinished code fence,
   a token-limited completion, or an unverified external-action claim. Repeated

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
+from enum import Enum
 
 
 FAST_CONVERSATION_TEMPERATURE = 0.0
@@ -66,6 +68,36 @@ _UNDERSPECIFIED_ACTION = re.compile(
     r"(?:it|this|that)(?:\s+better)?|improve\s+(?:it|this|that))\s*[.!?]*\s*$",
     re.IGNORECASE,
 )
+_CONTEXTUAL_REFINEMENT = re.compile(
+    r"^\s*(?:(?:make|rewrite|rephrase|revise|say|explain|summari[sz]e)\s+"
+    r"(?:it|this|that|the answer|your answer|that answer)"
+    r"(?:\s+(?:more\s+)?(?:brief|casual|clear|concise|direct|formal|friendly|"
+    r"natural|polished|precise|simple|specific|technical|terse|warm|"
+    r"beginner[- ]friendly|shorter|longer|better))?"
+    r"|(?:shorten|expand|simplify|clarify)\s+(?:it|this|that|the answer|"
+    r"your answer|that answer))\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
+_MEMORY_REQUEST = re.compile(
+    r"\b(?:remember|don't forget|do not forget|from now on|"
+    r"i (?:prefer|always want)|my preference is)\b",
+    re.IGNORECASE,
+)
+_DECLARATIVE_CONTEXT = re.compile(
+    r"^\s*(?:i(?:'m| am| have|'ve| chose| choose| decided| ruled out|"
+    r"picked| plan to| intend to)\b|my\s+(?:goal|goals|priority|priorities|"
+    r"constraint|constraints|plan|plans|choice|decision)\b|"
+    r"we(?:'re| are| have|'ve| chose| decided| ruled out| plan to)\b)",
+    re.IGNORECASE,
+)
+_OBSERVATION_TOOLS = frozenset({
+    "fetch_news", "list_voices", "machine_inspect_process",
+    "machine_list_process_specs", "machine_list_windows", "read_web",
+    "search_skill_catalog", "web_search",
+})
+_EMPTY_REFERENT_REPLIES = frozenset({
+    "fine", "got it", "hey", "hello", "okay", "ok", "ready", "sure",
+})
 _NEWS_LIST = re.compile(
     r"\b(?:headlines?|stories)\b.{0,100}\b(?:links?|urls?)\b|"
     r"\b(?:links?|urls?)\b.{0,100}\b(?:headlines?|stories)\b",
@@ -75,6 +107,71 @@ _COUNT_WORDS = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
     "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
 }
+
+
+class TurnDisposition(str, Enum):
+    """The single conversational outcome Friday should pursue for one turn."""
+
+    ANSWER = "answer"
+    CLARIFY = "clarify"
+    OBSERVE = "observe"
+    ACT = "act"
+    REMEMBER = "remember"
+
+
+@dataclass(frozen=True)
+class TurnDecision:
+    disposition: TurnDisposition
+    reason: str
+
+
+def contextual_refinement_request(text: str) -> bool:
+    """Return whether text asks to transform Friday's immediately prior answer."""
+    return _CONTEXTUAL_REFINEMENT.fullmatch(str(text or "")) is not None
+
+
+def declarative_context_update(text: str) -> bool:
+    """Return whether the user is supplying context without making a request."""
+    value = str(text or "").strip()
+    return bool(value and "?" not in value and _DECLARATIVE_CONTEXT.search(value))
+
+
+def has_conversational_referent(history: Iterable[dict]) -> bool:
+    """Return whether a recent, complete assistant answer can resolve a pronoun."""
+    for message in reversed(list(history)):
+        role = message.get("role")
+        if role == "user":
+            continue
+        if role != "assistant":
+            continue
+        if message.get("tool_calls"):
+            return False
+        content = message.get("content")
+        if not isinstance(content, str) or not content.strip():
+            return False
+        normalized = re.sub(r"[^\w]+", " ", content.casefold()).strip()
+        return normalized not in _EMPTY_REFERENT_REPLIES
+    return False
+
+
+def decide_turn(
+    text: str, *, history: Iterable[dict] = (), action_request: bool = False,
+    required_tool: str | None = None,
+) -> TurnDecision:
+    """Choose one bounded response contract before generation or tool planning."""
+    if contextual_refinement_request(text) and has_conversational_referent(history):
+        return TurnDecision(TurnDisposition.ANSWER, "contextual_refinement")
+    if underspecified_action_request(text):
+        return TurnDecision(TurnDisposition.CLARIFY, "missing_target")
+    if _MEMORY_REQUEST.search(str(text or "")):
+        return TurnDecision(TurnDisposition.REMEMBER, "explicit_memory_request")
+    if required_tool in _OBSERVATION_TOOLS:
+        return TurnDecision(TurnDisposition.OBSERVE, "live_evidence_required")
+    if required_tool is not None or action_request:
+        return TurnDecision(TurnDisposition.ACT, "external_action_requested")
+    if declarative_context_update(text):
+        return TurnDecision(TurnDisposition.ANSWER, "context_update")
+    return TurnDecision(TurnDisposition.ANSWER, "direct_response")
 
 
 def runtime_topics(text: str) -> tuple[str, ...]:
@@ -140,7 +237,11 @@ def fast_system_prompt(*, owner_name: str, display_mode: bool) -> str:
         f"You are Friday, {owner_name}'s local personal assistant. {delivery} "
         "Answer the actual request immediately. Do not add a preamble, repeat the request, "
         "narrate a task or workflow, or use an acknowledgement as a substitute for an "
-        "answer. If the request is "
+        "answer. When the user gives a declarative context update with no question or "
+        "imperative, respond in at most 12 words. Acknowledge or retain it, but do not give "
+        "unasked advice, analysis, or options. If a follow-up refers to one clear "
+        "recent target, use that target. If two or more recent targets are plausible, ask "
+        "which one before requesting content or proposing a change. If the request is "
         "ambiguous and recent context does not establish one clear meaning, ask one precise "
         "clarifying question. Never claim that you checked, changed, started, or "
         "completed anything. This conversation lane cannot perform external actions. The "

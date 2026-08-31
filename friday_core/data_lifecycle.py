@@ -165,6 +165,19 @@ def _backup_database(source: Path, destination: Path) -> None:
         os.close(descriptor)
 
 
+def _checkpoint_stopped_database(source: Path) -> None:
+    """Merge committed WAL pages before comparing physical database hashes."""
+    connection = sqlite3.connect(source, timeout=15)
+    try:
+        connection.execute("PRAGMA busy_timeout = 15000")
+        result = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        if result is None or int(result[0]) != 0:
+            raise RuntimeError(
+                "Friday database is still busy; stop every database writer")
+    finally:
+        connection.close()
+
+
 def _quote_identifier(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
@@ -742,6 +755,7 @@ def delete_private_data(
             raise RuntimeError("data-lifecycle lock identity is invalid")
         os.fchmod(lock_descriptor, 0o600)
         fcntl.flock(lock_descriptor, fcntl.LOCK_EX)
+        _checkpoint_stopped_database(source)
         before_digest, before_metadata = _sha256_private(
             source, maximum=MAX_DATABASE_BYTES)
         if (before_metadata.st_dev, before_metadata.st_ino) != (
