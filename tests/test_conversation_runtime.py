@@ -57,6 +57,13 @@ class ConversationRuntimeTests(unittest.TestCase):
             "I do not have a recorded measurement for that time.",
             "Tell me the exact value", 20))
 
+    def test_response_contract_allows_concise_direct_lookup(self):
+        self.assertIsNone(response_contract_issue(
+            "Solstice.", "What is the release plan called now?", 20))
+        self.assertEqual(response_contract_issue(
+            "SQLite.", "Recommend a database and explain why.", 20),
+            "thin_answer")
+
     def test_historical_exact_unknown_requires_an_evidence_basis(self):
         prompt = "Tell me the exact CPU temperature at 2 AM last Tuesday."
         self.assertEqual(

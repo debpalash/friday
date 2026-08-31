@@ -54,7 +54,9 @@ def response_contract_issue(
     words = re.findall(r"\b[\w'-]+\b", text)
     if max_words is not None and len(words) > max_words:
         return "word_limit"
-    if (len(words) <= 3 and re.search(
+    direct_lookup = re.search(
+        r"^\s*(?:what|which|who)\b", user_text, re.IGNORECASE)
+    if (len(words) <= 3 and not direct_lookup and re.search(
             r"\b(?:explain|why|based|evidence|verified|plan|exact|tell me|"
             r"recommend|compare)\b", user_text, re.IGNORECASE)):
         return "thin_answer"

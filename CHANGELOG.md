@@ -55,6 +55,9 @@ releases. Migrations must preserve user state.
   a change in required-term meaning, and accepts observed equivalent wording
   for the constrained SQLite recommendation without weakening its factual,
   one-sentence, or two-reason contract.
+- Direct fact lookups can now return a concise name or value even when the
+  question contains a noun such as "plan"; substantive planning, explanation,
+  evidence, comparison, and recommendation requests still reject thin replies.
 
 - Stored voice profiles now survive restart as the audible voice. A requested
   profile can replace Piper with local CPU OmniVoice after a synthesis test,
