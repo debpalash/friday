@@ -1599,6 +1599,24 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(full, server.ACTION_FALLBACK)
         self.assertEqual(await queue.get(), server.ACTION_FALLBACK)
 
+    async def test_verified_receipt_allows_grounded_completion_language(self):
+        friday = server.Friday.__new__(server.Friday)
+        friday.llm = SimpleNamespace(chat=SimpleNamespace(
+            completions=_FakeCompletions([
+                _chunk("I checked worker.py; its lease fence rejects stale workers."),
+            ])))
+        async def no_trim(messages, _use_tools):
+            return messages
+        friday._fit_context = no_trim
+        queue = asyncio.Queue()
+
+        full, calls = await friday._stream_once([
+            {"role": "user", "content": "Inspect this project."}], queue,
+            grounded_receipt=True)
+
+        self.assertEqual(calls, [])
+        self.assertIn("lease fence", full)
+
     async def test_let_me_action_claim_is_blocked(self):
         friday = server.Friday.__new__(server.Friday)
         friday.llm = SimpleNamespace(chat=SimpleNamespace(
@@ -1774,7 +1792,7 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             ])
 
             async def fake_stream(_msgs, speak_q, use_tools=True,
-                                  required_tool=None):
+                                  required_tool=None, **_kwargs):
                 full, calls = next(rounds)
                 self.assertEqual(required_tool,
                                  "search_project" if calls else None)

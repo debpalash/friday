@@ -220,8 +220,6 @@ VOICE_RUNTIME_INTENT = re.compile(
 )
 FILLER_UTTERANCE = re.compile(r"^\s*(?:um+|uh+|erm+|hmm+|mm+)\s*[.!?]*\s*$",
                               re.IGNORECASE)
-
-
 def _voice_audio_is_admissible(
     *, audio_seconds: float, signal_dbfs: float,
 ) -> bool:
@@ -275,7 +273,6 @@ DEFAULT_PROMPT = (
     "with useful Markdown in text. Start with the answer. No filler, repetition, "
     "canned sections, or decorative formatting. Dry wit."
 )
-
 TOOL_SCHEMA = BUILTIN_TOOL_SCHEMAS
 
 
@@ -957,7 +954,8 @@ class Friday:
                            max_tokens: int = MAX_OUTPUT_TOKENS,
                            temperature: float = 0.7,
                            top_p: float = 0.8,
-                           response_max_words: int | None = None):
+                           response_max_words: int | None = None,
+                           grounded_receipt: bool = False):
         """Stream one completion into speak_q. Returns (text, tool_calls)."""
         if not context_is_bounded:
             msgs = await self._fit_context(msgs, use_tools)
@@ -1042,7 +1040,8 @@ class Friday:
             full, finish_reason=finish_reason)
         contract_issue = find_contract_issue(full, tool_calls)
         ungrounded_completion = bool(
-            not tool_calls and UNGROUNDED_COMPLETION_CLAIM.search(full))
+            not grounded_receipt and not tool_calls
+            and UNGROUNDED_COMPLETION_CLAIM.search(full))
         if (finish_reason == "length"
                 or (not tool_calls and (
                     integrity_issue or contract_issue or ungrounded_completion))):
@@ -1076,7 +1075,8 @@ class Friday:
                 full, finish_reason=finish_reason)
             contract_issue = find_contract_issue(full, tool_calls)
             ungrounded_completion = bool(
-                not tool_calls and UNGROUNDED_COMPLETION_CLAIM.search(full))
+                not grounded_receipt and not tool_calls
+                and UNGROUNDED_COMPLETION_CLAIM.search(full))
             if finish_reason == "length" and tool_calls:
                 raise RuntimeError("model tool call exceeded its token limit")
             if not tool_calls and (
@@ -1094,7 +1094,7 @@ class Friday:
         # Do not speak provisional narration before knowing whether the model is
         # actually calling a tool. Progress must come from execution receipts.
         if not tool_calls:
-            if (self._is_action_request(msgs)
+            if (not grounded_receipt and self._is_action_request(msgs)
                     and UNGROUNDED_ACTION_CLAIM.search(full)):
                 print(f"blocked ungrounded action claim: {full[:180]}", flush=True)
                 full = ACTION_FALLBACK
@@ -1935,14 +1935,17 @@ class Friday:
                         msgs, speak_q, required_tool=force_tool,
                         **render_options)
                 else:
+                    project_grounded = (required_tool == "search_project"
+                                        and "read_file" in successful_tools)
                     grounded_answer = bool(
                         grounded_news or grounded_search or grounded_page
-                        or grounded_pages or (required_tool == "search_project"
-                        and "read_file" in successful_tools))
+                        or grounded_pages or project_grounded)
                     preference_only = news_preference_recorded and required_tool is None
                     render_options = ({"display_mode": True,
                                        "response_max_words": 50}
                                       if display_mode else {})
+                    if project_grounded:
+                        render_options["grounded_receipt"] = True
                     full, calls = await self._stream_once(
                         msgs, speak_q,
                         use_tools=not (grounded_answer or preference_only),
