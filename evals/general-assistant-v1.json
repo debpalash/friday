@@ -103,7 +103,7 @@
           "min_words": 10,
           "max_words": 55,
           "max_sentences": 1,
-          "required_any": [["SQLite"], ["administration", "admin", "server", "embedded"], ["portable", "single file", "one file", "embedded file", "deployment", "backup", "copy the file"]],
+          "required_any": [["SQLite"], ["administration", "admin", "server", "embedded"], ["portable", "single file", "one file", "self-contained file", "file-based", "embedded file", "deployment", "backup", "copy the file"]],
           "required_events": ["you", "friday", "done"],
           "forbidden_events": ["intent", "progress"]
         }

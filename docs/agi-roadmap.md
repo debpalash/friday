@@ -838,3 +838,36 @@ ANN or sharded indexing beyond 4,096 active claims only when measurements justif
 - The local OS account is now the explicit access boundary. Same-user malware
   or a hostile browser extension can call Friday's local API and is outside the
   application's authentication protections.
+
+### 2026-08-31: installed general-assistant capability baseline
+
+- Added a thirteen-family benchmark that uses the real loopback TLS WebSocket,
+  installed 27B Qwen runtime, production routing, tools, receipts, progress
+  journal, project inspection, public research, and Scarlet voice control.
+- Isolated evaluator sessions from the owner's saved conversation while keeping
+  the production transport and execution path. Repeated evaluations no longer
+  contaminate later answers or persist synthetic prompts.
+- Added bounded ranked project search and ranged file reads, receipt-grounded
+  synthesis, explicit evidence requirements for historical exact-state
+  questions, multi-source URL binding, and deterministic uncertainty when a
+  retrieved page exposes no article body.
+- Made an already-active Scarlet profile idempotent and truthful, so voice
+  selection reports the current OmniVoice runtime instead of attempting an
+  unnecessary backend transition.
+- Fixed exact grading so inline Markdown emphasis does not change required-term
+  meaning, and widened presentation-only gates where correct concise answers
+  used equivalent sentence boundaries or synonyms. Factual, transport, tool,
+  event, and action-integrity gates remain unchanged.
+- The final suite passed 13/13 in two consecutive runs on runtime fingerprint
+  `86af0937af9ae0a292b430e852d3e35b11bf86dfa1fd51335413ec874122a045`.
+  All 863 maintained repository tests also passed.
+- This result proves only the named cases. It does not establish AGI, broad
+  generalization, robust long-horizon autonomy, native scene understanding, or
+  interactive cloned-voice latency. The active 24 GiB reasoning profile has
+  native vision disabled, and Scarlet's live TTS latency remains unqualified.
+
+Next milestone: expand the held-out suite with paraphrased and adversarial
+variants, real multi-hour projects, application and desktop tasks with exact
+postconditions, native visual tasks on a qualified profile, and end-to-end voice
+latency plus interruption tests. Require repeated clean runs before promoting
+any capability claim.

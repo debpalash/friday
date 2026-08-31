@@ -352,6 +352,11 @@ receipt-backed source inspection, two-source research, false-action refusal,
 and an actual Scarlet voice transition. Passing is evidence for those cases,
 not proof of AGI.
 
+The 2026-08-31 installed baseline passed 13/13 twice consecutively on runtime
+fingerprint `86af0937af9ae0a292b430e852d3e35b11bf86dfa1fd51335413ec874122a045`.
+Native scene understanding and interactive cloned-voice latency were not part
+of that pass and remain unqualified.
+
 The v2 held-out suite has thirteen deterministic cases across intent routing, task contracts,
 approval policy, receipt verification, false-completion prevention, exact read-only restart,
 nonrepeatable reconciliation, memory provenance, public-network isolation, and hardware

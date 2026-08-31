@@ -51,6 +51,11 @@ releases. Migrations must preserve user state.
 
 ### Fixed
 
+- Capability grading now treats inline Markdown emphasis as presentation, not
+  a change in required-term meaning, and accepts observed equivalent wording
+  for the constrained SQLite recommendation without weakening its factual,
+  one-sentence, or two-reason contract.
+
 - Stored voice profiles now survive restart as the audible voice. A requested
   profile can replace Piper with local CPU OmniVoice after a synthesis test,
   without taking GPU memory from the language model. CPU NumPy verification
