@@ -278,6 +278,17 @@ def resolve_evidence_followup(
     return EvidenceFollowup("none")
 
 
+def page_receipt_has_article_evidence(receipt: dict, *, min_words: int = 40) -> bool:
+    """Return whether a page receipt contains enough body text for article detail."""
+    if not isinstance(receipt, dict) or not str(receipt.get("url") or "").startswith(
+            ("https://", "http://")):
+        return False
+    text = re.sub(r"\s+", " ", str(receipt.get("text") or "")).strip()
+    if text.casefold() in {"google news", "news", "redirecting", "just a moment"}:
+        return False
+    return len(re.findall(r"\b[\w'-]+\b", text)) >= max(1, int(min_words))
+
+
 def runtime_topics(text: str) -> tuple[str, ...]:
     """Return the runtime facts explicitly requested by the user."""
     value = str(text or "").strip()

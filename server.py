@@ -53,7 +53,7 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          FAST_CONVERSATION_TEMPERATURE,
                          FAST_CONVERSATION_TOP_P,
                          fast_system_prompt, format_news_list,
-                         format_runtime_answer,
+                         format_runtime_answer, page_receipt_has_article_evidence,
                          load_asr,
                          migrate_session_json,
                          requested_news_list_count, resource_claim_for,
@@ -1626,6 +1626,20 @@ class Friday:
 
             for _round in range(MAX_TOOL_ROUNDS):
                 if task_id and TASKS.is_cancelled(task_id):
+                    return
+                if (grounded_page is not None
+                        and not page_receipt_has_article_evidence(grounded_page)):
+                    full = (
+                        "I couldn't read the article body from that source, so I don't "
+                        "have enough evidence to answer.")
+                    await record_intent([])
+                    await speak_q.put(full)
+                    self.history.append({"role": "assistant", "content": full})
+                    if task_id:
+                        state = TASKS.get(task_id)
+                        if state and state["status"] == "running":
+                            await verify_task_outcome(
+                                "Source read completed; article evidence was insufficient")
                     return
                 if grounded_news is not None and requested_news_count is not None:
                     try:

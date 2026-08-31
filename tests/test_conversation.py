@@ -7,6 +7,7 @@ from friday_core.conversation import (FAST_CONVERSATION_TEMPERATURE,
                                       decide_turn,
                                       declarative_context_update,
                                       fast_system_prompt, format_runtime_answer,
+                                      page_receipt_has_article_evidence,
                                       requested_news_list_count, runtime_topics,
                                       resolve_evidence_followup,
                                       safe_for_fast_conversation,
@@ -171,6 +172,18 @@ class ConversationRoutingTests(unittest.TestCase):
             "Why does the sky look blue?", receipt).status, "none")
         self.assertEqual(resolve_evidence_followup(
             "Tell me more about it.", receipt).status, "selected")
+
+    def test_article_evidence_rejects_redirect_shells_and_thin_pages(self):
+        self.assertFalse(page_receipt_has_article_evidence({
+            "url": "https://news.google.com/item", "text": "Google News",
+        }))
+        self.assertFalse(page_receipt_has_article_evidence({
+            "url": "https://example.com/item", "text": "A short headline only.",
+        }))
+        self.assertTrue(page_receipt_has_article_evidence({
+            "url": "https://example.com/item",
+            "text": " ".join(f"word{index}" for index in range(40)),
+        }))
 
     def test_runtime_answer_preserves_exact_backend_names_and_runtime_voice(self):
         receipt = {

@@ -1718,7 +1718,12 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             return json.dumps({
                 "url": selected_url,
                 "title": "Bravo report",
-                "text": "The launch was delayed because a valve inspection failed.",
+                "text": (
+                    "The launch was delayed because a valve inspection failed during "
+                    "the final safety review. Engineers found inconsistent pressure in "
+                    "the fuel system and paused the countdown while they replaced the "
+                    "affected component. The operator said the inspection, repair, and "
+                    "new test must finish before another launch date is approved."),
                 "fetched_at": "2026-08-31T08:00:00Z",
             })
 
@@ -1778,6 +1783,64 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(step["tool_name"], "read_web")
             self.assertEqual(
                 json.loads(step["args_redacted_json"])["url"], selected_url)
+        finally:
+            (server.TASKS, server.exec_tool, server.REFLECTION,
+             server.BLOCKING_IO_TOOLS) = (
+                old_tasks, old_exec, old_reflection, old_blocking_tools)
+            tmp.cleanup()
+
+    async def test_thin_article_receipt_is_not_padded_with_inference(self):
+        tmp = tempfile.TemporaryDirectory()
+        graph = GraphStore(Path(tmp.name) / "friday.db")
+        tasks = TaskService(graph)
+        old_tasks, old_exec, old_reflection = (server.TASKS, server.exec_tool,
+                                               server.REFLECTION)
+        old_blocking_tools = server.BLOCKING_IO_TOOLS
+        server.TASKS = tasks
+        server.REFLECTION = ReflectionService(graph)
+        server.BLOCKING_IO_TOOLS = old_blocking_tools - {"read_web"}
+        source_url = "https://news.google.com/article"
+        server.exec_tool = lambda _name, _args: json.dumps({
+            "url": source_url, "title": "Google News", "text": "Google News",
+            "fetched_at": "2026-08-31T08:00:00Z",
+        })
+        try:
+            friday = server.Friday.__new__(server.Friday)
+            friday.history = [
+                {"role": "system", "content": "test"},
+                {"role": "user", "content": "News."},
+                {"role": "assistant", "content": None, "tool_calls": [{
+                    "id": "old_news", "type": "function",
+                    "function": {"name": "fetch_news", "arguments": "{}"},
+                }]},
+                {"role": "tool", "tool_call_id": "old_news", "content": json.dumps({
+                    "fetched_at": datetime.now(UTC).isoformat(),
+                    "headlines": [{
+                        "title": "Bank shares rise after CEO exit",
+                        "source": "Wire", "url": source_url,
+                    }],
+                })},
+                {"role": "assistant", "content": "Bank shares rose."},
+            ]
+            friday.save_session = lambda: None
+
+            async def unexpected_stream(*_args, **_kwargs):
+                self.fail("thin page receipt must not reach free-form synthesis")
+
+            friday._stream_once = unexpected_stream
+            queue = asyncio.Queue()
+
+            await friday.respond(
+                "Tell me more about it.", queue, display_mode=True)
+
+            self.assertEqual(
+                await queue.get(),
+                "I couldn't read the article body from that source, so I don't "
+                "have enough evidence to answer.")
+            self.assertIsNone(await queue.get())
+            with graph._connect() as conn:
+                task = conn.execute("SELECT * FROM task_state").fetchone()
+            self.assertEqual(task["status"], "completed")
         finally:
             (server.TASKS, server.exec_tool, server.REFLECTION,
              server.BLOCKING_IO_TOOLS) = (
