@@ -58,6 +58,10 @@ class FrontendAssetTests(unittest.TestCase):
             frontend,
         )
         self.assertIn(
+            "progressSeq=Math.max(progressSeq,Number(data.latest)||0);",
+            frontend,
+        )
+        self.assertIn(
             "const taskEvent=Boolean(m.seq&&m.task_id&&String(m.task_id)"
             ".startsWith('task_'));",
             frontend,

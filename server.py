@@ -54,6 +54,7 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          FAST_CONVERSATION_TOP_P,
                          fast_system_prompt, format_news_list,
                          format_runtime_answer, page_receipt_has_article_evidence,
+                         observation_tools_only,
                          load_asr,
                          migrate_session_json,
                          requested_news_list_count, resource_claim_for,
@@ -1479,8 +1480,14 @@ class Friday:
         show_decision_progress = bool(
             existing_task_id or turn_decision.disposition in {
                 TurnDisposition.ACT, TurnDisposition.REMEMBER})
+        quiet_observation = bool(
+            existing_task_id is None
+            and turn_decision.disposition is TurnDisposition.OBSERVE)
 
         async def progress(payload):
+            if (quiet_observation
+                    and payload.get("type") in {"intent", "progress"}):
+                return
             if progress_sink is not None:
                 await progress_sink(payload)
 
@@ -3649,11 +3656,37 @@ async def api_status():
     }
 
 
+def _quiet_observation_task(task: dict | None) -> bool:
+    """Keep internal read-only task ceremony out of the conversation surface."""
+    if not isinstance(task, dict):
+        return False
+    contract = task.get("completion_contract")
+    if not isinstance(contract, dict):
+        try:
+            contract = json.loads(str(task.get("completion_contract_json") or ""))
+        except (TypeError, json.JSONDecodeError):
+            return False
+    tools = contract.get("required_tools") if isinstance(contract, dict) else None
+    return isinstance(tools, list) and observation_tools_only(tools)
+
+
 @app.get("/api/progress")
 async def api_progress(since: int = 0, limit: int = 100, latest: bool = False):
     if latest:
         return {"events": [], "latest": TASKS.latest_progress_sequence()}
-    return {"events": TASKS.progress_since(since, limit=min(max(limit, 1), 500))}
+    events = TASKS.progress_since(since, limit=min(max(limit, 1), 500))
+    visibility: dict[str, bool] = {}
+    visible_events = []
+    for event in events:
+        task_id = str(event.get("task_id") or "")
+        if task_id and task_id not in visibility:
+            visibility[task_id] = not _quiet_observation_task(TASKS.get(task_id))
+        if not task_id or visibility.get(task_id, True):
+            visible_events.append(event)
+    return {
+        "events": visible_events,
+        "latest": TASKS.latest_progress_sequence(),
+    }
 
 
 @app.get("/api/reconciliations")
@@ -3988,7 +4021,9 @@ async def ws_endpoint(ws: WebSocket):
         await send({"type": "interrupted"})
         voice_session.mode = "listen"
 
-    for pending in TASKS.nonterminal()[-5:]:
+    for pending in (
+            task for task in TASKS.nonterminal()[-5:]
+            if not _quiet_observation_task(task)):
         await send({"type": "progress", "task_id": pending["task_id"],
                     "phase": "recovery", "state": pending["status"],
                     "seq": TASKS.latest_progress_sequence(),

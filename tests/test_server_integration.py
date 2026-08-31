@@ -1684,13 +1684,18 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
 
             friday._stream_once = fake_stream
             queue = asyncio.Queue()
+            progress = []
 
-            await friday.respond("What's the US news?", queue)
+            await friday.respond(
+                "What's the US news?", queue,
+                progress_sink=lambda event: _collect(progress, event))
 
             spoken = await queue.get()
             self.assertEqual(rounds, 2)
             self.assertIn("Wire Service", spoken)
             self.assertIsNone(await queue.get())
+            self.assertEqual(
+                [event.get("type") for event in progress], ["news"])
             with graph._connect() as conn:
                 task = conn.execute("SELECT * FROM task_state").fetchone()
             self.assertEqual(task["status"], "completed")
@@ -2015,6 +2020,34 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(progress, [])
             self.assertEqual(await queue.get(), "Hey.")
             self.assertIsNone(await queue.get())
+
+    async def test_progress_api_hides_read_only_observation_ceremony(self):
+        class FakeTasks:
+            @staticmethod
+            def progress_since(_since, limit=100):
+                self.assertEqual(limit, 100)
+                return [
+                    {"type": "progress", "task_id": "task_observe", "seq": 8},
+                    {"type": "progress", "task_id": "task_action", "seq": 9},
+                ]
+
+            @staticmethod
+            def get(task_id):
+                tools = (["fetch_news"] if task_id == "task_observe"
+                         else ["machine_write_text"])
+                return {"completion_contract": {"required_tools": tools}}
+
+            @staticmethod
+            def latest_progress_sequence():
+                return 9
+
+        with patch.object(server, "TASKS", FakeTasks()):
+            result = await server.api_progress()
+
+        self.assertEqual(result["latest"], 9)
+        self.assertEqual(
+            [event["task_id"] for event in result["events"]],
+            ["task_action"])
 
     async def test_explicit_preference_tool_creates_active_memory(self):
         tmp = tempfile.TemporaryDirectory()

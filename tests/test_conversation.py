@@ -7,6 +7,7 @@ from friday_core.conversation import (FAST_CONVERSATION_TEMPERATURE,
                                       decide_turn,
                                       declarative_context_update,
                                       fast_system_prompt, format_runtime_answer,
+                                      observation_tools_only,
                                       page_receipt_has_article_evidence,
                                       requested_news_list_count, runtime_topics,
                                       resolve_evidence_followup,
@@ -117,6 +118,12 @@ class ConversationRoutingTests(unittest.TestCase):
         self.assertEqual(
             decide_turn("Remember that I prefer terse replies.").disposition,
             TurnDisposition.REMEMBER)
+
+    def test_observation_tool_sets_are_exact_and_nonempty(self):
+        self.assertTrue(observation_tools_only(["fetch_news", "read_web"]))
+        self.assertFalse(observation_tools_only([]))
+        self.assertFalse(observation_tools_only(
+            ["fetch_news", "machine_write_text"]))
 
     def test_declarative_context_update_is_answered_without_unasked_action(self):
         for text in (

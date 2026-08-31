@@ -165,8 +165,22 @@ def short_reply_turn_signature(turn: Sequence[Message]) -> str | None:
     return normalized
 
 
+def _short_user_turn_carries_context(turn: Sequence[Message]) -> bool:
+    """Keep compact user facts even when the model answered them vacuously."""
+    if not turn or turn[0].get("role") != "user":
+        return False
+    content = turn[0].get("content")
+    if not isinstance(content, str):
+        return False
+    tokens = re.findall(r"[\w'-]+", content, re.UNICODE)
+    return len(tokens) >= 2 or any(
+        len(token) >= 7 or any(character.isdigit() for character in token)
+        for token in tokens
+    )
+
+
 def drop_repeated_short_reply_turns(turns: Sequence[Turn]) -> list[Turn]:
-    """Drop runs where several short inputs received the same short response."""
+    """Remove vacuous reply runs without deleting meaningful user context."""
     kept: list[Turn] = []
     index = 0
     while index < len(turns):
@@ -178,6 +192,11 @@ def drop_repeated_short_reply_turns(turns: Sequence[Turn]) -> list[Turn]:
                 end += 1
         if signature is None or end - index < 3:
             kept.extend(turns[index:end])
+        else:
+            kept.extend(
+                [turn[0]] for turn in turns[index:end]
+                if _short_user_turn_carries_context(turn)
+            )
         index = end
     return kept
 

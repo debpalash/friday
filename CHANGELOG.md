@@ -51,6 +51,10 @@ releases. Migrations must preserve user state.
   source, read that exact URL, and answer from the page receipt. Ambiguous source
   references ask which result to open, and redirect shells are reported as
   insufficient evidence instead of being padded with headline inference.
+- Repeated vacuous replies are removed from model context without deleting
+  meaningful short user constraints. Read-only news, search, page, and runtime
+  observations retain durable receipts and verification while their internal
+  task lifecycle stays out of the conversation, progress poll, and reconnect UI.
 - Selective deletion now checkpoints committed WAL pages before its physical
   source-integrity guard, avoiding false concurrent-write failures.
 - Broken conversational outputs are now withheld and repaired once when the

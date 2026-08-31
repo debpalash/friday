@@ -108,6 +108,27 @@ class ConversationRuntimeTests(unittest.TestCase):
             {"role": "user", "content": "Where were we?"},
         ])
 
+    def test_fast_compiler_keeps_user_context_from_vacuous_reply_run(self):
+        history = [{"role": "system", "content": "prompt"}]
+        for prompt in ("Use SQLite", "Keep it local", "No cloud"):
+            history.extend((
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": "Okay"},
+            ))
+        history.append({"role": "user", "content": "What did I decide?"})
+
+        result = compile_fast_chat_messages(
+            history, system_prompt="fast", history_turns=6,
+            context_chars=8_000, redacted_tool_receipt="redacted")
+
+        self.assertEqual(result, [
+            {"role": "system", "content": "fast"},
+            {"role": "user", "content": "Use SQLite"},
+            {"role": "user", "content": "Keep it local"},
+            {"role": "user", "content": "No cloud"},
+            {"role": "user", "content": "What did I decide?"},
+        ])
+
 
 if __name__ == "__main__":
     unittest.main()

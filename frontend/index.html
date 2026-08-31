@@ -1319,6 +1319,7 @@ async function pollProgress(){
     }
     const r=await fetch('/api/progress?since='+progressSeq);
     const data=await r.json();for(const m of data.events)showProgress(m);
+    progressSeq=Math.max(progressSeq,Number(data.latest)||0);
   }catch(e){}
 }
 async function refreshMind(){

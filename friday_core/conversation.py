@@ -210,6 +210,12 @@ def decide_turn(
     return TurnDecision(TurnDisposition.ANSWER, "direct_response")
 
 
+def observation_tools_only(tool_names: Iterable[str]) -> bool:
+    """Return whether a nonempty tool set is entirely read-only observation."""
+    names = tuple(str(name) for name in tool_names)
+    return bool(names) and all(name in _OBSERVATION_TOOLS for name in names)
+
+
 def resolve_evidence_followup(
     text: str, recent_receipt: tuple[str, dict] | None,
 ) -> EvidenceFollowup:
