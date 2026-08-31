@@ -173,6 +173,11 @@ class BuiltinToolRuntimeTests(unittest.TestCase):
         self.assertTrue(self.runtime.execute(
             "read_file", {"path": "venv/hidden.txt"},
             self.adapters).startswith("error:"))
+        (self.repo / "lines.py").write_text("zero\none\ntwo\nthree\n")
+        self.assertEqual(self.runtime.execute(
+            "read_file", {"path": "lines.py", "start_line": 2,
+                          "max_lines": 2}, self.adapters),
+            "2: one\n3: two")
         self.assertIsNone(self.runtime.safe_project_path(
             self.repo, str(self.repo.parent / "outside.txt")))
 

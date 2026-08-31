@@ -51,7 +51,11 @@ BUILTIN_TOOL_SCHEMAS = [
         "name": "read_file",
         "description": "Read a text file from your project directory.",
         "parameters": {"type": "object",
-                       "properties": {"path": {"type": "string"}},
+                       "properties": {
+                           "path": {"type": "string"},
+                           "start_line": {"type": "integer", "minimum": 1},
+                           "max_lines": {"type": "integer", "minimum": 1,
+                                         "maximum": 400}},
                        "required": ["path"]}}},
     {"type": "function", "function": {
         "name": "search_project",
@@ -988,7 +992,19 @@ class BuiltinToolRuntime:
             path = self.safe_project_path(adapters.repo, args["path"])
             if path is None or not path.is_file():
                 return f"error: {args['path']} not found (project dir only)"
-            return path.read_text(errors="replace")[:20000]
+            text = path.read_text(errors="replace")
+            if "start_line" not in args and "max_lines" not in args:
+                return text[:20000]
+            try:
+                start = max(1, int(args.get("start_line") or 1))
+                count = min(400, max(1, int(args.get("max_lines") or 200)))
+            except (TypeError, ValueError):
+                return "error: project file line range is invalid"
+            lines = text.splitlines()
+            return "\n".join(
+                f"{number}: {lines[number - 1]}"
+                for number in range(start, min(len(lines) + 1, start + count))
+            )[:20000]
         if name == "search_project":
             query = str(args.get("query") or "").strip()
             terms = tuple(dict.fromkeys(re.findall(

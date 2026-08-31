@@ -225,8 +225,6 @@ def _voice_audio_is_admissible(
 ) -> bool:
     return (audio_seconds >= MIN_UTTERANCE_SECONDS
             and signal_dbfs >= MIN_UTTERANCE_DBFS)
-
-
 STALE_CAPABILITY_DENIAL = re.compile(
     r"\b(?:i (?:do not|don't) have (?:a )?news feed|i (?:do not|don't) have "
     r"(?:a )?web tool|no live feed)\b", re.IGNORECASE)
@@ -251,12 +249,8 @@ PROMPT_FILE = REPO / "system_prompt.md"
 def _harden_private_runtime_file(path: Path) -> None:
     if path.exists():
         os.chmod(path, 0o600)
-
-
 _harden_private_runtime_file(SESSION_FILE)
 _harden_private_runtime_file(SERVER_LOG_FILE)
-
-
 def _empty_cuda_cache() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -265,8 +259,6 @@ def _empty_cuda_cache() -> None:
 def _tokenize_url() -> str:
     root = LOCAL_BASE_URL[:-3] if LOCAL_BASE_URL.endswith("/v1") else LOCAL_BASE_URL
     return root.rstrip("/") + "/tokenize"
-
-
 def _new_local_llm_client() -> AsyncOpenAI:
     return AsyncOpenAI(
         base_url=LOCAL_BASE_URL, api_key=KEY,
@@ -1775,11 +1767,17 @@ class Friday:
             for _round in range(MAX_TOOL_ROUNDS):
                 if task_id and TASKS.is_cancelled(task_id):
                     return
-                if (grounded_page is not None
-                        and not page_receipt_has_article_evidence(grounded_page)):
-                    full = (
-                        "I couldn't read the article body from that source, so I don't "
-                        "have enough evidence to answer.")
+                page_receipts = (grounded_pages or
+                                 ([grounded_page] if grounded_page else []))
+                if (page_receipts and not all(
+                        page_receipt_has_article_evidence(item)
+                        for item in page_receipts)):
+                    full = (("One or more retrieved source pages did not expose article "
+                             "bodies, so their reported claims cannot be compared; what "
+                             "they agree or conflict on remains uncertain.")
+                            if len(page_receipts) > 1 else
+                            "I couldn't read the article body from that source, so I "
+                            "don't have enough evidence to answer.")
                     await record_intent([])
                     await speak_q.put(full)
                     self.history.append({"role": "assistant", "content": full})
