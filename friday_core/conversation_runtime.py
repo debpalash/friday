@@ -74,6 +74,15 @@ def response_contract_issue(
     return None
 
 
+def bounded_response_fallback(text: str, max_words: int) -> str:
+    """Keep a meaningful bounded prefix when a repair still ignores its limit."""
+    matches = list(re.finditer(r"\b[\w'-]+\b", str(text or "")))
+    if len(matches) <= max_words:
+        return str(text or "").strip()
+    prefix = str(text)[:matches[max_words - 1].end()].rstrip(" ,;:-")
+    return prefix if prefix.endswith((".", "!", "?")) else prefix + "."
+
+
 def canonical_chat_turn(
     turn: Sequence[Message], *, redacted_tool_receipt: str,
 ) -> Turn | None:

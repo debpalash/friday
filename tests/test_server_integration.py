@@ -1058,6 +1058,7 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(full, "Got it.")
         self.assertEqual(await queue.get(), "Got it.")
         self.assertEqual(len(completions.requests), 2)
+        self.assertEqual(completions.requests[0]["tool_choice"], "none")
         self.assertIn(
             "at most 3 words",
             completions.requests[1]["messages"][0]["content"])

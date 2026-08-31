@@ -2,6 +2,7 @@ import re
 import unittest
 
 from friday_core.conversation_runtime import (
+    bounded_response_fallback,
     canonical_chat_turn,
     completion_integrity_issue,
     compile_chat_messages,
@@ -13,6 +14,13 @@ from friday_core.conversation_runtime import (
 
 
 class ConversationRuntimeTests(unittest.TestCase):
+    def test_bounded_response_fallback_keeps_meaningful_prefix(self):
+        self.assertEqual(
+            bounded_response_fallback("one two three four five", 3),
+            "one two three.")
+        self.assertEqual(bounded_response_fallback("Already short.", 3),
+                         "Already short.")
+
     def test_isolated_history_scope_restores_owner_and_keeps_updates(self):
         owner = type("Owner", (), {})()
         persistent = [{"role": "system", "content": "persistent"}]

@@ -66,6 +66,8 @@ releases. Migrations must preserve user state.
   unavailable native-scene boundary.
 - The text conversation lane now defaults to 60 words and four sentences, and
   receipt-grounded two-source comparisons are repaired above a 190-word bound.
+  A second overlong response is reduced to a meaningful bounded prefix instead
+  of collapsing into a generic acknowledgement.
 - Explicit requests to claim an external action without tools are now refused
   deterministically, without invoking the model or creating a task.
 - Follow-up rewrites such as "make that shorter" now stay in the conversation

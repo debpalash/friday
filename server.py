@@ -88,6 +88,7 @@ from friday_core.local_http import (normalize_loopback_model_base_url,
                                     open_loopback_request)
 from friday_core.frontend import load_frontend
 from friday_core.conversation_runtime import (
+    bounded_response_fallback,
     canonical_chat_turn,
     completion_integrity_issue,
     compile_chat_messages,
@@ -970,7 +971,7 @@ class Friday:
 
         async def create_stream(messages, *, token_limit=max_tokens,
                                 sampling_temperature=temperature):
-            tool_choice = None
+            tool_choice = "none" if not use_tools else None
             if use_tools and required_tool:
                 tool_choice = {"type": "function",
                                "function": {"name": required_tool}}
@@ -1092,7 +1093,7 @@ class Friday:
                 if ungrounded_completion:
                     full = ACTION_FALLBACK
                 elif contract_issue == "word_limit" and response_max_words is not None:
-                    full = "Got it."
+                    full = bounded_response_fallback(full, response_max_words)
                 else:
                     full = PUBLIC_RESPONSE_ERROR
         # Do not speak provisional narration before knowing whether the model is
@@ -1928,7 +1929,7 @@ class Friday:
                     }]
                 elif force_tool:
                     render_options = ({"display_mode": True,
-                                       "response_max_words": 60}
+                                       "response_max_words": 50}
                                       if display_mode else {})
                     if display_mode and grounded_pages:
                         render_options["response_max_words"] = 190
@@ -1942,7 +1943,7 @@ class Friday:
                         and "read_file" in successful_tools))
                     preference_only = news_preference_recorded and required_tool is None
                     render_options = ({"display_mode": True,
-                                       "response_max_words": 60}
+                                       "response_max_words": 50}
                                       if display_mode else {})
                     full, calls = await self._stream_once(
                         msgs, speak_q,
