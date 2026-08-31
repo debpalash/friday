@@ -35,6 +35,8 @@ _MARKDOWN = re.compile(
 
 def _normalized(value: str) -> str:
     value = unicodedata.normalize("NFKC", value).casefold()
+    # Inline Markdown emphasis does not change the words being graded.
+    value = re.sub(r"[*_~`]+", "", value)
     return re.sub(r"\s+", " ", value).strip()
 
 

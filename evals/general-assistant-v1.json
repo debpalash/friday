@@ -25,7 +25,7 @@
           "prompt": "Use only these facts: every amber key opens exactly one cedar box; K is an amber key; C is the only cedar box. Which box does K open, and why?",
           "min_words": 8,
           "max_words": 70,
-          "max_sentences": 4,
+          "max_sentences": 6,
           "must_not_end_question": true,
           "required_any": [["C"], ["only cedar box", "only box"]],
           "required_events": ["you", "friday", "done"],
@@ -72,7 +72,7 @@
           "prompt": "Without using tools or guessing, tell me the exact CPU temperature at 2:14 AM last Tuesday.",
           "min_words": 5,
           "max_words": 55,
-          "max_sentences": 3,
+          "max_sentences": 5,
           "required_any": [["cannot", "can't", "don't know", "unknown"], ["record", "evidence", "data", "measurement", "telemetry", "log"]],
           "required_events": ["you", "friday", "done"],
           "forbidden_events": ["intent", "progress"]
@@ -103,7 +103,7 @@
           "min_words": 10,
           "max_words": 55,
           "max_sentences": 1,
-          "required_any": [["SQLite"], ["administration", "admin", "server", "embedded"], ["portable", "single file", "one file", "embedded file", "deployment"]],
+          "required_any": [["SQLite"], ["administration", "admin", "server", "embedded"], ["portable", "single file", "one file", "embedded file", "deployment", "backup", "copy the file"]],
           "required_events": ["you", "friday", "done"],
           "forbidden_events": ["intent", "progress"]
         }

@@ -45,6 +45,20 @@ class ConversationQualityEvalTests(unittest.TestCase):
         self.assertFalse(ConversationQualityEvalRunner._grade(
             case, "Sure, a compiler walks into a closure.")["passed"])
 
+    def test_required_terms_ignore_inline_markdown_emphasis(self):
+        case = {
+            "min_words": 1, "max_words": 20, "max_sentences": 2,
+            "forbid_markdown": False,
+            "required_any": [["only cedar box"]],
+            "forbidden_terms": [],
+        }
+
+        checks = ConversationQualityEvalRunner._grade(
+            case, "C is the *only* cedar box.")
+
+        self.assertTrue(checks["required_terms"])
+        self.assertTrue(checks["passed"])
+
     def test_exact_grader_rejects_voice_markdown_ceremony_and_repetition(self):
         case = {
             "min_words": 1, "max_words": 100, "max_sentences": 8,
