@@ -49,6 +49,27 @@ def _tool_chunk(name, arguments, *, call_id="call_1", index=0):
 
 
 class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ephemeral_response_uses_and_preserves_isolated_history(self):
+        friday = server.Friday.__new__(server.Friday)
+        persistent = [{"role": "system", "content": "persistent"}]
+        isolated = [{"role": "system", "content": "isolated"}]
+        friday.history = persistent
+        observed = {}
+
+        async def fake_respond(_text, _queue, **kwargs):
+            observed["history"] = friday.history
+            observed["persist_session"] = kwargs["persist_session"]
+            friday.history.append({"role": "assistant", "content": "answer"})
+
+        friday._respond_serialized = fake_respond
+        await friday.respond("test", asyncio.Queue(),
+                             conversation_history=isolated)
+
+        self.assertIs(friday.history, persistent)
+        self.assertIs(observed["history"], isolated)
+        self.assertFalse(observed["persist_session"])
+        self.assertEqual(isolated[-1]["content"], "answer")
+
     async def test_readiness_requires_every_authoritative_worker(self):
         live = SimpleNamespace(is_running=True)
         dead = SimpleNamespace(is_running=False)
@@ -1400,6 +1421,23 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(friday.piper)
         self.assertEqual(activated[0][0], "scarlet")
         self.assertTrue(activated[0][1]["passed"])
+
+    def test_already_active_voice_skips_synthesis_verification(self):
+        friday = server.Friday.__new__(server.Friday)
+        friday.tts_backend = "omnivoice"
+        friday.tts_device = "cpu"
+        friday.voice_name = "scarlet"
+        friday._verify_current_voice = lambda: self.fail(
+            "an active voice must not be regenerated")
+        voices = SimpleNamespace(
+            get=lambda _name: {"name": "scarlet"},
+            active=lambda: {"name": "scarlet"},
+        )
+
+        with patch.object(server, "VOICES", voices):
+            result = friday.activate_voice("scarlet")
+
+        self.assertIn("already active on OmniVoice cpu", result)
 
     def test_runtime_context_uses_one_leading_system_message(self):
         friday = server.Friday.__new__(server.Friday)

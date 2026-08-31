@@ -35,6 +35,15 @@ class VoiceManagerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "provenance"):
             self.voices.create("orphan", "bright", source_node_ids=[])
 
+    def test_requested_name_matches_profile_as_a_complete_token(self):
+        self.voices.create(
+            "scarlet", "female, calm", source_node_ids=[self.task_id])
+
+        self.assertEqual(
+            self.voices.requested_name("Use the Scarlet voice."), "scarlet")
+        self.assertIsNone(self.voices.requested_name("Use scarletine."))
+        self.assertIsNone(self.voices.requested_name("Use a calm voice."))
+
 
 if __name__ == "__main__":
     unittest.main()

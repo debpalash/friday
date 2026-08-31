@@ -188,3 +188,14 @@ class VoiceManager:
         with self.graph._connect() as conn:
             rows = conn.execute("SELECT * FROM voice_profiles ORDER BY name").fetchall()
         return [dict(row) | {"config": json.loads(row["config_json"])} for row in rows]
+
+    def requested_name(self, text: str) -> str | None:
+        """Resolve one available profile explicitly named in an utterance."""
+        value = str(text or "")
+        for profile in self.list():
+            name = str(profile.get("name") or "").strip()
+            if name and re.search(
+                    r"(?<!\w)" + re.escape(name) + r"(?!\w)",
+                    value, re.IGNORECASE):
+                return name
+        return None

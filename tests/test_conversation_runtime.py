@@ -6,11 +6,43 @@ from friday_core.conversation_runtime import (
     completion_integrity_issue,
     compile_chat_messages,
     compile_fast_chat_messages,
+    conversation_history_scope,
     drop_repeated_echo_messages,
+    response_contract_issue,
 )
 
 
 class ConversationRuntimeTests(unittest.TestCase):
+    def test_isolated_history_scope_restores_owner_and_keeps_updates(self):
+        owner = type("Owner", (), {})()
+        persistent = [{"role": "system", "content": "persistent"}]
+        isolated = [{"role": "system", "content": "isolated"}]
+        owner.history = persistent
+
+        with conversation_history_scope(owner, isolated):
+            self.assertIs(owner.history, isolated)
+            owner.history.append({"role": "user", "content": "test"})
+
+        self.assertIs(owner.history, persistent)
+        self.assertEqual(isolated[-1]["content"], "test")
+
+    def test_response_contract_rejects_thin_complex_answer(self):
+        self.assertEqual(
+            response_contract_issue("Unknown.", "Tell me the exact value", 20),
+            "thin_answer")
+        self.assertIsNone(response_contract_issue(
+            "I do not have a recorded measurement for that time.",
+            "Tell me the exact value", 20))
+
+    def test_historical_exact_unknown_requires_an_evidence_basis(self):
+        prompt = "Tell me the exact CPU temperature at 2 AM last Tuesday."
+        self.assertEqual(
+            response_contract_issue("I don't know the exact value.", prompt, 30),
+            "missing_basis")
+        self.assertIsNone(response_contract_issue(
+            "I don't know because no measurement was recorded for that time.",
+            prompt, 30))
+
     def test_completion_integrity_rejects_only_broken_responses(self):
         self.assertEqual(completion_integrity_issue(""), "empty")
         self.assertEqual(completion_integrity_issue("I"), "fragment")

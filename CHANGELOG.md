@@ -54,7 +54,12 @@ releases. Migrations must preserve user state.
 - Stored voice profiles now survive restart as the audible voice. A requested
   profile can replace Piper with local CPU OmniVoice after a synthesis test,
   without taking GPU memory from the language model. CPU NumPy verification
-  output is accepted correctly.
+  output is accepted correctly, and reselecting the active profile no longer
+  repeats the expensive synthesis check.
+- Installed assistant evaluations now use a fresh nonpersistent conversation
+  context while retaining real TLS transport, model, tools, receipts, and
+  progress evidence. Repeated runs cannot inherit or overwrite the owner's
+  saved chat history.
 - Thin evidence and planning replies are repaired with their missing basis,
   explicit project inspections require a read receipt, multi-source follow-ups
   remain bound to the URLs shown to the user, and capability answers name the

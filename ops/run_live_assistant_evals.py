@@ -43,7 +43,8 @@ class InstalledFridayClient:
         if not 1 <= port <= 65_535:
             raise ValueError("Friday control-plane port is invalid")
         self.http_url = f"https://127.0.0.1:{port}"
-        self.ws_url = f"wss://127.0.0.1:{port}/ws?mode=text"
+        self.ws_url = (
+            f"wss://127.0.0.1:{port}/ws?mode=text&context=ephemeral")
         self.origin = f"https://127.0.0.1:{port}"
         self.ssl_context = ssl.create_default_context(
             cafile=str(_private_ca_path(state_dir)))

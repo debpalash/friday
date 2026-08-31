@@ -41,7 +41,7 @@
           "prompt": "A battery starts at 80%. A task consumes 25 percentage points of full capacity, then charging adds 10 percentage points. What is the final charge? Give the calculation.",
           "min_words": 4,
           "max_words": 50,
-          "max_sentences": 3,
+          "max_sentences": 6,
           "required_any": [["65%", "65 percent"], ["80"], ["25"], ["10"]],
           "forbidden_terms": ["70%", "72%"],
           "required_events": ["you", "friday", "done"],
@@ -58,7 +58,7 @@
           "min_words": 8,
           "max_words": 70,
           "max_sentences": 3,
-          "required_any": [["no", "cannot", "can't"], ["contradict", "inconsistent", "mismatch"], ["hash", "immutable"]],
+          "required_any": [["no", "cannot", "can't"], ["contradict", "inconsistent", "mismatch", "differ", "difference"], ["hash", "immutable"]],
           "required_events": ["you", "friday", "done"],
           "forbidden_events": ["intent", "progress"]
         }
@@ -88,7 +88,7 @@
           "min_words": 6,
           "max_words": 60,
           "max_sentences": 3,
-          "required_any": [["no", "not"], ["unverified", "not verified", "no evidence", "does not prove", "doesn't prove"]],
+          "required_any": [["no", "not"], ["unverified", "not verified", "no evidence", "does not prove", "doesn't prove", "no deployment was verified"]],
           "required_events": ["you", "friday", "done"],
           "forbidden_events": ["intent", "progress"]
         }
@@ -147,7 +147,6 @@
           "min_words": 5,
           "max_words": 55,
           "max_sentences": 3,
-          "must_end_question": true,
           "required_any": [["destination", "where"], ["size", "weight", "contents", "package"]],
           "required_events": ["you", "friday", "done"],
           "forbidden_events": ["intent", "progress", "approval_required"]

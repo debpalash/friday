@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Sequence
+from contextlib import contextmanager
 from typing import Pattern
 
 
@@ -15,6 +16,20 @@ _FRAGMENT_ONLY = re.compile(
     r"^(?:i|i\s+am|i['’]m|it|this|that|the|a|an|and|but|or|so|because|to)[.!?]*$",
     re.IGNORECASE,
 )
+
+
+@contextmanager
+def conversation_history_scope(owner, history: list[dict] | None):
+    """Temporarily bind one isolated conversation under the caller's lock."""
+    persistent = owner.history
+    if history is not None:
+        owner.history = history
+    try:
+        yield
+    finally:
+        if history is not None:
+            history[:] = owner.history
+            owner.history = persistent
 
 
 def completion_integrity_issue(
@@ -30,6 +45,32 @@ def completion_integrity_issue(
         return "fragment"
     if value.count("```") % 2:
         return "unclosed_code_fence"
+    return None
+
+
+def response_contract_issue(
+        text: str, user_text: str, max_words: int | None) -> str | None:
+    """Reject overlong or contextually useless short answers."""
+    words = re.findall(r"\b[\w'-]+\b", text)
+    if max_words is not None and len(words) > max_words:
+        return "word_limit"
+    if (len(words) <= 3 and re.search(
+            r"\b(?:explain|why|based|evidence|verified|plan|exact|tell me|"
+            r"recommend|compare)\b", user_text, re.IGNORECASE)):
+        return "thin_answer"
+    historical_exact = (
+        re.search(r"\bexact\b", user_text, re.IGNORECASE)
+        and re.search(
+            r"\b(?:at\s+\d|last|yesterday|ago|previous)\b",
+            user_text, re.IGNORECASE))
+    admits_unknown = re.search(
+        r"\b(?:cannot|can't|do not know|don't know|unknown|unavailable)\b",
+        text, re.IGNORECASE)
+    names_basis = re.search(
+        r"\b(?:evidence|record|data|measurement|receipt|source|log)\w*\b",
+        text, re.IGNORECASE)
+    if historical_exact and admits_unknown and not names_basis:
+        return "missing_basis"
     return None
 
 

@@ -92,11 +92,13 @@ from friday_core.conversation_runtime import (
     completion_integrity_issue,
     compile_chat_messages,
     compile_fast_chat_messages,
+    conversation_history_scope,
     drop_repeated_echo_messages,
     drop_repeated_echo_turns,
     echo_turn_signature,
     is_action_request,
     latest_user_only,
+    response_contract_issue,
 )
 from friday_core.transport import (
     valid_host,
@@ -579,9 +581,7 @@ class Friday:
             voices_root = (REPO / "persona" / "voices").resolve()
             if voices_root not in reference.parents or not reference.is_file():
                 raise RuntimeError("voice reference is unavailable")
-            # OmniVoice otherwise lazy-loads whisper-large-v3-turbo on the GPU
-            # just to transcribe this clip. Reuse Friday's CPU ASR and keep VRAM
-            # available for Qwen plus clone synthesis.
+            # Reuse Friday's CPU ASR instead of loading Whisper on the GPU.
             ref_text = self.asr.transcribe_file(reference)
             if not ref_text:
                 raise RuntimeError("voice reference transcription was empty")
@@ -595,7 +595,6 @@ class Friday:
         self.clone_prompt = clone_prompt
         self.voice_name = profile["name"]
         print(f"voice profile: {self.voice_name} ({kind})", flush=True)
-
     def _transition_to_omnivoice(self, profile: dict) -> None:
         """Replace Piper only after OmniVoice and the requested profile load."""
         old = (
@@ -629,7 +628,6 @@ class Friday:
             del model
             _empty_cuda_cache()
             raise
-
     def _verify_current_voice(self) -> dict:
         with torch.no_grad():
             if self.ref_audio:
@@ -647,13 +645,17 @@ class Friday:
         if samples < TTS_RATE // 4:
             raise RuntimeError("voice verification produced insufficient audio")
         return {"passed": True, "samples": samples, "sample_rate": TTS_RATE}
-
     def activate_voice(self, name: str) -> str:
         lock = getattr(self, "_voice_lock", None)
         if lock is None:
             lock = self._voice_lock = threading.RLock()
         with lock:
             proposed = VOICES.get(name)
+            if (getattr(self, "tts_backend", "unknown") == "omnivoice" and
+                    getattr(self, "voice_name", "") == proposed["name"]
+                    and VOICES.active()["name"] == proposed["name"]):
+                return (f"activated voice {proposed['name']}; it is already active on "
+                        f"OmniVoice {self.tts_device}")
             transitioned = getattr(self, "tts_backend", "unknown") != "omnivoice"
             old = (self.instruct, self.ref_audio, self.clone_prompt, self.voice_name)
             try:
@@ -672,15 +674,12 @@ class Friday:
                      self.clone_prompt, self.voice_name) = old
                 raise
             finally:
-                # Voice verification has a large temporary decode workspace.
                 _empty_cuda_cache()
-
     def rollback_voice(self) -> str:
         previous = VOICES.previous()
         if previous is None:
             raise ValueError("no previous voice profile is available")
         return self.activate_voice(previous["name"])
-
     def voice_runtime_status(self) -> dict:
         backend = str(getattr(self, "tts_backend", "unknown"))
         runtime_voice = str(getattr(self, "voice_name", "unknown"))
@@ -702,7 +701,6 @@ class Friday:
             ),
             "profiles": VOICES.list(),
         }
-
     def runtime_receipt(self) -> dict:
         """Capture runtime identity from live objects and the resolved boot profile."""
         manifest = globals().get("_RESOLVED_RUNTIME")
@@ -1053,27 +1051,16 @@ class Friday:
 
         full, tool_calls, finish_reason = await collect(stream)
 
-        def response_contract_issue(text: str, calls: dict[int, dict]) -> str | None:
-            if calls:
-                return None
-            words = re.findall(r"\b[\w'-]+\b", text)
-            if (response_max_words is not None
-                    and len(words) > response_max_words):
-                return "word_limit"
-            latest_user = next((
-                str(message.get("content") or "")
-                for message in reversed(msgs)
-                if message.get("role") == "user"), "")
-            if (len(words) <= 3 and re.search(
-                    r"\b(?:explain|why|based|evidence|verified|plan|exact|"
-                    r"tell me|recommend|compare)\b",
-                    latest_user, re.IGNORECASE)):
-                return "thin_answer"
-            return None
+        latest_user = next((str(message.get("content") or "")
+                            for message in reversed(msgs)
+                            if message.get("role") == "user"), "")
+        def find_contract_issue(text: str, calls: dict[int, dict]) -> str | None:
+            return (None if calls else response_contract_issue(
+                text, latest_user, response_max_words))
 
         integrity_issue = completion_integrity_issue(
             full, finish_reason=finish_reason)
-        contract_issue = response_contract_issue(full, tool_calls)
+        contract_issue = find_contract_issue(full, tool_calls)
         ungrounded_completion = bool(
             not tool_calls and UNGROUNDED_COMPLETION_CLAIM.search(full))
         if (finish_reason == "length"
@@ -1107,7 +1094,7 @@ class Friday:
             full, tool_calls, finish_reason = await collect(retry_stream)
             integrity_issue = completion_integrity_issue(
                 full, finish_reason=finish_reason)
-            contract_issue = response_contract_issue(full, tool_calls)
+            contract_issue = find_contract_issue(full, tool_calls)
             ungrounded_completion = bool(
                 not tool_calls and UNGROUNDED_COMPLETION_CLAIM.search(full))
             if finish_reason == "length" and tool_calls:
@@ -1537,17 +1524,18 @@ class Friday:
                       utterance_id: str | None = None, progress_sink=None,
                       existing_task_id: str | None = None,
                       resume_context: str | None = None,
-                      display_mode: bool = False):
+                      display_mode: bool = False, conversation_history: list[dict] | None = None):
         lock = getattr(self, "_response_lock", None)
         if lock is None:
             lock = self._response_lock = asyncio.Lock()
         async with lock:
-            return await self._respond_serialized(
-                user_text, speak_q, session_id=session_id, turn_id=turn_id,
-                utterance_id=utterance_id, progress_sink=progress_sink,
-                existing_task_id=existing_task_id,
-                resume_context=resume_context,
-                display_mode=display_mode)
+            with conversation_history_scope(self, conversation_history):
+                return await self._respond_serialized(
+                    user_text, speak_q, session_id=session_id, turn_id=turn_id,
+                    utterance_id=utterance_id, progress_sink=progress_sink,
+                    existing_task_id=existing_task_id,
+                    resume_context=resume_context, display_mode=display_mode,
+                    persist_session=conversation_history is None)
 
     async def _respond_serialized(self, user_text: str, speak_q: asyncio.Queue, *,
                                   session_id: str | None = None,
@@ -1556,7 +1544,7 @@ class Friday:
                                   progress_sink=None,
                                   existing_task_id: str | None = None,
                                   resume_context: str | None = None,
-                                  display_mode: bool = False):
+                                  display_mode: bool = False, persist_session: bool = True):
         if existing_task_id is None:
             self.history.append({"role": "user", "content": user_text})
         seen_calls: set[tuple] = set()
@@ -1574,6 +1562,8 @@ class Friday:
         news_followup = self._is_news_followup(
             user_text, recent_web_receipt is not None)
         voice_required_tool = self._voice_required_tool(user_text)
+        requested_voice_name = (VOICES.requested_name(user_text)
+                                if voice_required_tool == "set_voice" else None)
         requested_runtime_topics = runtime_topics(user_text)
         requested_capability = requested_capability_topic(user_text)
         if evidence_followup.status in {"selected", "multiple"}:
@@ -1618,10 +1608,8 @@ class Friday:
 
         async def record_intent(tool_names: list[str]) -> tuple[str, str]:
             nonlocal intent_id
-            intent_type = (
-                "conversation" if not tool_names and turn_decision.disposition in {
-                    TurnDisposition.ANSWER, TurnDisposition.CLARIFY}
-                else INTENTS.interpret(user_text, tool_names).value)
+            intent_type = ("conversation" if not tool_names else
+                           INTENTS.interpret(user_text, tool_names).value)
             if intent_id is None:
                 links = ([('derived_from', utterance_id)] if utterance_id else [])
                 intent_id = TASKS.graph.record_node(
@@ -1726,6 +1714,20 @@ class Friday:
                 full = (
                     "I didn't perform or verify that action, so I won't claim it "
                     "happened.")
+                await speak_q.put(full)
+                self.history.append({"role": "assistant", "content": full})
+                return
+            if (existing_task_id is None and requested_voice_name and
+                    self.tts_backend == "omnivoice"
+                    and self.voice_name == requested_voice_name
+                    and VOICES.active()["name"] == requested_voice_name):
+                receipt = self.runtime_receipt()
+                self._record_runtime_receipt(
+                    receipt, session_id=session_id, turn_id=turn_id,
+                    utterance_id=utterance_id)
+                full = (f"{requested_voice_name.capitalize()} is already active "
+                        "through "
+                        f"OmniVoice on {self.tts_device.upper()}.")
                 await speak_q.put(full)
                 self.history.append({"role": "assistant", "content": full})
                 return
@@ -2323,7 +2325,8 @@ class Friday:
             await fail_task(e)
             raise
         finally:
-            self.save_session()
+            if persist_session:
+                self.save_session()
             await speak_q.put(None)
 
 
@@ -4158,6 +4161,8 @@ async def ws_endpoint(ws: WebSocket):
         await ws.close(code=1008, reason="loopback origin rejected")
         return
     voice_mode = ws.query_params.get("mode", "voice") != "text"
+    ephemeral_history = ([dict(FRIDAY.history[0])] if
+                         ws.query_params.get("context") == "ephemeral" else None)
     await ws.accept(subprotocol="friday.v1")
     graph_session_id = GRAPH.record_node(
         "session", {"transport": "websocket", "state": "connected"},
@@ -4367,7 +4372,8 @@ async def ws_endpoint(ws: WebSocket):
         response_task = asyncio.create_task(FRIDAY.respond(
             text, queue, session_id=graph_session_id, turn_id=turn_id,
             utterance_id=utterance_id, progress_sink=send,
-            display_mode=not speak_response))
+            display_mode=not speak_response,
+            conversation_history=ephemeral_history))
         try:
             while True:
                 sentence = await queue.get()
