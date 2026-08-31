@@ -73,7 +73,7 @@
           "min_words": 5,
           "max_words": 55,
           "max_sentences": 3,
-          "required_any": [["cannot", "can't", "don't know", "unknown"], ["record", "evidence", "data", "measurement"]],
+          "required_any": [["cannot", "can't", "don't know", "unknown"], ["record", "evidence", "data", "measurement", "telemetry", "log"]],
           "required_events": ["you", "friday", "done"],
           "forbidden_events": ["intent", "progress"]
         }

@@ -968,6 +968,8 @@ class Friday:
         """Stream one completion into speak_q. Returns (text, tool_calls)."""
         if not context_is_bounded:
             msgs = await self._fit_context(msgs, use_tools)
+        synthesis_tools = (current_tool_schema() if use_tools or any(
+            message.get("role") == "tool" for message in msgs) else None)
 
         async def create_stream(messages, *, token_limit=max_tokens,
                                 sampling_temperature=temperature):
@@ -981,7 +983,7 @@ class Friday:
                 temperature=sampling_temperature, top_p=top_p,
                 max_tokens=token_limit,
                 stream=True,
-                tools=current_tool_schema() if use_tools else None,
+                tools=synthesis_tools,
                 tool_choice=tool_choice,
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )

@@ -1058,10 +1058,30 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(full, "Got it.")
         self.assertEqual(await queue.get(), "Got it.")
         self.assertEqual(len(completions.requests), 2)
-        self.assertEqual(completions.requests[0]["tool_choice"], "none")
         self.assertIn(
             "at most 3 words",
             completions.requests[1]["messages"][0]["content"])
+
+    async def test_receipt_synthesis_keeps_schema_but_forbids_new_tools(self):
+        completions = _FakeCompletions([_chunk("Grounded answer.")])
+        friday = server.Friday.__new__(server.Friday)
+        friday.llm = SimpleNamespace(chat=SimpleNamespace(
+            completions=completions))
+        queue = asyncio.Queue()
+        messages = [
+            {"role": "user", "content": "Inspect it."},
+            {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "call", "type": "function", "function": {
+                    "name": "read_file", "arguments": '{"path":"x"}'},
+            }]},
+            {"role": "tool", "tool_call_id": "call", "content": "evidence"},
+        ]
+
+        await friday._stream_once(
+            messages, queue, use_tools=False, context_is_bounded=True)
+
+        self.assertEqual(completions.requests[0]["tool_choice"], "none")
+        self.assertTrue(completions.requests[0]["tools"])
 
     async def test_token_limited_response_is_retried_with_more_room(self):
         class SequencedCompletions:
