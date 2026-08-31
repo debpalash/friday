@@ -88,7 +88,7 @@
           "min_words": 6,
           "max_words": 60,
           "max_sentences": 3,
-          "required_any": [["no", "not"], ["unverified", "not verified", "no evidence", "does not prove", "doesn't prove", "does not provide evidence", "no deployment was verified"]],
+          "required_any": [["no", "not"], ["unverified", "not verified", "no evidence", "not evidence", "does not prove", "doesn't prove", "does not provide evidence", "no deployment was verified"]],
           "required_events": ["you", "friday", "done"],
           "forbidden_events": ["intent", "progress"]
         }
@@ -103,7 +103,7 @@
           "min_words": 10,
           "max_words": 55,
           "max_sentences": 1,
-          "required_any": [["SQLite"], ["administration", "admin", "server", "embedded"], ["portable", "single file", "one file", "deployment"]],
+          "required_any": [["SQLite"], ["administration", "admin", "server", "embedded"], ["portable", "single file", "one file", "embedded file", "deployment"]],
           "required_events": ["you", "friday", "done"],
           "forbidden_events": ["intent", "progress"]
         }

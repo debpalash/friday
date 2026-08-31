@@ -8,6 +8,7 @@ It deliberately has no dependencies on server composition or cognition models.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +53,16 @@ BUILTIN_TOOL_SCHEMAS = [
         "parameters": {"type": "object",
                        "properties": {"path": {"type": "string"}},
                        "required": ["path"]}}},
+    {"type": "function", "function": {
+        "name": "search_project",
+        "description": "Search project source and documentation for relevant text, "
+                       "returning bounded path, line, and matching-line evidence.",
+        "parameters": {"type": "object",
+                       "properties": {
+                           "query": {"type": "string"},
+                           "path": {"type": "string",
+                                    "description": "Optional relative directory"}},
+                       "required": ["query"]}}},
     {"type": "function", "function": {
         "name": "write_file",
         "description": "Propose an exact project file change for explicit user "
@@ -508,7 +519,7 @@ EXACT_STEP_APPROVAL_TOOLS = {
 BLOCKING_IO_TOOLS = {
     "fetch_news", "web_search", "read_web", "browser_open", "browser_snapshot",
     "browser_click", "browser_type", "clipboard_read", "clipboard_write",
-    "desktop_notify", "open_local", "search_skill_catalog",
+    "desktop_notify", "open_local", "search_project", "search_skill_catalog",
     "machine_read_document", "machine_ocr_image",
 }
 PROCESS_TOOL_NAMES = frozenset({
@@ -535,6 +546,7 @@ TOOL_POLICY_DATA: dict[str, tuple[str, tuple[str, ...], bool]] = {
     "open_local": ("low", ("process", "filesystem_read"), False),
     "list_files": ("read_only", ("filesystem_read",), False),
     "read_file": ("read_only", ("filesystem_read",), False),
+    "search_project": ("read_only", ("filesystem_read",), False),
     "write_file": ("medium", ("filesystem_write",), True),
     "machine_grant_path": ("high", ("operator_grant",), True),
     "machine_list_grants": ("read_only", ("operator_grant",), False),
@@ -694,6 +706,7 @@ PRIVATE_ARGUMENT_FIELDS = {
 
 PRIVATE_PAYLOAD_TOOL_NAMES = frozenset({
     "clipboard_read", "clipboard_write", "read_file", "remote_reason",
+    "search_project",
 })
 PRIVATE_PAYLOAD_PREFIXES = ("browser_", "machine_")
 
@@ -976,6 +989,47 @@ class BuiltinToolRuntime:
             if path is None or not path.is_file():
                 return f"error: {args['path']} not found (project dir only)"
             return path.read_text(errors="replace")[:20000]
+        if name == "search_project":
+            query = str(args.get("query") or "").strip()
+            terms = tuple(dict.fromkeys(re.findall(
+                r"[a-z0-9_]{2,}", query.casefold())))[:8]
+            directory = self.safe_project_path(
+                adapters.repo, str(args.get("path") or "."))
+            if not terms or len(query) > 200:
+                return "error: project search query is invalid"
+            if directory is None or not directory.is_dir():
+                return "error: project search path is not a directory"
+            matches = []
+            scanned_bytes = 0
+            allowed = {".css", ".html", ".js", ".json", ".md", ".py",
+                       ".sh", ".toml", ".ts", ".yaml", ".yml"}
+            for path in sorted(directory.rglob("*")):
+                safe = self.safe_project_path(adapters.repo, str(path))
+                if (safe is None or not safe.is_file() or safe.is_symlink()
+                        or safe.suffix.casefold() not in allowed):
+                    continue
+                try:
+                    size = safe.stat().st_size
+                except OSError:
+                    continue
+                if size > 256_000 or scanned_bytes + size > 4_000_000:
+                    continue
+                scanned_bytes += size
+                try:
+                    lines = safe.read_text(errors="replace").splitlines()
+                except OSError:
+                    continue
+                for number, line in enumerate(lines, 1):
+                    folded = line.casefold()
+                    score = sum(term in folded for term in terms)
+                    if score:
+                        relative = safe.relative_to(adapters.repo)
+                        matches.append((-score, str(relative), number,
+                                        line.strip()[:240]))
+            matches.sort()
+            rendered = [f"{path}:{line}: {text}" for _, path, line, text
+                        in matches[:80]]
+            return "\n".join(rendered) or "(no matches)"
         if name == "restart":
             reason = args.get("reason", "")
             adapters.start_process(

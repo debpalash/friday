@@ -1747,8 +1747,8 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             friday.history = [{"role": "system", "content": "test"}]
             friday.save_session = lambda: None
             rounds = iter([
-                ("", [{"id": "call_1", "name": "list_files",
-                       "args": '{"path":"."}'}]),
+                ("", [{"id": "call_1", "name": "search_project",
+                       "args": '{"query":"worker lease fence"}'}]),
                 ("Done.", []),
             ])
 
@@ -1756,7 +1756,7 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
                                   required_tool=None):
                 full, calls = next(rounds)
                 self.assertEqual(required_tool,
-                                 "list_files" if calls else None)
+                                 "search_project" if calls else None)
                 if not calls:
                     await speak_q.put(full)
                 return full, calls

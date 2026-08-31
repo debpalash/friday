@@ -299,8 +299,6 @@ def _native_vision_qualified() -> bool:
     return has_qualified_native_vision_score(
         graph, model=model, runtime_fingerprint=fingerprint,
         max_side=max_side)
-
-
 def current_tool_schema() -> list[dict]:
     capabilities = globals().get("CAPABILITIES")
     router = globals().get("MODEL_ROUTER")
@@ -311,8 +309,6 @@ def current_tool_schema() -> list[dict]:
             and (item["function"]["name"] != "machine_understand_image"
                  or _native_vision_qualified()))]
     return builtins + (capabilities.tool_schemas() if capabilities else [])
-
-
 def available_tool_names() -> set[str]:
     capabilities = globals().get("CAPABILITIES")
     names = set(BUILTIN_TOOL_NAMES)
@@ -1579,7 +1575,7 @@ class Friday:
         elif SKILL_SEARCH_INTENT.search(user_text):
             required_tool = "search_skill_catalog"
         elif PROJECT_READ_INTENT.search(user_text):
-            required_tool = "list_files"
+            required_tool = "search_project"
         else:
             required_tool = None
         turn_decision = decide_turn(
@@ -1771,7 +1767,8 @@ class Friday:
                     temperature=FAST_CONVERSATION_TEMPERATURE,
                     top_p=FAST_CONVERSATION_TOP_P,
                     response_max_words=(
-                        12 if turn_decision.reason == "context_update" else None))
+                        12 if turn_decision.reason == "context_update" else
+                        60 if display_mode else None))
                 if calls:
                     raise RuntimeError(
                         "bounded conversation completion returned an unexpected tool call")
@@ -1938,6 +1935,8 @@ class Friday:
                 elif force_tool:
                     render_options = ({"display_mode": True}
                                       if display_mode else {})
+                    if display_mode and grounded_pages:
+                        render_options["response_max_words"] = 190
                     full, calls = await self._stream_once(
                         msgs, speak_q, required_tool=force_tool,
                         **render_options)

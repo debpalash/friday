@@ -176,6 +176,20 @@ class BuiltinToolRuntimeTests(unittest.TestCase):
         self.assertIsNone(self.runtime.safe_project_path(
             self.repo, str(self.repo.parent / "outside.txt")))
 
+    def test_project_search_returns_ranked_bounded_source_evidence(self):
+        (self.repo / "core").mkdir()
+        (self.repo / "core" / "worker.py").write_text(
+            "lease fence\nlease only\nunrelated\n")
+        (self.repo / "venv").mkdir()
+        (self.repo / "venv" / "hidden.py").write_text("lease fence secret")
+
+        result = self.runtime.execute(
+            "search_project", {"query": "lease fence"}, self.adapters)
+
+        self.assertEqual(result.splitlines()[0],
+                         "core/worker.py:1: lease fence")
+        self.assertNotIn("hidden", result)
+
     def test_desktop_effects_use_injected_process_adapters(self):
         clipboard = json.loads(self.runtime.execute(
             "clipboard_read", {}, self.adapters))

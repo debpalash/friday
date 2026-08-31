@@ -23,6 +23,8 @@ rebuildable projections, upgraded with forward-only migrations in
 ## Operator surface
 
 - Live news plus public web search and page reading with attributable URLs.
+- Bounded project-source search with ranked path-and-line evidence, plus exact
+  project file reads and approval-gated edits.
 - A visible Chromium profile isolated under owner-only `state/browser-profile`. Chromium is
   an exact persistent singleton process spec: startup uses the normal approval, resource,
   systemd-cgroup, compositor, and reconciliation path. Browser actions are accepted only while

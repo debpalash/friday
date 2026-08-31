@@ -61,9 +61,11 @@ releases. Migrations must preserve user state.
   progress evidence. Repeated runs cannot inherit or overwrite the owner's
   saved chat history.
 - Thin evidence and planning replies are repaired with their missing basis,
-  explicit project inspections begin with a directory receipt, multi-source follow-ups
+  explicit project inspections begin with bounded ranked source search, multi-source follow-ups
   remain bound to the URLs shown to the user, and capability answers name the
   unavailable native-scene boundary.
+- The text conversation lane now defaults to 60 words and four sentences, and
+  receipt-grounded two-source comparisons are repaired above a 190-word bound.
 - Explicit requests to claim an external action without tools are now refused
   deterministically, without invoking the model or creating a task.
 - Follow-up rewrites such as "make that shorter" now stay in the conversation
