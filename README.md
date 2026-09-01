@@ -69,7 +69,8 @@ after the relevant executor records evidence.
 - Bounded file, process, public web, managed browser, document, and Hyprland
   desktop operations.
 - Omarchy-native inspection and approved controls for themes, fonts, night
-  light, idle policy, brightness, screenshots, and session lock.
+  light, idle policy, brightness, screenshots, session lock, and the stock
+  Firefox installer.
 - Exact approval records for actions that cross a state or permission boundary.
 - Independent receipts and reconciliation for effects whose first result is
   incomplete or uncertain.

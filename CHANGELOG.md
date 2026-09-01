@@ -51,6 +51,9 @@ releases. Migrations must preserve user state.
 
 ### Fixed
 
+- Firefox installation requests now route to an exact approved Omarchy action
+  instead of the managed-process launcher. Friday opens the stock installer in
+  a visible terminal for the sudo prompt and reports only that it was opened.
 - The 24 GB reasoning profile now keeps its documented low-latency CPU Piper
   backend when a cloned voice is stored. It no longer replaces Piper with an
   unusably slow CPU OmniVoice runtime that displays replies but never delivers

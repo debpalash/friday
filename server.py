@@ -58,6 +58,7 @@ from friday_core import (AdmissionBudget, ApprovalService, BatchExecutionOutcome
                          observation_tools_only,
                          load_asr,
                          migrate_session_json,
+                         requested_browser_install_tool,
                          requested_capability_topic,
                          requested_news_list_count, resource_claim_for,
                          resolve_evidence_followup, runtime_topics,
@@ -244,7 +245,6 @@ SESSION_FILE = STATE_DIR / "session.json"
 SERVER_LOG_FILE = STATE_DIR / "logs" / "server.log"
 PROMPT_FILE = REPO / "system_prompt.md"
 
-
 def _harden_private_runtime_file(path: Path) -> None:
     if path.exists():
         os.chmod(path, 0o600)
@@ -253,7 +253,6 @@ _harden_private_runtime_file(SERVER_LOG_FILE)
 def _empty_cuda_cache() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-
 
 def _tokenize_url() -> str:
     root = LOCAL_BASE_URL[:-3] if LOCAL_BASE_URL.endswith("/v1") else LOCAL_BASE_URL
@@ -273,7 +272,6 @@ DEFAULT_PROMPT = (
     "canned sections, or decorative formatting. Dry wit."
 )
 TOOL_SCHEMA = BUILTIN_TOOL_SCHEMAS
-
 
 def _native_vision_qualified() -> bool:
     """Require a current-fingerprint five-scene pass before tool exposure."""
@@ -1552,6 +1550,8 @@ class Friday:
             required_tool = "fetch_news"
         elif REMINDER_INTENT.search(user_text):
             required_tool = "create_reminder"
+        elif requested_browser_install_tool(user_text):
+            required_tool = "machine_omarchy_install_browser"
         elif voice_required_tool is not None:
             required_tool = voice_required_tool
         elif WEB_SEARCH_INTENT.search(user_text):
@@ -2117,6 +2117,8 @@ class Friday:
                             c["name"], ("", "", "successful_receipt"))[2],
                         "idempotency_class": (
                             "read_only" if policy.risk.value == "read_only"
+                            else "non_repeatable" if c["name"] ==
+                                "machine_omarchy_install_browser"
                             else "reconcilable" if c["name"] in {
                                 "machine_launch_process",
                                 "machine_terminate_process",
@@ -2330,7 +2332,6 @@ class Friday:
                 self.save_session()
             await speak_q.put(None)
 
-
 SENTENCE_SPLIT = re.compile(
     r"(?<!\b[A-Z]\.)(?<!\b[A-Z]\.[A-Z]\.)(?<!Mr\.)(?<!Mrs\.)(?<!Ms\.)"
     r"(?<!Dr\.)(?<!Prof\.)(?<!Sr\.)(?<!Jr\.)(?<=[.!?])\s+")
@@ -2364,7 +2365,6 @@ DESKTOP_MODE = os.environ.get("FRIDAY_DESKTOP_MODE", "auto").strip().lower()
 if DESKTOP_MODE not in {"auto", "required", "disabled"}:
     raise RuntimeError(
         "FRIDAY_DESKTOP_MODE must be auto, required, or disabled")
-
 
 def _desktop_expected() -> bool:
     if DESKTOP_MODE == "disabled":

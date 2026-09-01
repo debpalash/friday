@@ -82,6 +82,9 @@ class FakeOmarchyBackend:
         self.calls.append(("lock",))
         self.locked_value = True
 
+    def start_browser_installer(self, browser):
+        self.calls.append(("browser_installer", browser))
+
     def screenshot(self):
         self.calls.append(("screenshot",))
         self.capture_root.mkdir(parents=True, mode=0o700)
@@ -208,6 +211,22 @@ class OmarchyDesktopBrokerTests(unittest.TestCase):
         self.assertFalse(self.broker.verify_receipt(
             tool_name, forged, {}, "act_capture",
             expected_binding=binding))
+
+    def test_firefox_installer_is_exact_approved_and_never_replayed(self):
+        tool_name = "machine_omarchy_install_browser"
+        args = {"browser": "firefox"}
+        binding = self.broker.binding_for_action(tool_name, args)
+        receipt = self.broker.execute(
+            tool_name, args, expected_binding=binding)
+
+        self.assertEqual(receipt["state"], "installer_started")
+        self.assertEqual(self.backend.calls, [("browser_installer", "firefox")])
+        self.assertTrue(self.broker.verify_receipt(
+            tool_name, receipt, args, "act_installer",
+            expected_binding=binding))
+        self.assertIsNone(self.broker.reconciliation_receipt(binding))
+        with self.assertRaises(ValueError):
+            self.broker.binding_for_action(tool_name, {"browser": "chrome"})
 
 
 if __name__ == "__main__":

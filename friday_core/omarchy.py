@@ -27,6 +27,7 @@ OMARCHY_ACTION_TOOLS = frozenset({
     "machine_omarchy_set_brightness",
     "machine_omarchy_take_screenshot",
     "machine_omarchy_lock",
+    "machine_omarchy_install_browser",
 })
 OMARCHY_TOOL_NAMES = frozenset({OMARCHY_STATUS_TOOL, *OMARCHY_ACTION_TOOLS})
 
@@ -43,6 +44,7 @@ _TOOL_OPERATION = {
     "machine_omarchy_set_brightness": "set_brightness",
     "machine_omarchy_take_screenshot": "take_screenshot",
     "machine_omarchy_lock": "lock",
+    "machine_omarchy_install_browser": "start_browser_installer",
 }
 
 _TOOL_ROUTES = {
@@ -57,6 +59,8 @@ _TOOL_ROUTES = {
         "omarchy capture screenshot",),
     "machine_omarchy_lock": (
         "omarchy system lock", "omarchy shell"),
+    "machine_omarchy_install_browser": (
+        "omarchy launch terminal", "omarchy install browser"),
 }
 
 _REQUIRED_ROUTES = frozenset({
@@ -66,6 +70,7 @@ _REQUIRED_ROUTES = frozenset({
     "omarchy toggle nightlight", "omarchy toggle idle",
     "omarchy brightness display", "omarchy capture screenshot",
     "omarchy system lock", "omarchy shell",
+    "omarchy launch terminal", "omarchy install browser",
 })
 
 
@@ -100,6 +105,7 @@ class OmarchyActionBinding(BaseModel):
     operation: Literal[
         "set_theme", "set_font", "set_nightlight", "set_idle",
         "set_brightness", "take_screenshot", "lock",
+        "start_browser_installer",
     ]
     target: str = Field(min_length=1, max_length=120)
     args_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -378,6 +384,16 @@ class OmarchyDesktopBackend:
     def lock(self) -> None:
         self.run("omarchy system lock", timeout=8.0)
 
+    def start_browser_installer(self, browser: str) -> None:
+        if browser != "firefox":
+            raise ValueError("unsupported Omarchy browser installer")
+        self._assert_identity("omarchy install browser")
+        self.run(
+            "omarchy launch terminal",
+            self._route_paths["omarchy install browser"], browser,
+            timeout=8.0)
+        self._assert_identity("omarchy install browser")
+
     def _capture_directory(self) -> Path:
         root = Path(os.path.abspath(self.capture_root.expanduser()))
         try:
@@ -512,6 +528,11 @@ class OmarchyDesktopBroker:
         if tool_name == "machine_omarchy_lock":
             self._exact_keys(args, set())
             return "locked"
+        if tool_name == "machine_omarchy_install_browser":
+            self._exact_keys(args, {"browser"})
+            if args.get("browser") != "firefox":
+                raise ValueError("only the Firefox installer is supported")
+            return "firefox"
         raise ValueError("unsupported Omarchy action")
 
     def binding_for_action(
@@ -590,6 +611,12 @@ class OmarchyDesktopBroker:
             return self._receipt(binding, "captured", replay=False) | {
                 "capture": capture,
             }
+        if binding.operation == "start_browser_installer":
+            try:
+                self.backend.start_browser_installer(binding.target)
+            except Exception as exc:
+                raise OmarchyActionError() from exc
+            return self._receipt(binding, "installer_started", replay=False)
         current = self._current_state(binding)
         if current == binding.target:
             return self._receipt(binding, current, replay=True)
@@ -625,7 +652,7 @@ class OmarchyDesktopBroker:
         self, expected_binding: OmarchyActionBinding | Mapping[str, Any],
     ) -> dict[str, Any] | None:
         binding = OmarchyActionBinding.model_validate(expected_binding)
-        if binding.operation == "take_screenshot":
+        if binding.operation in {"take_screenshot", "start_browser_installer"}:
             return None
         if (binding.command_fingerprint
                 != self.backend.command_fingerprint(binding.tool_name)
@@ -678,6 +705,9 @@ class OmarchyDesktopBroker:
                         },
                     }
                 return value == expected
+            if binding.operation == "start_browser_installer":
+                return value == self._receipt(
+                    binding, "installer_started", replay=False)
             current = self._current_state(binding)
             replay = value.get("idempotent_replay")
             if type(replay) is not bool:

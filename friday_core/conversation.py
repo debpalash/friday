@@ -158,6 +158,8 @@ _NEWS_LIST = re.compile(
     r"\b(?:links?|urls?)\b.{0,100}\b(?:headlines?|stories)\b",
     re.IGNORECASE,
 )
+_FIREFOX_INSTALL = re.compile(
+    r"\binstall\b.{0,24}\bfirefox\b", re.IGNORECASE)
 _COUNT_WORDS = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
     "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
@@ -200,6 +202,12 @@ def requested_capability_topic(text: str) -> str | None:
     if _CAPABILITY_OVERVIEW.search(value):
         return "overview"
     return None
+
+
+def requested_browser_install_tool(text: str) -> str | None:
+    """Route an exact supported browser install request to Omarchy."""
+    return ("machine_omarchy_install_browser"
+            if _FIREFOX_INSTALL.search(str(text or "")) else None)
 
 
 def unverified_action_claim_request(text: str) -> bool:

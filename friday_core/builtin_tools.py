@@ -21,6 +21,7 @@ OMARCHY_ACTION_TOOLS = frozenset({
     "machine_omarchy_set_nightlight", "machine_omarchy_set_idle",
     "machine_omarchy_set_brightness", "machine_omarchy_take_screenshot",
     "machine_omarchy_lock",
+    "machine_omarchy_install_browser",
 })
 OMARCHY_TOOL_NAMES = frozenset({OMARCHY_STATUS_TOOL, *OMARCHY_ACTION_TOOLS})
 
@@ -251,6 +252,14 @@ BUILTIN_TOOL_SCHEMAS.extend([
         "description": "Lock the Omarchy session after exact approval and verify the "
                        "session-lock state.",
         "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "machine_omarchy_install_browser",
+        "description": "After exact approval, open Omarchy's stock Firefox installer "
+                       "in a visible terminal. The user must complete the sudo password "
+                       "prompt; success means the installer opened, not that installation finished.",
+        "parameters": {"type": "object", "properties": {
+            "browser": {"type": "string", "enum": ["firefox"]}
+        }, "required": ["browser"]}}},
 ])
 
 BUILTIN_TOOL_SCHEMAS.extend([
@@ -584,6 +593,8 @@ TOOL_POLICY_DATA: dict[str, tuple[str, tuple[str, ...], bool]] = {
     "machine_omarchy_take_screenshot": (
         "high", ("desktop", "filesystem_write"), True),
     "machine_omarchy_lock": ("high", ("desktop",), True),
+    "machine_omarchy_install_browser": (
+        "high", ("desktop", "process", "network"), True),
     "create_reminder": ("low", ("scheduling", "notifications"), False),
     "list_reminders": ("read_only", ("scheduling",), False),
     "cancel_reminder": ("low", ("scheduling",), False),
@@ -642,6 +653,7 @@ RESOURCE_OVERRIDES: dict[str, dict[str, Any]] = {
     "machine_omarchy_set_brightness": {"cpu_cores": 0.1, "ram_mib": 64},
     "machine_omarchy_take_screenshot": {"cpu_cores": 0.5, "ram_mib": 256},
     "machine_omarchy_lock": {"cpu_cores": 0.1, "ram_mib": 64},
+    "machine_omarchy_install_browser": {"cpu_cores": 0.1, "ram_mib": 64},
 }
 
 TOOL_CRITERIA = {
@@ -680,6 +692,7 @@ TOOL_CRITERIA = {
     "machine_omarchy_set_brightness": ("omarchy_brightness_set", "Set and re-observe the exact approved display brightness", "omarchy_brightness_receipt"),
     "machine_omarchy_take_screenshot": ("omarchy_screenshot_captured", "Create and hash one approved full-desktop PNG", "omarchy_screenshot_receipt"),
     "machine_omarchy_lock": ("omarchy_session_locked", "Request and re-observe the approved session lock", "omarchy_lock_receipt"),
+    "machine_omarchy_install_browser": ("omarchy_browser_installer_started", "Open the approved stock Firefox installer and report only that its terminal was started", "omarchy_installer_receipt"),
     "create_reminder": ("reminder_saved", "Persist the requested reminder", "reminder_receipt"),
     "cancel_reminder": ("reminder_cancelled", "Cancel the requested reminder", "reminder_receipt"),
     "set_voice": ("voice_activated", "Activate the requested voice after synthesis", "voice_receipt"),

@@ -11,6 +11,7 @@ from friday_core.conversation import (FAST_CONVERSATION_TEMPERATURE,
                                       format_runtime_answer,
                                       observation_tools_only,
                                       page_receipt_has_article_evidence,
+                                      requested_browser_install_tool,
                                       requested_capability_topic,
                                       requested_news_list_count, runtime_topics,
                                       resolve_evidence_followup,
@@ -20,6 +21,14 @@ from friday_core.conversation import (FAST_CONVERSATION_TEMPERATURE,
 
 
 class ConversationRoutingTests(unittest.TestCase):
+    def test_firefox_install_requests_route_only_to_typed_omarchy_action(self):
+        for text in ("install Firefox", "Can you install the Firefox browser?"):
+            self.assertEqual(
+                requested_browser_install_tool(text),
+                "machine_omarchy_install_browser")
+        for text in ("open Firefox", "install Chrome", "what is Firefox?"):
+            self.assertIsNone(requested_browser_install_tool(text))
+
     def test_runtime_topics_cover_each_live_identity_dimension(self):
         cases = {
             "What model are you running?": ("model",),

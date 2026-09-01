@@ -43,8 +43,10 @@ only packaged command routes, pins the router and route-binary identities before
 approval, rejects arbitrary arguments, and re-observes the requested state after
 dispatch. Theme and font labels must come from the installed lists. Night light,
 idle, brightness, and lock use explicit target states. Full-screen capture is
-the only non-reconcilable action and writes a hashed PNG under
-`~/Pictures/Friday`.
+non-reconcilable and writes a hashed PNG under `~/Pictures/Friday`. Firefox
+installation is also non-reconcilable: Friday opens the identity-pinned stock
+Omarchy installer in a visible terminal, the user completes its sudo prompt,
+and the receipt proves only that the installer was started.
 
 The installer uses versioned release directories and a single atomic `current`
 link. Personal state and large shared assets live beside those releases, so a
