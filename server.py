@@ -115,7 +115,6 @@ from friday_core.builtin_tools import (
     BuiltinToolAdapters, BuiltinToolRuntime,
 )
 from friday_core.speech import load_omnivoice_runtime
-
 SAMPLE_RATE = 16000
 TTS_RATE = 24000
 SPEECH_THRESHOLD = 0.5
@@ -572,6 +571,8 @@ class Friday:
         print(f"voice profile: {self.voice_name} ({kind})", flush=True)
     def _transition_to_omnivoice(self, profile: dict) -> None:
         """Replace Piper only after OmniVoice and the requested profile load."""
+        if self.tts_device == "cpu":
+            raise RuntimeError("voice profiles require a GPU voice-balanced runtime restart")
         old = (
             getattr(self, "tts_backend", "unknown"),
             getattr(self, "piper", None), getattr(self, "tts", None),
@@ -662,7 +663,7 @@ class Friday:
         stored = VOICES.active()
         stored_name = str(stored.get("name") or "base")
         profile_active = backend == "omnivoice" and runtime_voice == stored_name
-        activation_supported = backend in {"omnivoice", "piper"}
+        activation_supported = backend == "omnivoice" or device.startswith("cuda")
         return {
             "backend": backend,
             "device": device,
@@ -670,9 +671,8 @@ class Friday:
             "stored_active_profile": stored_name,
             "stored_profile_is_runtime_active": profile_active,
             "profile_activation_supported": activation_supported,
-            "runtime_change_required": (
-                None if backend == "omnivoice" else
-                "activating a profile will load OmniVoice locally and replace Piper"
+            "runtime_change_required": (None if backend == "omnivoice" else
+                "voice profiles require a GPU voice-balanced runtime restart"
             ),
             "profiles": VOICES.list(),
         }

@@ -51,6 +51,10 @@ releases. Migrations must preserve user state.
 
 ### Fixed
 
+- The 24 GB reasoning profile now keeps its documented low-latency CPU Piper
+  backend when a cloned voice is stored. It no longer replaces Piper with an
+  unusably slow CPU OmniVoice runtime that displays replies but never delivers
+  audio; cloned profiles require the GPU voice-balanced runtime.
 - Capability grading now treats inline Markdown emphasis as presentation, not
   a change in required-term meaning, and accepts observed equivalent wording
   for the constrained SQLite recommendation and historical-evidence basis

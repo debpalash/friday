@@ -1229,8 +1229,8 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status["runtime_voice"], "kristin")
         self.assertEqual(status["stored_active_profile"], "scarlet")
         self.assertFalse(status["stored_profile_is_runtime_active"])
-        self.assertTrue(status["profile_activation_supported"])
-        self.assertIn("OmniVoice", status["runtime_change_required"])
+        self.assertFalse(status["profile_activation_supported"])
+        self.assertIn("GPU voice-balanced", status["runtime_change_required"])
 
     async def test_runtime_identity_answer_uses_live_receipt_without_llm_or_task(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1268,7 +1268,7 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Piper", answer)
             self.assertIn("kristin", answer)
             self.assertIn("scarlet is stored but is not the audible voice", answer)
-            self.assertIn("OmniVoice", answer)
+            self.assertIn("GPU voice-balanced runtime restart", answer)
             self.assertIsNone(await queue.get())
             self.assertEqual(progress, [])
             self.assertEqual(graph.count_nodes("runtime_receipt"), 1)
@@ -1399,7 +1399,7 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(text=text):
                 self.assertEqual(friday._voice_required_tool(text), "list_voices")
 
-    def test_piper_voice_activation_hot_switches_to_verified_omnivoice(self):
+    def test_cuda_piper_voice_activation_hot_switches_to_verified_omnivoice(self):
         class AudioTokenizer:
             def to(self, _device):
                 return self
@@ -1415,7 +1415,7 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         }
         friday = server.Friday.__new__(server.Friday)
         friday.tts_backend = "piper"
-        friday.tts_device = "cpu"
+        friday.tts_device = "cuda"
         friday.voice_name = "kristin"
         friday.piper = object()
         friday.tts = None
@@ -1442,6 +1442,20 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(friday.piper)
         self.assertEqual(activated[0][0], "scarlet")
         self.assertTrue(activated[0][1]["passed"])
+
+    def test_cpu_piper_voice_activation_requires_runtime_restart(self):
+        friday = server.Friday.__new__(server.Friday)
+        friday.tts_backend = "piper"
+        friday.tts_device = "cpu"
+        friday.voice_name = "kristin"
+        friday.instruct = "female, young adult, moderate pitch"
+        friday.ref_audio = None
+        friday.clone_prompt = None
+        voices = SimpleNamespace(get=lambda _name: {"name": "scarlet"})
+
+        with patch.object(server, "VOICES", voices), self.assertRaisesRegex(
+                RuntimeError, "GPU voice-balanced runtime restart"):
+            friday.activate_voice("scarlet")
 
     def test_already_active_voice_skips_synthesis_verification(self):
         friday = server.Friday.__new__(server.Friday)
