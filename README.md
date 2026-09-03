@@ -43,6 +43,50 @@ state-changing work.
 The model can propose that something happened. Friday reports completion only
 after the relevant executor records evidence.
 
+## Guided tour
+
+<p align="center">
+  <img src="assets/friday-tour.gif" width="1080"
+    alt="Animated tour of Friday: a reminder is saved, headlines are listed, a desktop theme change waits for approval and is verified, a lease PDF is summarized into a table of dates, and a voice question about GPU memory is answered">
+</p>
+
+<p align="center">
+  <sub>Thirty seconds of everyday use, rendered from the shipped interface with
+  scripted synthetic turns. No real conversation, model output, or personal
+  data appears in it.</sub>
+</p>
+
+The tour shows, in order:
+
+1. **A reminder.** "Remind me to call the dentist tomorrow at 9." becomes a
+   durable reminder that fires in the app and on the desktop.
+2. **The news.** "What's in the news this morning?" fetches headlines only
+   because you asked, and renders them as links you open yourself.
+3. **An approved desktop change.** "Switch the theme to Tokyo Night and turn
+   on night light." stops at an exact approval card, applies both settings
+   through Omarchy, and reports done only after a status receipt confirms it.
+4. **A document.** "Read ~/Documents/lease.pdf and list the dates I need to
+   remember." reads the file inside a granted path and answers with a table.
+5. **A voice turn.** "Friday, what's using my GPU right now?" is heard,
+   inspected, answered, and spoken.
+
+### Everyday tasks
+
+| Say or type | What happens | Boundary that applies |
+|---|---|---|
+| "Remind me to submit the report Friday at 4." | A reminder is stored in SQLite and delivered by the reminder daemon | Local write, no approval needed |
+| "Remember that I prefer metric units." | A preference is saved and applied to later answers | Local memory you can list, correct, or delete |
+| "What did we decide about the lease last week?" | Friday recalls the relevant transcript and task history | Reads only your local graph |
+| "Read https://example.org/post and give me the three main claims." | The page is fetched through the bounded web reader and summarized | Network access only for the URL you gave |
+| "Find where the retry logic lives in ~/projects/api." | The project is searched inside a granted path and matches are cited | Path grants you control |
+| "Open a terminal in my project." | An allow-listed process spec is launched and its identity recorded | Process specs, not free-form shell |
+| "Lock the screen." | The session is locked through Omarchy after an exact approval | Approval, then a lock receipt |
+| "Undo that file change." | The last Friday write is rolled back from its recorded receipt | Rollback needs the original receipt |
+
+Every state-changing row records an approval when a boundary is crossed and a
+receipt after the executor runs. The model's own text is never taken as proof
+that an effect happened.
+
 ## At a glance
 
 | Boundary | Current implementation |
@@ -93,8 +137,9 @@ The first public target is deliberately specific.
 | Browser actions | A managed Chromium installation |
 | Host tools | `bash`, `bwrap`, `curl`, `git`, `openssl`, `patch`, `tar`, `systemctl` |
 
-The installer does not currently support macOS, Windows, containers, multi-user
-hosts, or non-NVIDIA inference. Other Linux desktops may run the conversation
+The installer does not currently support macOS, native Windows, containers,
+multi-user hosts, or non-NVIDIA inference. WSL 2 is reachable through the
+Windows bootstrap but is unqualified. Other Linux desktops may run the conversation
 interface, but desktop automation is not supported outside Hyprland yet.
 
 Friday selects the runtime profile from physical GPU identity and VRAM. A
@@ -107,9 +152,28 @@ resource-admission rules.
 
 ## Install a release
 
-Download the versioned installer and its checksum file. The installer embeds
-the exact source tag and source archive digest. It does not execute the mutable
-`main` branch.
+One command on Linux:
+
+```bash
+curl -fsSL https://friday.palash.dev/install | bash
+```
+
+From Windows PowerShell, into an existing WSL 2 distribution:
+
+```powershell
+irm https://friday.palash.dev/install.ps1 | iex
+```
+
+The bootstrap resolves the newest published release, downloads that release's
+versioned installer and `SHA256SUMS` from GitHub Releases, verifies the
+checksum, and only then runs the installer. Set `FRIDAY_VERSION=v0.1.0-alpha.1`
+to pin a release. Pass installer flags after `bash -s --`. WSL 2 is not a
+qualified target: the Windows script hands off to Linux, where the installer's
+platform, systemd, GPU, and disk checks decide.
+
+To verify by hand instead, download the versioned installer and its checksum
+file. The installer embeds the exact source tag and source archive digest. It
+does not execute the mutable `main` branch.
 
 ```bash
 VERSION=v0.1.0-alpha.1
@@ -228,7 +292,8 @@ runtime network tools, and current deletion limits.
 | `supervisor.py` | Qwen/vLLM lifecycle, runtime profile, identity, and readiness |
 | `friday_core/` | Tasks, policy, memory, speech, tools, Omarchy, processes, evidence, and evals |
 | `ops/` | Asset installers, diagnostics, service templates, and runtime provisioning |
-| `scripts/` | Release, secret-scan, screenshot, and uninstall tooling |
+| `scripts/` | Release, secret-scan, repository and site configuration, screenshot, tour, and uninstall tooling |
+| `site/` | Astro source for [friday.palash.dev](https://friday.palash.dev) and the install bootstraps |
 | `requirements/` | Hash-required application and Qwen dependency locks |
 | `tests/` | Unit, integration, restart, policy, installer, and boundary tests |
 | `docs/` | Architecture, privacy, runtime, installer, and release contracts |
@@ -263,3 +328,9 @@ through the private route in [SECURITY.md](SECURITY.md).
 - [Contributing](CONTRIBUTING.md)
 - [Release process](docs/releasing.md)
 - [Roadmap closure ledger](docs/roadmap-closure.md)
+
+## License
+
+Friday is released under the [Apache License 2.0](LICENSE). Downloaded models
+and runtimes keep their own licenses, including the GPL-3.0-or-later Piper
+speech runtime. See [THIRD_PARTY.md](THIRD_PARTY.md) for the inventory.

@@ -1,0 +1,22 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Page not found · Friday" description="That page does not exist on friday.palash.dev." path="/404" noindex>
+  <main id="main" class="wrap">
+    <p class="code">404</p>
+    <h1>That page is not here.</h1>
+    <p>
+      The install bootstrap lives at <a href="/install">/install</a> for Linux and
+      <a href="/install.ps1">/install.ps1</a> for Windows. Everything else is on
+      the <a href="/">front page</a> or in the
+      <a href="https://github.com/debpalash/friday">source repository</a>.
+    </p>
+  </main>
+</Base>
+
+<style>
+  .wrap { width: min(40rem, 100% - 2.5rem); margin: 18vh auto; }
+  .code { color: var(--accent); letter-spacing: 0.2em; font-size: 0.9rem; }
+  h1 { font-size: clamp(1.8rem, 1.2rem + 2.4vw, 2.8rem); }
+</style>

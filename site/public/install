@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Friday install bootstrap for Linux.        https://friday.palash.dev/install
+#
+#   curl -fsSL https://friday.palash.dev/install | bash
+#   curl -fsSL https://friday.palash.dev/install | bash -s -- --help
+#
+# This bootstrap installs nothing by itself. It resolves the newest published
+# Friday release, downloads that release's versioned installer together with
+# its SHA256SUMS from GitHub Releases, verifies the installer against the
+# checksum file, and only then runs the installer with the arguments you pass.
+# The versioned installer embeds the exact source tag and source archive
+# digest for its release; it never executes the mutable main branch.
+#
+# Environment:
+#   FRIDAY_VERSION            install this tag (for example v0.1.0-alpha.1)
+#                             instead of the newest published release
+#   FRIDAY_REPOSITORY         GitHub repository, default debpalash/friday
+#   FRIDAY_RELEASE_BASE_URL   release asset base URL, used by tests
+#   FRIDAY_RELEASE_API_URL    release listing URL, used by tests
+#
+# The whole file is parsed before anything runs, so a truncated download
+# cannot execute a partial script.
+set -Eeuo pipefail
+
+say() { printf 'friday bootstrap: %s\n' "$*" >&2; }
+die() { say "$*"; exit 1; }
+
+require_platform() {
+  local system machine
+  system="$(uname -s 2>/dev/null || true)"
+  machine="$(uname -m 2>/dev/null || true)"
+  if [[ "$system" != Linux ]]; then
+    say "Friday runs on Linux x86_64 with an NVIDIA GPU."
+    if [[ "$system" == Darwin ]]; then
+      die "macOS is not supported."
+    fi
+    die "unsupported operating system: ${system:-unknown}"
+  fi
+  [[ "$machine" == x86_64 ]] || die "unsupported architecture: ${machine:-unknown}"
+  local tool
+  for tool in curl sha256sum mktemp; do
+    command -v "$tool" >/dev/null 2>&1 || die "missing required tool: $tool"
+  done
+}
+
+valid_tag() {
+  [[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+}
+
+resolve_version() {
+  local repository="$1" listing tag
+  if [[ -n "${FRIDAY_VERSION:-}" ]]; then
+    valid_tag "$FRIDAY_VERSION" \
+      || die "FRIDAY_VERSION must be a release tag such as v0.1.0-alpha.1"
+    printf '%s' "$FRIDAY_VERSION"
+    return
+  fi
+  local api_url="${FRIDAY_RELEASE_API_URL:-https://api.github.com/repos/$repository/releases?per_page=20}"
+  listing="$(curl -fsSL --retry 3 --retry-all-errors \
+    -H 'Accept: application/vnd.github+json' "$api_url")" \
+    || die "could not list releases for $repository"
+  # GitHub returns releases newest first. Drafts are not visible without
+  # authentication, and prereleases are included on purpose: the alpha series
+  # is published as prereleases.
+  tag="$(printf '%s' "$listing" \
+    | grep -oE '"tag_name": *"v[^"]*"' | head -n 1 \
+    | sed -E 's/.*"(v[^"]*)"$/\1/')"
+  [[ -n "$tag" ]] || die "no published release found for $repository"
+  valid_tag "$tag" || die "unexpected release tag: $tag"
+  printf '%s' "$tag"
+}
+
+main() {
+  require_platform
+  local repository="${FRIDAY_REPOSITORY:-debpalash/friday}"
+  local base_url="${FRIDAY_RELEASE_BASE_URL:-https://github.com/$repository/releases/download}"
+  local version installer workdir
+  version="$(resolve_version "$repository")"
+  installer="friday-installer-$version.sh"
+  say "release $version from $repository"
+
+  workdir="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$workdir'" EXIT
+  say "downloading $installer"
+  curl -fsSL --retry 3 --retry-all-errors \
+    -o "$workdir/$installer" "$base_url/$version/$installer" \
+    || die "could not download $installer"
+  curl -fsSL --retry 3 --retry-all-errors \
+    -o "$workdir/SHA256SUMS" "$base_url/$version/SHA256SUMS" \
+    || die "could not download SHA256SUMS for $version"
+
+  if ! (cd "$workdir" \
+      && sha256sum --check --ignore-missing --status SHA256SUMS); then
+    die "checksum verification failed for $installer; nothing was run"
+  fi
+  say "checksum verified; starting the installer"
+
+  # When piped from curl, stdin is this script. Give the installer the
+  # terminal if one is available so prompts still work.
+  if [[ -c /dev/tty ]] && { : </dev/tty; } 2>/dev/null; then
+    bash "$workdir/$installer" "$@" </dev/tty
+  else
+    bash "$workdir/$installer" "$@" </dev/null
+  fi
+}
+
+main "$@"

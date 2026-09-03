@@ -15,3 +15,6 @@
 !/persona/voices/.gitkeep
 /dist/
 *.enc.json
+/site/node_modules/
+/site/dist/
+/site/.astro/

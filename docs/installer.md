@@ -51,3 +51,24 @@ shared model assets remain.
 `friday repair` repeats the transaction from the installed source. `friday
 update` fetches the configured upstream ref. Both use the same lock and rollback
 path as the first installation.
+
+## Install bootstrap
+
+`https://friday.palash.dev/install` (bash) and `/install.ps1` (PowerShell) are
+static files in `site/public/`, published by `.github/workflows/pages.yml`.
+They are conveniences, not a third install path:
+
+1. The Linux bootstrap lists published releases through the GitHub API,
+   takes the newest tag, downloads `friday-installer-<tag>.sh` and
+   `SHA256SUMS` from that release, and refuses to run unless the checksum
+   matches. `FRIDAY_VERSION` pins a tag. Arguments after `bash -s --` reach
+   the installer unchanged. The whole script is wrapped in a function so a
+   truncated download cannot execute.
+2. The Windows bootstrap never installs on Windows. It locates an existing
+   WSL 2 distribution, checks for x86_64 and `curl`, asks for confirmation,
+   and runs the Linux bootstrap inside it. WSL 2 is not a qualified target;
+   the installer's own platform checks decide.
+
+The bootstraps inherit the trust of the site deployment rather than of a tag.
+The manual steps in the README remain the fully verifiable path. Both files
+are covered by `tests/test_bootstrap.py`.
