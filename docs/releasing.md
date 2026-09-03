@@ -97,14 +97,17 @@ repository settings afterwards.
 
 `.github/workflows/pages.yml` builds `site/` with Astro and deploys it to
 GitHub Pages on every push to `main` that touches the site, assets, or
-`VERSION`. It only runs on a public repository. After the first successful
-deployment:
+`VERSION`. It only runs on a public repository, and the workflow token cannot
+create the Pages site itself. Once the repository is public:
 
-1. Create the DNS record `friday.palash.dev CNAME debpalash.github.io`
-   (DNS only, not proxied, so GitHub can issue the certificate).
-2. Run `scripts/configure-install-site.sh` to attach the domain, enforce
-   HTTPS once the certificate exists, and set the repository homepage.
-3. Confirm both bootstraps are served as text:
+1. Run `scripts/configure-install-site.sh`. It creates the Pages site in
+   workflow mode, attaches the domain, and sets the repository homepage.
+2. Trigger the `Site` workflow (`gh workflow run pages.yml --ref main`) or
+   push a change under `site/`.
+3. Create the DNS record `friday.palash.dev CNAME debpalash.github.io`
+   (DNS only, not proxied, so GitHub can issue the certificate), then rerun
+   the script to enforce HTTPS once the certificate exists.
+4. Confirm both bootstraps are served as text:
 
    ```bash
    curl -fsSLI https://friday.palash.dev/install | grep -i content-type
