@@ -4,7 +4,19 @@ Friday uses [Semantic Versioning](https://semver.org/). The project is still in
 an alpha series, so interfaces and stored schemas can change between minor
 releases. Migrations must preserve user state.
 
-## Unreleased
+## 0.1.0-alpha.1 (unreleased)
+
+Initial public developer preview.
+
+### Included
+
+- Local voice and text sessions
+- Transactional per-user installation and rollback
+- Supervised Qwen model lifecycle
+- Parakeet ASR with Piper and OmniVoice speech backends
+- Durable task planning, approval, execution, and receipt verification
+- Local memory, transcript correction, reminders, and learned extensions
+- Bounded desktop, process, browser, web, document, and image operations
 
 ### Changed
 
@@ -26,6 +38,12 @@ releases. Migrations must preserve user state.
 
 ### Added
 
+- The Apache-2.0 license with the recorded Piper GPL-3.0-or-later
+  disposition, a post-visibility repository-protection script, and a
+  synthetic README guided tour rendered from the shipped interface.
+- An Astro site for friday.palash.dev with checksum-verifying install
+  bootstraps for Linux (`curl | bash`) and Windows PowerShell (`irm | iex`,
+  handing off to WSL 2), published through GitHub Pages.
 - A thirteen-family installed general-assistant benchmark for deductive and
   quantitative reasoning, contradiction detection, uncertainty, instruction
   resistance, constraints, planning, grounded inspection and research, action
@@ -112,17 +130,3 @@ releases. Migrations must preserve user state.
 - Reconnecting browsers now fast-forward to the live progress cursor instead
   of replaying old task events with a new timestamp. Task progress renders once,
   diagnostic events use their recorded time, and log entries use separate lines.
-
-## 0.1.0-alpha.1
-
-Initial public developer preview.
-
-### Included
-
-- Local voice and text sessions
-- Transactional per-user installation and rollback
-- Supervised Qwen model lifecycle
-- Parakeet ASR with Piper and OmniVoice speech backends
-- Durable task planning, approval, execution, and receipt verification
-- Local memory, transcript correction, reminders, and learned extensions
-- Bounded desktop, process, browser, web, document, and image operations

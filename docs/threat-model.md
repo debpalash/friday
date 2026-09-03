@@ -48,7 +48,7 @@ an effect. Friday is not designed for multiple mutually distrusting users.
 
 Same-user malware, compromised upstream artifacts whose pinned bytes were
 approved, model behavior outside measured tasks, and implementation bugs remain
-possible. The first public release still requires the owner license/asset
-decisions, cross-device qualification for every advertised target, and an
+possible. The first public release still requires the owner asset-rights
+decision, cross-device qualification for every advertised target, and an
 independent penetration test. See [Roadmap closure ledger](roadmap-closure.md)
 and [Security policy](../SECURITY.md).

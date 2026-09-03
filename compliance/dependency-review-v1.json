@@ -53,9 +53,10 @@
     {
       "component": "piper-tts==1.4.2",
       "license": "GPL-3.0-or-later",
-      "disposition": "owner_license_compatibility_decision_required_before_distribution"
+      "disposition": "friday_is_apache_2_0_which_is_gpl_3_compatible_and_the_source_repository_does_not_redistribute_piper"
     }
   ],
   "engineering_review": "complete",
-  "distribution_approval": "blocked_on_owner_license_decision"
+  "friday_license": "Apache-2.0",
+  "distribution_approval": "approved_apache_2_0_with_gpl_3_piper_runtime"
 }

@@ -72,14 +72,14 @@ content. Cross-device physical-host coverage remains an external gate.
 
 The seven-scenario adversarial scorecard, complete boundary-to-response threat
 model, and exact 322-package plus model engineering license inventory are
-closed. Distribution remains gated on the owner's Friday/Piper license
-compatibility decision below.
+closed. Friday is licensed under Apache-2.0 and the Piper GPL-3.0-or-later
+disposition is recorded in the dependency review.
 
 ## External and owner gates
 
 | Gate | Status | Closure condition |
 |---|---|---|
-| Friday license and Piper GPL compatibility | owner | Written license decision reviewed for the shipped dependency graph |
+| Friday license and Piper GPL compatibility | closed | Apache-2.0 in `LICENSE`; Piper disposition recorded in `compliance/dependency-review-v1.json` |
 | Product name, icon, screenshot, and voice-likeness rights | owner | Written approval for every public asset and mark |
 | Independent penetration test | external | Review by a party independent of the implementation, with high-severity findings closed |
 | Cross-device hardware matrix | external | Clean qualification on each advertised GPU, driver, and Linux target |

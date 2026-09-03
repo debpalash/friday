@@ -36,7 +36,8 @@ scripts/check-release.sh
 scripts/scan-secrets.sh
 bash -n install.sh ops/fridayctl ops/provision_qwen_runtime.sh \
   scripts/uninstall.sh scripts/build-release.sh scripts/check-release.sh \
-  scripts/scan-secrets.sh
+  scripts/apply-repo-protections.sh scripts/configure-install-site.sh \
+  scripts/scan-secrets.sh site/public/install
 git diff --check
 ```
 
@@ -55,4 +56,4 @@ Do not weaken an existing test to make a change pass. Do not include generated
 model output as proof that an effect happened.
 
 By submitting a contribution, you state that you have the right to submit it
-under the repository's selected license.
+under the Apache License 2.0 in [LICENSE](LICENSE).

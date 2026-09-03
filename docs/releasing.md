@@ -5,10 +5,16 @@ whole repository. A green unit test run is necessary but not sufficient.
 
 ## Owner decisions before the first public release
 
-1. Select a license for Friday. The `piper-tts` runtime is GPL-3.0-or-later, so
-   compatibility must be reviewed before choosing a permissive Friday license.
-2. Purge previously committed voice clips and learned workflow data from Git
-   history, then force-push while the repository is still private.
+1. Confirm the license. Friday ships under Apache-2.0 in `LICENSE`. The
+   `piper-tts` runtime is GPL-3.0-or-later; the recorded disposition in
+   `compliance/dependency-review-v1.json` and `THIRD_PARTY.md` must still hold
+   for the shipped dependency graph.
+2. Confirm Git history contains no voice clips, learned workflow data, or
+   private state. `scripts/scan-secrets.sh` scans every commit for secrets;
+   run `git log --all --name-only --pretty=format:` and review the unique
+   paths for media, `skills/workflow-*`, `state/`, or `persona/voices/`
+   entries. If any exist, purge them and force-push while the repository is
+   still private.
 3. Confirm the product name, icon, and public screenshots do not use third-party
    marks, private conversations, or unlicensed voice likenesses.
 
@@ -74,7 +80,41 @@ before announcing the release.
 - Keep release creation limited to maintainers.
 
 Private repositories on GitHub Free cannot enforce every branch rule. Apply and
-verify the rules immediately after the repository becomes public.
+verify the rules immediately after the repository becomes public:
+
+```bash
+scripts/apply-repo-protections.sh   # add --require-signatures if chosen
+```
+
+The script refuses to run against a private repository, enables Dependabot
+alerts and security updates, private vulnerability reporting, secret scanning
+with push protection, and creates or updates a ruleset on the default branch
+that blocks force pushes and deletion, requires pull requests, and requires the
+`source-and-installer` and `analyze` checks. Review the result in the
+repository settings afterwards.
+
+## Install site
+
+`.github/workflows/pages.yml` builds `site/` with Astro and deploys it to
+GitHub Pages on every push to `main` that touches the site, assets, or
+`VERSION`. It only runs on a public repository. After the first successful
+deployment:
+
+1. Create the DNS record `friday.palash.dev CNAME debpalash.github.io`
+   (DNS only, not proxied, so GitHub can issue the certificate).
+2. Run `scripts/configure-install-site.sh` to attach the domain, enforce
+   HTTPS once the certificate exists, and set the repository homepage.
+3. Confirm both bootstraps are served as text:
+
+   ```bash
+   curl -fsSLI https://friday.palash.dev/install | grep -i content-type
+   curl -fsSL https://friday.palash.dev/install | head -n 3
+   curl -fsSL https://friday.palash.dev/install.ps1 | head -n 3
+   ```
+
+The bootstraps resolve the newest published release, so publishing a tag is
+enough to update what they install. Nothing on the site needs to change per
+release except the version shown on the page, which is read from `VERSION`.
 
 ## Incident response
 

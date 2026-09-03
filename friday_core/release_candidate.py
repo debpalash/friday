@@ -224,7 +224,6 @@ class ReleaseCandidateRunner:
                 },
                 "evaluations": evaluations,
                 "external_or_owner_gates": [
-                    "owner_license_and_piper_compatibility_decision",
                     "owner_name_icon_screenshot_and_voice_rights_approval",
                     "independent_penetration_test",
                     "cross_device_advertised_hardware_matrix",

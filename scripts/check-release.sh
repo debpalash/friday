@@ -75,7 +75,8 @@ done < <(git grep -hE '^[[:space:]]*(-[[:space:]]+)?uses:' -- .github/workflows)
 
 bash -n install.sh ops/fridayctl ops/provision_qwen_runtime.sh \
   scripts/uninstall.sh scripts/build-release.sh scripts/check-release.sh \
-  scripts/scan-secrets.sh \
+  scripts/apply-repo-protections.sh scripts/configure-install-site.sh \
+  scripts/scan-secrets.sh site/public/install \
   || fail "a shell entrypoint does not parse"
 git diff --check || fail "Git reports whitespace errors"
 python3 scripts/check_architecture.py >/dev/null \

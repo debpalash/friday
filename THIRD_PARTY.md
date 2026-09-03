@@ -37,9 +37,12 @@ Attribution for the ASR model: Parakeet-TDT 0.6B v3 by NVIDIA, exported and
 quantized to INT8 ONNX by the sherpa-onnx project. Friday does not modify the
 downloaded ONNX files.
 
-The Piper runtime is GPL-3.0-or-later. Any distribution of Friday must be
-reviewed for compatibility with that dependency and the license selected for
-Friday itself.
+The Piper runtime is GPL-3.0-or-later. Friday is licensed under the
+Apache License 2.0, which is compatible with GPL-3.0 for this combination. The
+source repository does not redistribute Piper; the installer downloads it onto
+the user's machine as a separately licensed component. Anyone who redistributes
+Friday bundled together with Piper must satisfy the GPL-3.0 terms for that
+bundle.
 
 Do not create or distribute a reference-based voice without the speaker's
 permission and the rights required for the source recording and intended use.
@@ -60,5 +63,5 @@ pins, and copyleft disposition are recorded in
 [`compliance/dependency-review-v1.json`](compliance/dependency-review-v1.json).
 `ops/review_release_dependencies.py` compares both installed environments with
 all 322 exact lock entries and requires license evidence for each package. The
-engineering inventory is complete; distribution remains blocked on the owner
-decision about Friday's license and Piper's GPL-3.0-or-later compatibility.
+engineering inventory is complete and the Apache-2.0 decision for Friday,
+with the GPL-3.0-or-later Piper disposition, is recorded in that file.

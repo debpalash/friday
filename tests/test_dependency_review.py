@@ -27,7 +27,7 @@ class DependencyReviewTests(unittest.TestCase):
         self.assertEqual(policy["engineering_review"], "complete")
         self.assertEqual(
             policy["distribution_approval"],
-            "blocked_on_owner_license_decision",
+            "approved_apache_2_0_with_gpl_3_piper_runtime",
         )
 
     def test_private_report_is_mode_600_and_never_overwrites(self):
