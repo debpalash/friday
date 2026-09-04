@@ -83,8 +83,28 @@ class MutableClock:
 
 
 class P256TestKey:
+    """Signs with the openssl CLI when present (an independent oracle),
+    otherwise with the cryptography package."""
+
     def __init__(self, root: Path, name: str) -> None:
         self.path = root / f"{name}.pem"
+        if not Path(OPENSSL).is_file():
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric import ec
+
+            self._key = ec.generate_private_key(ec.SECP256R1())
+            self.path.write_bytes(self._key.private_bytes(
+                serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption()))
+            point = self._key.public_key().public_bytes(
+                serialization.Encoding.X962,
+                serialization.PublicFormat.UncompressedPoint)
+            self.jwk = {
+                "kty": "EC", "crv": "P-256",
+                "x": _b64url(point[1:33]), "y": _b64url(point[33:]),
+            }
+            return
+        self._key = None
         subprocess.run(
             [OPENSSL, "genpkey", "-algorithm", "EC", "-pkeyopt",
              "ec_paramgen_curve:P-256", "-out", str(self.path)],
@@ -106,6 +126,13 @@ class P256TestKey:
         }
 
     def sign(self, payload: str) -> str:
+        if self._key is not None:
+            from cryptography.hazmat.primitives import hashes
+            from cryptography.hazmat.primitives.asymmetric import ec
+
+            signature_der = self._key.sign(
+                payload.encode("utf-8"), ec.ECDSA(hashes.SHA256()))
+            return _b64url(_der_signature_to_raw(signature_der))
         signature_der = subprocess.run(
             [OPENSSL, "dgst", "-sha256", "-sign", str(self.path)],
             input=payload.encode("utf-8"), check=True,
@@ -929,12 +956,12 @@ class ControllerAuthTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "key identity is invalid"):
             ControllerAuthService(self.graph, unsafe, clock=self.clock)
 
-    def test_openssl_timeout_has_stable_fail_closed_error(self) -> None:
+    def test_verifier_backend_failure_has_stable_fail_closed_error(self) -> None:
         payload = "controller proof"
         signature = self.key.sign(payload)
         with mock.patch(
-            "friday_core.controller_auth.subprocess.run",
-            side_effect=subprocess.TimeoutExpired([OPENSSL], 3),
+            "friday_core.controller_auth._verify_backend",
+            side_effect=MemoryError("backend unavailable"),
         ):
             with self.assertRaisesRegex(
                     RuntimeError, "controller proof verifier failed"):

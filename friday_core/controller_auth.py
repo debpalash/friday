@@ -17,8 +17,6 @@ import os
 import re
 import secrets
 import stat
-import subprocess
-import tempfile
 import unicodedata
 import urllib.parse
 from collections.abc import Callable, Mapping
@@ -26,6 +24,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+
 from friday_host import fs
 
 from .graph import GraphStore, canonical_json, new_id
@@ -205,7 +207,7 @@ def verify_p256_signature(
     public_jwk: Mapping[str, Any], payload: bytes, signature_b64url: str, *,
     openssl_path: str = "/usr/bin/openssl",
 ) -> bool:
-    """Verify a WebCrypto P-256 SHA-256 signature with argv-only OpenSSL."""
+    """Verify a WebCrypto P-256 SHA-256 signature in-process."""
     try:
         normalized = normalize_public_jwk(public_jwk)
         x = _b64url_decode(normalized["x"], exact_bytes=32)
@@ -214,44 +216,30 @@ def verify_p256_signature(
         signature = _raw_ecdsa_to_der(raw_signature)
     except (ControllerAuthError, ValueError):
         return False
-    executable = Path(openssl_path)
-    if not executable.is_file() or not os.access(executable, os.X_OK):
-        raise RuntimeError("OpenSSL is required for controller proof verification")
-    public_der = _SPKI_P256_PREFIX + x + y
-    encoded_public = base64.b64encode(public_der)
-    public_pem = (
-        b"-----BEGIN PUBLIC KEY-----\n"
-        + b"\n".join(encoded_public[index:index + 64]
-                       for index in range(0, len(encoded_public), 64))
-        + b"\n-----END PUBLIC KEY-----\n")
-    with tempfile.TemporaryDirectory(prefix="friday-controller-proof-") as root:
-        directory = Path(root)
-        public_path = directory / "public.pem"
-        signature_path = directory / "signature.der"
-        public_path.write_bytes(public_pem)
-        signature_path.write_bytes(signature)
-        os.chmod(public_path, 0o600)
-        os.chmod(signature_path, 0o600)
-        environment = {"LANG": "C", "LC_ALL": "C", "PATH": "/usr/bin:/bin"}
-        try:
-            checked = subprocess.run(
-                [str(executable), "pkey", "-pubin", "-in", str(public_path),
-                 "-pubcheck", "-noout"],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, env=environment, timeout=3,
-                check=False)
-            if checked.returncode != 0:
-                return False
-            verified = subprocess.run(
-                [str(executable), "dgst", "-sha256", "-verify",
-                 str(public_path), "-signature", str(signature_path)],
-                input=payload, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, env=environment, timeout=3,
-                check=False)
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise RuntimeError(
-                "controller proof verifier failed") from exc
-        return verified.returncode == 0
+    del openssl_path  # accepted for compatibility; verification is in-process
+    try:
+        public_key = ec.EllipticCurvePublicNumbers(
+            int.from_bytes(x, "big"), int.from_bytes(y, "big"),
+            ec.SECP256R1()).public_key()
+    except ValueError:
+        return False
+    return _ecdsa_verify(public_key, signature, payload)
+
+
+def _verify_backend(public_key: ec.EllipticCurvePublicKey, signature: bytes,
+                    payload: bytes) -> None:
+    public_key.verify(signature, payload, ec.ECDSA(hashes.SHA256()))
+
+
+def _ecdsa_verify(public_key: ec.EllipticCurvePublicKey, signature: bytes,
+                  payload: bytes) -> bool:
+    try:
+        _verify_backend(public_key, signature, payload)
+    except InvalidSignature:
+        return False
+    except Exception as exc:
+        raise RuntimeError("controller proof verifier failed") from exc
+    return True
 
 
 def _load_or_create_auth_key(path: Path) -> bytes:
