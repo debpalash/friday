@@ -9,7 +9,11 @@ permissions:
   contents: read
 
 jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+
   publish:
+    needs: verify
     if: github.event.repository.visibility == 'public'
     runs-on: ubuntu-24.04
     timeout-minutes: 20

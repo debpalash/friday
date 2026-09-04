@@ -22,6 +22,13 @@ Do not change repository visibility until these three decisions are closed.
 
 ## Release gates
 
+Run the accounted test suite first; it fails on any platform-conditional
+skip that is not declared for the host, and Linux must skip nothing:
+
+```bash
+venv/bin/python scripts/run_tests.py --require-no-platform-skips
+```
+
 Run from a clean checkout with the reviewed Qwen environment available:
 
 ```bash
@@ -90,7 +97,9 @@ The script refuses to run against a private repository, enables Dependabot
 alerts and security updates, private vulnerability reporting, secret scanning
 with push protection, and creates or updates a ruleset on the default branch
 that blocks force pushes and deletion, requires pull requests, and requires the
-`source-and-installer` and `analyze` checks. Review the result in the
+`verify / release-tree`, `verify / tests-linux-x86_64`, and `analyze` checks.
+The macOS and Windows test columns run on every pull request but do not block
+merges until their platforms are qualified. Review the result in the
 repository settings afterwards.
 
 ## Install site

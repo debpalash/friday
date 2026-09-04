@@ -67,6 +67,8 @@ fi
 
 while IFS= read -r reference; do
   [[ -z "$reference" ]] && continue
+  # Repository-local reusable workflows are versioned with the tree itself.
+  [[ "$reference" =~ uses:[[:space:]]*\./\.github/workflows/ ]] && continue
   value="${reference#*@}"
   value="${value%%[[:space:]#]*}"
   [[ "$value" =~ ^[0-9a-f]{40}$ ]] \

@@ -55,6 +55,13 @@ replace last-known-good state.
 
 Environment overrides are deployment inputs, not a stable extension API.
 
+Runtime manifests written by this release carry additive `engine`,
+`engine_backend`, `model_asset`, and `engine_launch` fields, and the
+hardware block gains `platform`, `arch`, and `unified_memory`. A manifest
+without an `engine` field describes the vLLM runtime. Fingerprints of the
+Linux/NVIDIA vLLM profiles are unchanged; portable engines include their
+engine facts in the fingerprint.
+
 ## Skills and generated capabilities
 
 Skill and capability versions are immutable. Code, manifest, permissions, and

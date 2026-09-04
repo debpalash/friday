@@ -44,6 +44,15 @@ Initial public developer preview.
 - An Astro site for friday.palash.dev with checksum-verifying install
   bootstraps for Linux (`curl | bash`) and Windows PowerShell (`irm | iex`,
   handing off to WSL 2), published through GitHub Pages.
+- A portable core: `friday_host` owns every operating-system difference,
+  the openssl and secret-tool command lines are replaced by the
+  `cryptography` package and native keyrings, voice activity detection and
+  embeddings run on onnxruntime without torch, and Linux-only action classes
+  are reported per platform instead of assumed. Runtime profiles gain an
+  engine seam with pinned `llama-server` and `mlx-lm` runtimes and official
+  Qwen3 checkpoints sized to the machine's memory; the Linux/NVIDIA vLLM
+  profiles keep their exact fingerprints. Dependencies ship as per-platform
+  hash locks reviewed by a version-2 compliance ledger.
 - A thirteen-family installed general-assistant benchmark for deductive and
   quantitative reasoning, contradiction detection, uncertainty, instruction
   resistance, constraints, planning, grounded inspection and research, action
