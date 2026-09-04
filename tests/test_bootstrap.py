@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BOOTSTRAP = ROOT / "site" / "public" / "install"
 WINDOWS_BOOTSTRAP = ROOT / "site" / "public" / "install.ps1"
+SITE_HEADERS = ROOT / "site" / "public" / "_headers"
 TAG = "v9.9.9-test.1"
 
 
@@ -126,6 +127,13 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("curl -fsSL https://friday.palash.dev/install | bash", text)
         self.assertIn("wsl.exe", text)
         self.assertIn("Read-Host", text)
+
+    def test_public_bootstraps_are_served_as_plain_text(self) -> None:
+        headers = SITE_HEADERS.read_text(encoding="utf-8")
+        for path in ("/install", "/install.ps1"):
+            self.assertIn(
+                f"{path}\n  Content-Type: text/plain; charset=utf-8",
+                headers)
 
 
 if __name__ == "__main__":
