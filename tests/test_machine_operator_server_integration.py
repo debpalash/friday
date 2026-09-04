@@ -292,7 +292,7 @@ class MachineOperatorServerIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_execute_claimed_step_runs_grant_read_write_and_rollback(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             project = root / "project"
             home = root / "home"
             state = root / "state"

@@ -25,6 +25,7 @@
       "tests.test_images",
       "tests.test_installer",
       "tests.test_installer_rehearsal",
+      "tests.test_machine_operator",
       "tests.test_process_broker",
       "tests.test_process_server_integration",
       "tests.test_qwen_provisioner",
