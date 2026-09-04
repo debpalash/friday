@@ -69,6 +69,9 @@ class GroundedQAEvalTests(unittest.TestCase):
         self.assertFalse(case["evidence_grounded"])
         self.assertFalse(case["evidence_requirements_met"])
 
+    @unittest.skipUnless(
+        all(Path(tool).is_file() for tool in ("/usr/bin/bwrap", "/usr/bin/pdftotext")),
+        "environment: sandboxed PDF extraction is unavailable")
     def test_insufficient_evidence_requires_exact_abstention_and_empty_citations(self):
         case = {
             "name": "missing fact", "modality": "pdf",

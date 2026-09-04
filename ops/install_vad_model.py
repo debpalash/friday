@@ -74,12 +74,12 @@ def main() -> int:
                     os.fsync(output.fileno())
         if observed != VAD_MODEL_SIZE or digest.hexdigest() != VAD_MODEL_SHA256:
             raise RuntimeError("VAD asset pin mismatch")
-        fs.chmod_private(path, 0o644)
+        fs.chmod_private(path, 0o600)
         manifest = staging / "FRIDAY_MODEL_PIN"
         manifest.write_text(
             f"model=snakers4/silero-vad\nrevision={VAD_MODEL_REVISION}\n",
             encoding="utf-8")
-        fs.chmod_private(manifest, 0o644)
+        fs.chmod_private(manifest, 0o600)
         os.replace(staging, TARGET)
         fs.fsync_directory(TARGET.parent)
     except Exception:

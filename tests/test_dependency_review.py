@@ -50,7 +50,9 @@ class DependencyReviewTests(unittest.TestCase):
         self.assertEqual(installed["mismatches"], [], installed["mismatches"][:5])
         self.assertTrue(installed["passed"], installed["missing_license_evidence"][:5])
         for name, value in result["environments"].items():
-            if name in reviewed or name == "qwen_runtime":
+            if name in reviewed or "vllm" in value["engines"]:
+                # The CUDA and vLLM locks are reviewed against their installed
+                # environments by the release-candidate run on the Linux box.
                 continue
             with self.subTest(lock=name):
                 self.assertEqual(value["review"], "lock_only")

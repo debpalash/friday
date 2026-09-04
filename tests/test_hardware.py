@@ -299,7 +299,7 @@ class HardwareProfileTests(unittest.TestCase):
             device_root = Path(temporary)
             (device_root / "nvidia0").touch()
             hardware = detect_hardware(
-                probe=lambda _command: (_ for _ in ()).throw(
+                platform_name="linux", machine="x86_64", probe=lambda _command: (_ for _ in ()).throw(
                     RuntimeError("driver offline")),
                 meminfo_path="/missing/meminfo", drm_root="/missing/drm",
                 device_root=device_root)
@@ -314,7 +314,7 @@ class HardwareProfileTests(unittest.TestCase):
 
     def test_confirmed_missing_cuda_disables_local_runtime(self):
         hardware = detect_hardware(
-            probe=lambda _command: (_ for _ in ()).throw(
+            platform_name="linux", machine="x86_64", probe=lambda _command: (_ for _ in ()).throw(
                 RuntimeError("not installed")),
             meminfo_path="/missing/meminfo", drm_root="/missing/drm",
             device_root="/missing/dev")

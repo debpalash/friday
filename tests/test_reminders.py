@@ -2,6 +2,8 @@ import asyncio
 import subprocess
 import tempfile
 import unittest
+
+from friday_host import desktop_io
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -115,7 +117,7 @@ class ReminderDaemonTests(unittest.IsolatedAsyncioTestCase):
 
         to_thread.assert_awaited_once_with(
             subprocess.run,
-            ["notify-send", "Friday reminder", "Do not lose me"],
+            desktop_io.notification_command("Friday reminder", "Do not lose me"),
             capture_output=True, timeout=10, check=True)
 
 

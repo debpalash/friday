@@ -77,7 +77,7 @@ def _download(client: "httpx.Client", name: str, expected_size: int,
             os.fsync(output.fileno())
     if observed != expected_size or digest.hexdigest() != expected_digest:
         raise RuntimeError(f"embedding asset pin mismatch: {name}")
-    os.chmod(path, 0o644)
+    os.chmod(path, 0o600)
     print(f"verified {name} ({observed} bytes)")
 
 

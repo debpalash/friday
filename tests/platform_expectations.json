@@ -5,35 +5,48 @@
       "tests.test_bootstrap",
       "tests.test_capabilities",
       "tests.test_embeddings",
+      "tests.test_generalization_evals",
       "tests.test_host_procs",
       "tests.test_images",
       "tests.test_local_cipher",
       "tests.test_process_server_integration",
+      "tests.test_server_integration",
       "tests.test_speech",
       "tests.test_supervisor_engines",
       "tests.test_tls",
-      "tests.test_vad"
+      "tests.test_vad",
+      "tests.test_vision_evals"
     ]
   },
   "darwin": {
     "platform": [
+      "tests.test_bootstrap",
       "tests.test_desktop_broker",
-      "tests.test_machine_operator",
+      "tests.test_images",
+      "tests.test_installer",
+      "tests.test_installer_rehearsal",
       "tests.test_process_broker",
-      "tests.test_qwen_provisioner"
+      "tests.test_process_server_integration",
+      "tests.test_qwen_provisioner",
+      "tests.test_server_integration",
+      "tests.test_supervisor",
+      "tests.test_vision_evals"
     ],
     "environment": [
       "tests.test_bootstrap",
       "tests.test_capabilities",
       "tests.test_embeddings",
+      "tests.test_generalization_evals",
       "tests.test_host_procs",
       "tests.test_images",
       "tests.test_local_cipher",
       "tests.test_process_server_integration",
+      "tests.test_server_integration",
       "tests.test_speech",
       "tests.test_supervisor_engines",
       "tests.test_tls",
-      "tests.test_vad"
+      "tests.test_vad",
+      "tests.test_vision_evals"
     ]
   },
   "win32": {
@@ -41,25 +54,33 @@
       "tests.test_bootstrap",
       "tests.test_desktop_broker",
       "tests.test_host_fs",
+      "tests.test_images",
       "tests.test_installer",
       "tests.test_installer_rehearsal",
       "tests.test_machine_operator",
       "tests.test_process_broker",
+      "tests.test_process_server_integration",
       "tests.test_qwen_provisioner",
-      "tests.test_step_restart_sigkill"
+      "tests.test_server_integration",
+      "tests.test_step_restart_sigkill",
+      "tests.test_supervisor",
+      "tests.test_vision_evals"
     ],
     "environment": [
       "tests.test_bootstrap",
       "tests.test_capabilities",
       "tests.test_embeddings",
+      "tests.test_generalization_evals",
       "tests.test_host_procs",
       "tests.test_images",
       "tests.test_local_cipher",
       "tests.test_process_server_integration",
+      "tests.test_server_integration",
       "tests.test_speech",
       "tests.test_supervisor_engines",
       "tests.test_tls",
-      "tests.test_vad"
+      "tests.test_vad",
+      "tests.test_vision_evals"
     ]
   }
 }

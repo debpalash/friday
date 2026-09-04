@@ -12,7 +12,7 @@ from pathlib import Path
 
 from tests.platform_markers import require_platform
 
-require_platform('linux', 'darwin')
+require_platform("linux")
 
 
 ROOT = Path(__file__).resolve().parents[1]

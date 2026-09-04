@@ -37,6 +37,8 @@ class RecordingResult(unittest.TextTestResult):
 
 
 def _matches(test_id: str, expected: str) -> bool:
+    if test_id.startswith("unittest.loader.ModuleSkipped."):
+        test_id = test_id[len("unittest.loader.ModuleSkipped."):]
     return test_id == expected or test_id.startswith(expected + ".")
 
 

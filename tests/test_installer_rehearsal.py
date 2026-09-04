@@ -9,7 +9,7 @@ from friday_core.installer_rehearsal import InstallerRehearsalRunner
 
 from tests.platform_markers import require_platform
 
-require_platform('linux', 'darwin')
+require_platform("linux")
 
 
 REPO = Path(__file__).resolve().parents[1]

@@ -106,7 +106,7 @@ class PrivateFileTests(unittest.TestCase):
         os.chmod(private, 0o600)
         loose = self.root / "loose"
         loose.write_bytes(b"x")
-        os.chmod(loose, 0o644)
+        os.chmod(loose, 0o640)
         self.assertTrue(fs.is_private_regular(private.lstat()))
         self.assertFalse(fs.is_private_regular(loose.lstat()))
         self.assertTrue(fs.owned_by_caller(private.lstat()))

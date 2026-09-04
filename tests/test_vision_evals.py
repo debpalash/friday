@@ -8,6 +8,13 @@ import server
 from friday_core.graph import GraphStore
 from friday_core.vision_evals import NativeVisionEvalRunner
 
+from tests.platform_markers import require_platform
+
+require_platform("linux")
+if not all(Path(tool).is_file() for tool in (
+        "/usr/bin/bwrap", "/usr/bin/magick", "/usr/bin/tesseract")):
+    raise unittest.SkipTest("environment: sandboxed image tools are unavailable")
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SUITE = ROOT / "evals" / "native-vision-v1.json"

@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import supervisor
+from tests.platform_markers import linux_only
 
 
 def isolated_supervisor_state(root: Path) -> dict:
@@ -358,6 +359,7 @@ class SupervisorEnvironmentTests(IsolatedSupervisorStateTestCase):
         self.assertEqual(request.get_header("Authorization"),
                          "Bearer shared-secret")
 
+    @linux_only
     def test_credentialed_model_probe_rejects_same_origin_redirect(self):
         observed = []
 
@@ -392,6 +394,7 @@ class SupervisorEnvironmentTests(IsolatedSupervisorStateTestCase):
             ("/v1/models", "Bearer redirect-secret"),
         ])
 
+    @linux_only
     def test_tokenization_probe_rejects_cross_origin_redirect(self):
         source_requests = []
         redirected_requests = []
@@ -885,6 +888,7 @@ class SupervisorLifecycleFencingTests(IsolatedSupervisorStateTestCase):
 
             self.assertEqual(pid_file.read_text(), "303")
 
+    @linux_only
     def test_termination_escalates_to_sigkill_before_returning(self):
         with mock.patch.object(supervisor.os, "pidfd_open", return_value=9), \
              mock.patch.object(supervisor, "owned", return_value=True), \

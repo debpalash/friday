@@ -63,7 +63,7 @@ class EngineFixture(unittest.TestCase):
         directory.mkdir(parents=True)
         for name, size, _digest in asset.files:
             (directory / name).write_bytes(b"x" * size)
-        return directory
+        return directory.resolve()
 
 
 class LlamaServerEngineTests(EngineFixture):
