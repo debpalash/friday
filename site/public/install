@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Friday install bootstrap for Linux.        https://friday.palash.dev/install
+# Friday install bootstrap for Linux and macOS.  https://friday.palash.dev/install
 #
 #   curl -fsSL https://friday.palash.dev/install | bash
 #   curl -fsSL https://friday.palash.dev/install | bash -s -- --help
@@ -25,22 +25,40 @@ set -Eeuo pipefail
 say() { printf 'friday bootstrap: %s\n' "$*" >&2; }
 die() { say "$*"; exit 1; }
 
+SYSTEM="$(uname -s 2>/dev/null || true)"
+
 require_platform() {
-  local system machine
-  system="$(uname -s 2>/dev/null || true)"
+  local machine
   machine="$(uname -m 2>/dev/null || true)"
-  if [[ "$system" != Linux ]]; then
-    say "Friday runs on Linux x86_64 with an NVIDIA GPU."
-    if [[ "$system" == Darwin ]]; then
-      die "macOS is not supported."
-    fi
-    die "unsupported operating system: ${system:-unknown}"
-  fi
-  [[ "$machine" == x86_64 ]] || die "unsupported architecture: ${machine:-unknown}"
+  case "$SYSTEM" in
+    Linux)
+      [[ "$machine" == x86_64 ]] || die "unsupported architecture: ${machine:-unknown}"
+      ;;
+    Darwin)
+      [[ "$machine" == arm64 ]] \
+        || die "Friday on macOS needs Apple Silicon; found ${machine:-unknown}"
+      ;;
+    *)
+      say "Friday runs on Linux x86_64 with an NVIDIA GPU, macOS on Apple Silicon,"
+      say "and Windows 11 x64 (irm https://friday.palash.dev/install.ps1 | iex)."
+      die "unsupported operating system: ${SYSTEM:-unknown}"
+      ;;
+  esac
   local tool
-  for tool in curl sha256sum mktemp; do
+  for tool in curl mktemp; do
     command -v "$tool" >/dev/null 2>&1 || die "missing required tool: $tool"
   done
+  command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 \
+    || die "missing required tool: sha256sum or shasum"
+}
+
+verify_checksums() {
+  # Both implementations read the same SHA256SUMS format.
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum --check --ignore-missing --status SHA256SUMS
+  else
+    shasum -a 256 --check --ignore-missing --status SHA256SUMS
+  fi
 }
 
 valid_tag() {
@@ -90,8 +108,7 @@ main() {
     -o "$workdir/SHA256SUMS" "$base_url/$version/SHA256SUMS" \
     || die "could not download SHA256SUMS for $version"
 
-  if ! (cd "$workdir" \
-      && sha256sum --check --ignore-missing --status SHA256SUMS); then
+  if ! (cd "$workdir" && verify_checksums); then
     die "checksum verification failed for $installer; nothing was run"
   fi
   say "checksum verified; starting the installer"

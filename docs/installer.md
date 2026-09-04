@@ -72,3 +72,48 @@ They are conveniences, not a third install path:
 The bootstraps inherit the trust of the site deployment rather than of a tag.
 The manual steps in the README remain the fully verifiable path. Both files
 are covered by `tests/test_bootstrap.py`.
+
+## macOS path
+
+`install.sh` detects Darwin before anything else and runs `friday_install_darwin`,
+a bash 3.2 compatible preflight that refuses root, Intel Macs, and macOS
+versions before 14. It bootstraps `uv` 0.12.9 from the digest recorded in
+`requirements/uv-pins.json` (the digest is embedded in the script and a test
+keeps both in sync), resolves a managed Python 3.12, obtains the source tree
+(local checkout, verified archive, or a GitHub ref), validates archive member
+paths, and hands over to `ops/install_core.py`.
+
+The Python core performs the same transaction as the Linux body: exclusive
+install lock, snapshot of managed files, service stop, fresh release directory
+under `releases/`, shared-directory seeding and symlinks, `uv venv` plus
+`uv pip sync --require-hashes requirements/runtime-macos-arm64.lock`, pinned
+assets, the MLX runtime (`ops/install_mlx_runtime.py`) or llama-server
+(`ops/install_llama_server.py`) and a pinned Qwen3 checkpoint
+(`ops/install_local_model.py`), private `friday.env`, the `friday` shim, the
+launchd agent (`ops/friday.launchd.plist.in` rendered by
+`friday_host/service.py`), an atomic `current` switch, a doctor pass, and
+rollback on any failure.
+
+Default roots follow Apple conventions:
+
+| Purpose | Path |
+|---|---|
+| App, releases, runtime, tools | `~/Library/Application Support/Friday/app` |
+| Personal state | `~/Library/Application Support/Friday/state` |
+| Private configuration | `~/Library/Application Support/Friday/config/friday.env` |
+| Cache and downloads | `~/Library/Caches/Friday` |
+| Logs | `~/Library/Logs/Friday/supervisor.log` |
+| Login agent | `~/Library/LaunchAgents/dev.palash.friday.plist` |
+| CLI shim | `~/.local/bin/friday` |
+
+`ops/fridayctl.py` provides the same subcommands as the Linux `ops/fridayctl`,
+plus `trust-ca` and `untrust-ca`, which ask before touching the login keychain.
+The launch agent runs `ops/friday_launch.py`, which applies `friday.env` and
+execs `supervisor.py watch`, because launchd has no `EnvironmentFile=`.
+
+Rehearsals on other platforms (the `MacInstallerLifecycleTests`) run the real
+`install.sh` with fake `uname`, `sw_vers`, `uv`, `launchctl`, and `shasum`
+executables. The core refuses a host override that does not match the real
+machine unless `FRIDAY_INSTALL_REHEARSAL=1` is set, and the harness clears
+every `XDG_*` variable so a developer shell can never point a rehearsal at a
+real Linux install.

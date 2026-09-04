@@ -18,6 +18,14 @@ Initial public developer preview.
 - Local memory, transcript correction, reminders, and learned extensions
 - Bounded desktop, process, browser, web, document, and image operations
 
+### Added
+
+- macOS on Apple Silicon: `install.sh` bootstraps a pinned `uv`, hands over to
+  the portable Python installer core, registers a launchd login agent, and
+  provisions the MLX runtime with a pinned Qwen3 checkpoint. `friday`
+  subcommands are served by `ops/fridayctl.py`, including `trust-ca`.
+  Linux-only tools are reported as unavailable instead of failing.
+
 ### Changed
 
 - Voice input now requires `Friday, <request>` in one utterance. Unaddressed or

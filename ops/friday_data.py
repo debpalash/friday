@@ -71,16 +71,9 @@ def main() -> int:
                         state / "friday.db", args.scope, **options),
                 }
             else:
-                service = subprocess.run(
-                    ["systemctl", "--user", "show", "friday.service",
-                     "--property=ActiveState", "--value"],
-                    text=True,
-                    capture_output=True,
-                    timeout=10,
-                    check=False,
-                )
-                active_state = service.stdout.strip()
-                if service.returncode != 0 or active_state not in {"inactive", "failed"}:
+                from friday_host.service import backend_for
+
+                if backend_for().is_active():
                     raise RuntimeError(
                         "run 'friday stop' before confirming selective deletion")
                 result = delete_private_data(

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>@LABEL@</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>@PYTHON@</string>
+        <string>@LAUNCHER@</string>
+        <string>--env-file</string>
+        <string>@ENV_FILE@</string>
+        <string>--chdir</string>
+        <string>@CURRENT@</string>
+        <string>--</string>
+        <string>@SUPERVISOR@</string>
+        <string>watch</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>@CURRENT@</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+    <key>ExitTimeOut</key>
+    <integer>45</integer>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>AbandonProcessGroup</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>@LOG_DIR@/supervisor.log</string>
+    <key>StandardErrorPath</key>
+    <string>@LOG_DIR@/supervisor.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>
