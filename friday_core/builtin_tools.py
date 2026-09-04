@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
+from friday_host import desktop_io, procs
 
 OMARCHY_STATUS_TOOL = "machine_omarchy_status"
 OMARCHY_ACTION_TOOLS = frozenset({
@@ -924,7 +925,7 @@ class BuiltinToolRuntime:
         if name == "clipboard_read":
             try:
                 value = adapters.run_process(
-                    ["wl-paste", "--no-newline"], text=True,
+                    desktop_io.clipboard_read_command(), text=True,
                     capture_output=True, timeout=5, check=True).stdout[:4000]
                 return json.dumps(
                     {"status": "ok", "text": value}, ensure_ascii=False)
@@ -934,7 +935,8 @@ class BuiltinToolRuntime:
             try:
                 value = str(args.get("text") or "")
                 adapters.run_process(
-                    ["wl-copy"], input=value, text=True, capture_output=True,
+                    desktop_io.clipboard_write_command(), input=value,
+                    text=True, capture_output=True,
                     timeout=5, check=True)
                 return json.dumps(
                     {"status": "ok", "characters": len(value)})
@@ -943,8 +945,9 @@ class BuiltinToolRuntime:
         if name == "desktop_notify":
             try:
                 adapters.run_process(
-                    ["notify-send", str(args.get("title") or "Friday"),
-                     str(args.get("message") or "")], capture_output=True,
+                    desktop_io.notification_command(
+                        str(args.get("title") or "Friday"),
+                        str(args.get("message") or "")), capture_output=True,
                     timeout=5, check=True)
                 return json.dumps({"status": "ok", "delivered": True})
             except Exception as exc:
@@ -956,9 +959,9 @@ class BuiltinToolRuntime:
                 return "error: local target is unavailable (project paths only)"
             try:
                 adapters.start_process(
-                    ["xdg-open", str(path)], stdin=subprocess.DEVNULL,
+                    desktop_io.open_command(path), stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    start_new_session=True)
+                    **procs.detached_popen_kwargs())
                 return json.dumps({
                     "status": "ok", "path": str(path.relative_to(adapters.repo)),
                 })

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -15,6 +14,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from friday_host import fs
 
 from .db_migrations import apply_schema_migrations
 
@@ -46,7 +46,7 @@ def _canonical_json(value: Any) -> bytes:
 
 def _sha256_private(path: Path, *, maximum: int) -> tuple[str, os.stat_result]:
     digest = hashlib.sha256()
-    flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | fs.PRIVATE_OPEN_FLAGS
     try:
         descriptor = os.open(path, flags)
     except OSError as exc:
@@ -54,9 +54,9 @@ def _sha256_private(path: Path, *, maximum: int) -> tuple[str, os.stat_result]:
     try:
         before = os.fstat(descriptor)
         if (not stat.S_ISREG(before.st_mode)
-                or before.st_uid != os.getuid()
+                or not fs.owned_by_caller(before)
                 or before.st_nlink != 1
-                or before.st_mode & 0o077
+                or not fs.private_mode_ok(before)
                 or not 1 <= before.st_size <= maximum):
             raise RuntimeError(f"private export file is invalid: {path}")
         while chunk := os.read(descriptor, 1024 * 1024):
@@ -77,7 +77,7 @@ def _private_regular_metadata(
     minimum: int,
     maximum: int,
 ) -> os.stat_result:
-    flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | fs.PRIVATE_OPEN_FLAGS
     try:
         descriptor = os.open(path, flags)
     except OSError as exc:
@@ -85,9 +85,9 @@ def _private_regular_metadata(
     try:
         metadata = os.fstat(descriptor)
         if (not stat.S_ISREG(metadata.st_mode)
-                or metadata.st_uid != os.getuid()
+                or not fs.owned_by_caller(metadata)
                 or metadata.st_nlink != 1
-                or metadata.st_mode & 0o077
+                or not fs.private_mode_ok(metadata)
                 or not minimum <= metadata.st_size <= maximum):
             raise RuntimeError(f"private export file is invalid: {path}")
         return metadata
@@ -96,7 +96,7 @@ def _private_regular_metadata(
 
 
 def _read_private_regular(path: Path, *, maximum: int) -> bytes:
-    flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | fs.PRIVATE_OPEN_FLAGS
     try:
         descriptor = os.open(path, flags)
     except OSError as exc:
@@ -104,9 +104,9 @@ def _read_private_regular(path: Path, *, maximum: int) -> bytes:
     try:
         metadata = os.fstat(descriptor)
         if (not stat.S_ISREG(metadata.st_mode)
-                or metadata.st_uid != os.getuid()
+                or not fs.owned_by_caller(metadata)
                 or metadata.st_nlink != 1
-                or metadata.st_mode & 0o077
+                or not fs.private_mode_ok(metadata)
                 or not 1 <= metadata.st_size <= maximum):
             raise RuntimeError(f"private export file is invalid: {path}")
         encoded = b""
@@ -128,8 +128,8 @@ def _validate_private_directory(path: Path) -> None:
     except OSError as exc:
         raise RuntimeError(f"private export directory is unavailable: {path}") from exc
     if (not stat.S_ISDIR(metadata.st_mode)
-            or metadata.st_uid != os.getuid()
-            or metadata.st_mode & 0o077):
+            or not fs.owned_by_caller(metadata)
+            or not fs.private_mode_ok(metadata)):
         raise RuntimeError(f"private export directory is invalid: {path}")
 
 
@@ -142,8 +142,7 @@ def _open_read_only(path: Path) -> sqlite3.Connection:
 
 
 def _backup_database(source: Path, destination: Path) -> None:
-    flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
-             | getattr(os, "O_NOFOLLOW", 0))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | fs.PRIVATE_OPEN_FLAGS
     descriptor = os.open(destination, flags, 0o600)
     os.close(descriptor)
     with _open_read_only(source) as source_connection:
@@ -157,8 +156,8 @@ def _backup_database(source: Path, destination: Path) -> None:
                 raise RuntimeError("exported database failed SQLite integrity check")
         finally:
             destination_connection.close()
-    os.chmod(destination, 0o600)
-    descriptor = os.open(destination, os.O_RDONLY | os.O_CLOEXEC)
+    fs.chmod_private(destination, 0o600)
+    descriptor = os.open(destination, os.O_RDONLY | fs.PRIVATE_OPEN_FLAGS)
     try:
         os.fsync(descriptor)
     finally:
@@ -223,8 +222,7 @@ def _manifest_for(path: Path) -> dict[str, Any]:
 
 
 def _write_private_file(path: Path, body: bytes) -> None:
-    flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
-             | getattr(os, "O_NOFOLLOW", 0))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | fs.PRIVATE_OPEN_FLAGS
     descriptor = os.open(path, flags, 0o600)
     try:
         view = memoryview(body)
@@ -237,11 +235,7 @@ def _write_private_file(path: Path, body: bytes) -> None:
 
 
 def _fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    fs.fsync_directory(path)
 
 
 def export_private_data(database: str | Path, target: str | Path) -> dict[str, Any]:
@@ -714,7 +708,7 @@ def _validate_sqlite_sidecars(database: Path) -> list[Path]:
         except OSError as exc:
             raise RuntimeError("database sidecar identity cannot be verified") from exc
         if (not stat.S_ISREG(metadata.st_mode)
-                or metadata.st_uid != os.getuid()
+                or not fs.owned_by_caller(metadata)
                 or metadata.st_nlink != 1):
             raise RuntimeError("database sidecar identity is invalid")
         sidecars.append(candidate)
@@ -743,18 +737,17 @@ def delete_private_data(
     sidecars = _validate_sqlite_sidecars(source)
 
     lock_path = Path(str(source) + ".data-lifecycle.lock")
-    lock_flags = (os.O_RDWR | os.O_CREAT | os.O_CLOEXEC
-                  | getattr(os, "O_NOFOLLOW", 0))
+    lock_flags = os.O_RDWR | os.O_CREAT | fs.PRIVATE_OPEN_FLAGS
     lock_descriptor = os.open(lock_path, lock_flags, 0o600)
     temporary: Path | None = None
     try:
         lock_metadata = os.fstat(lock_descriptor)
         if (not stat.S_ISREG(lock_metadata.st_mode)
-                or lock_metadata.st_uid != os.getuid()
+                or not fs.owned_by_caller(lock_metadata)
                 or lock_metadata.st_nlink != 1):
             raise RuntimeError("data-lifecycle lock identity is invalid")
-        os.fchmod(lock_descriptor, 0o600)
-        fcntl.flock(lock_descriptor, fcntl.LOCK_EX)
+        fs.chmod_private(lock_descriptor, 0o600)
+        fs.lock_exclusive(lock_descriptor)
         _checkpoint_stopped_database(source)
         before_digest, before_metadata = _sha256_private(
             source, maximum=MAX_DATABASE_BYTES)
@@ -795,9 +788,9 @@ def delete_private_data(
                 raise RuntimeError("compacted database has dangling references")
             if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
                 raise RuntimeError("compacted database failed SQLite integrity check")
-        os.chmod(replacement, 0o600)
+        fs.chmod_private(replacement, 0o600)
         replacement_descriptor = os.open(
-            replacement, os.O_RDONLY | os.O_CLOEXEC)
+            replacement, os.O_RDONLY | fs.PRIVATE_OPEN_FLAGS)
         try:
             os.fsync(replacement_descriptor)
         finally:
@@ -829,5 +822,5 @@ def delete_private_data(
     finally:
         if temporary is not None and temporary.exists():
             shutil.rmtree(temporary)
-        fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
+        fs.unlock(lock_descriptor)
         os.close(lock_descriptor)

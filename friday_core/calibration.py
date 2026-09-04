@@ -17,6 +17,7 @@ import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
+from friday_host import fs
 
 from .hardware import RuntimeProfile
 
@@ -506,8 +507,8 @@ def _read_private_json(path: Path) -> tuple[str, dict[str, Any] | None]:
     except OSError:
         return "invalid", None
     if (not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_uid != os.geteuid()
-            or stat.S_IMODE(metadata.st_mode) & 0o077):
+            or not fs.owned_by_caller(metadata)
+            or not fs.private_mode_ok(metadata)):
         return "insecure", None
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
@@ -526,7 +527,7 @@ def _atomic_write_private_json(path: Path, value: dict[str, Any]) -> None:
         prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
     try:
-        os.fchmod(descriptor, 0o600)
+        fs.chmod_private(descriptor, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             descriptor = -1
             json.dump(value, stream, sort_keys=True, separators=(",", ":"))
@@ -534,11 +535,7 @@ def _atomic_write_private_json(path: Path, value: dict[str, Any]) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        fs.fsync_directory(path.parent)
     finally:
         if descriptor >= 0:
             os.close(descriptor)
@@ -885,13 +882,7 @@ class PendingCalibrationStore:
             self.path.unlink()
         except FileNotFoundError:
             return False
-        directory = os.open(
-            self.path.parent,
-            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        fs.fsync_directory(self.path.parent)
         return True
 
     def public_status(self, profile: RuntimeProfile) -> dict[str, Any]:

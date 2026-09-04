@@ -11,6 +11,7 @@ import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
+from friday_host import fs
 
 from .runtime_paths import (
     default_config_root,
@@ -47,14 +48,14 @@ class LiveRuntimeIdentity:
 
 
 def _read_private_regular(path: Path, *, minimum: int, maximum: int) -> bytes:
-    flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | fs.PRIVATE_OPEN_FLAGS
     try:
         descriptor = os.open(path, flags)
         with os.fdopen(descriptor, "rb") as stream:
             metadata = os.fstat(stream.fileno())
             if (not stat.S_ISREG(metadata.st_mode)
-                    or metadata.st_uid != os.getuid()
-                    or metadata.st_mode & 0o077
+                    or not fs.owned_by_caller(metadata)
+                    or not fs.private_mode_ok(metadata)
                     or not minimum <= metadata.st_size <= maximum):
                 raise RuntimeError(f"private runtime file is invalid: {path}")
             encoded = stream.read(maximum + 1)

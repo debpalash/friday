@@ -12,6 +12,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from friday_host import fs
 
 from .dependency_review import run_dependency_review
 from .installer_rehearsal import InstallerRehearsalRunner
@@ -55,8 +56,8 @@ def write_private_candidate_report(path: Path, report: dict[str, Any]) -> None:
     parent = path.parent
     parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     metadata = parent.stat()
-    if (metadata.st_uid != os.getuid()
-            or stat.S_IMODE(metadata.st_mode) & 0o077):
+    if (not fs.owned_by_caller(metadata)
+            or not fs.private_mode_ok(metadata)):
         raise PermissionError("release-candidate report directory must be private")
     descriptor, temporary = tempfile.mkstemp(
         prefix=".release-candidate-", dir=parent)

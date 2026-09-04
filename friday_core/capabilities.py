@@ -13,6 +13,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from friday_host import fs
+
 from .graph import GraphStore, canonical_json, new_id, sha256_text, utc_now
 
 
@@ -99,11 +101,7 @@ class CapabilityManager:
             os.replace(staging, version_dir)
             # Persist the parent directory entry before the surrounding database
             # transaction commits its reference to this artifact.
-            directory_fd = os.open(capability_dir, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            fs.fsync_directory(capability_dir)
             return version_dir
         except Exception:
             if staging.exists():

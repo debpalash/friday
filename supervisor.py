@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import base64
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -41,6 +40,7 @@ from friday_core.graph import GraphStore
 from friday_core.tls import ensure_tls_material
 from friday_core.vision_evals import (NativeVisionEvalRunner,
                                       has_qualified_native_vision_score)
+from friday_host import fs, procs
 
 REPO = Path(__file__).resolve().parent
 _CONFIGURED_STATE_DIR = os.environ.get("FRIDAY_STATE_DIR", "").strip()
@@ -284,13 +284,7 @@ def active_profile_matches(
 
 
 def _boot_id_hash(path: Path = Path("/proc/sys/kernel/random/boot_id")) -> str:
-    try:
-        boot_id = path.read_text().strip()
-    except OSError as exc:
-        raise RuntimeError("cannot read kernel boot identity") from exc
-    if not boot_id:
-        raise RuntimeError("kernel boot identity is empty")
-    return hashlib.sha256(boot_id.encode()).hexdigest()
+    return procs.boot_id_hash(path)
 
 
 def _process_start_ticks(pid: int) -> int:
@@ -341,7 +335,7 @@ def _write_runtime_process_binding(profile: RuntimeProfile, pid: int) -> None:
         prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
     try:
-        os.fchmod(descriptor, 0o600)
+        fs.chmod_private(descriptor, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             descriptor = -1
             json.dump(value, stream, sort_keys=True, separators=(",", ":"))
@@ -349,12 +343,7 @@ def _write_runtime_process_binding(profile: RuntimeProfile, pid: int) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        directory = os.open(
-            path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        fs.fsync_directory(path.parent)
     finally:
         if descriptor >= 0:
             os.close(descriptor)
@@ -369,13 +358,7 @@ def _invalidate_runtime_process_binding() -> None:
         QWEN_RUNTIME_BINDING_FILE.unlink()
     except FileNotFoundError:
         return
-    directory = os.open(
-        QWEN_RUNTIME_BINDING_FILE.parent,
-        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    try:
-        os.fsync(directory)
-    finally:
-        os.close(directory)
+    fs.fsync_directory(QWEN_RUNTIME_BINDING_FILE.parent)
 
 
 def active_runtime_process_matches(
@@ -1230,7 +1213,7 @@ def _private_log(path: Path):
     flags = (os.O_WRONLY | os.O_CREAT | os.O_APPEND
              | getattr(os, "O_NOFOLLOW", 0))
     descriptor = os.open(path, flags, 0o600)
-    os.fchmod(descriptor, 0o600)
+    fs.chmod_private(descriptor, 0o600)
     return os.fdopen(descriptor, "a")
 
 
@@ -1239,7 +1222,7 @@ def _private_state_stream(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(path, flags, 0o600)
-    os.fchmod(descriptor, 0o600)
+    fs.chmod_private(descriptor, 0o600)
     return os.fdopen(descriptor, "r+")
 
 
@@ -1247,11 +1230,11 @@ def _private_state_stream(path: Path):
 def _service_start_lock(path: Path):
     """Serialize health-check/adopt/launch as one service-start decision."""
     with _private_state_stream(path) as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        fs.lock_exclusive(lock.fileno())
         try:
             yield
         finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            fs.unlock(lock.fileno())
 
 
 @contextlib.contextmanager
@@ -1268,7 +1251,7 @@ def lifecycle_operation(*, voice: str | None = None,
         deadline = time.monotonic() + wait_seconds
         while True:
             try:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fs.lock_exclusive(lock.fileno(), blocking=False)
                 break
             except BlockingIOError as exc:
                 if time.monotonic() >= deadline:
@@ -1287,7 +1270,7 @@ def lifecycle_operation(*, voice: str | None = None,
             lock.seek(0)
             lock.truncate()
             lock.flush()
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            fs.unlock(lock.fileno())
 
 
 @contextlib.contextmanager
@@ -1295,7 +1278,7 @@ def watch_operation():
     """Fence the singleton watch loop without trusting a reusable PID."""
     with _private_state_stream(SUPERVISOR_PID) as lock:
         try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fs.lock_exclusive(lock.fileno(), blocking=False)
         except BlockingIOError as exc:
             lock.seek(0)
             prior = lock.read().strip() or "unknown"
@@ -1311,7 +1294,7 @@ def watch_operation():
             lock.seek(0)
             lock.truncate()
             lock.flush()
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            fs.unlock(lock.fileno())
 
 
 def _require_active_qwen_profile(
@@ -1384,18 +1367,13 @@ def _unlink_pid_snapshot(path: Path, snapshot: str | None) -> bool:
 
 
 def owned(pid: int, cwd: Path, marker: str) -> bool:
-    try:
-        actual_cwd = Path(f"/proc/{pid}/cwd").resolve()
-        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode()
-        return actual_cwd == cwd.resolve() and marker in cmdline
-    except OSError:
-        return False
+    return procs.owned(pid, cwd, marker)
 
 
 def discover_pid(cwd: Path, marker: str) -> int | None:
-    for proc in Path("/proc").iterdir():
-        if proc.name.isdigit() and owned(int(proc.name), cwd, marker):
-            return int(proc.name)
+    for pid in procs.iter_pids():
+        if owned(pid, cwd, marker):
+            return pid
     return None
 
 
@@ -1505,15 +1483,12 @@ def cleanup_orphaned_qwen(profile: RuntimeProfile | None = None) -> list[int]:
     selected = profile or resolve_runtime_profile()
     if healthy(selected.health_url):
         return removed
-    for proc in Path("/proc").iterdir():
-        if not proc.name.isdigit():
-            continue
-        pid = int(proc.name)
+    for pid in procs.iter_pids():
         try:
-            cwd = Path(f"/proc/{pid}/cwd").resolve()
-            comm = Path(f"/proc/{pid}/comm").read_text().strip()
+            identity = procs.process_identity(pid)
         except OSError:
             continue
+        cwd, comm = identity.cwd, identity.comm
         if cwd == QWEN.resolve() and ("VLLM" in comm or "vllm" in comm.lower()):
             os.kill(pid, signal.SIGTERM)
             removed.append(pid)
@@ -1931,7 +1906,7 @@ def lifecycle_request() -> dict | None:
     """Return metadata only while another process holds lifecycle ownership."""
     with _private_state_stream(LIFECYCLE_LOCK) as lock:
         try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fs.lock_exclusive(lock.fileno(), blocking=False)
         except BlockingIOError:
             lock.seek(0)
             try:
@@ -1945,18 +1920,18 @@ def lifecycle_request() -> dict | None:
             lock.seek(0)
             lock.truncate()
             lock.flush()
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            fs.unlock(lock.fileno())
             return None
 
 
 def lifecycle_locked() -> bool:
     with _private_state_stream(LIFECYCLE_LOCK) as lock:
         try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fs.lock_exclusive(lock.fileno(), blocking=False)
         except BlockingIOError:
             return True
         else:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            fs.unlock(lock.fileno())
             return False
 
 

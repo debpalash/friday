@@ -13,7 +13,6 @@ failure, not a reason to launch with weaker fencing.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import math
@@ -33,6 +32,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import (BaseModel, ConfigDict, Field, field_validator,
                       model_validator)
+from friday_host import fs
 
 from .cognition import ResourceClaim
 from .graph import GraphStore, canonical_json, new_id, sha256_text, utc_now
@@ -1925,15 +1925,14 @@ class ProcessBroker:
     def _operation_lock(self, identity: str) -> Iterator[None]:
         lock_name = hashlib.sha256(identity.encode("utf-8")).hexdigest() + ".lock"
         path = self.lock_root / lock_name
-        flags = (os.O_RDWR | os.O_CREAT | os.O_CLOEXEC
-                 | getattr(os, "O_NOFOLLOW", 0))
+        flags = os.O_RDWR | os.O_CREAT | fs.PRIVATE_OPEN_FLAGS
         descriptor = os.open(path, flags, 0o600)
-        os.fchmod(descriptor, 0o600)
+        fs.chmod_private(descriptor, 0o600)
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            fs.lock_exclusive(descriptor)
             yield
         finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            fs.unlock(descriptor)
             os.close(descriptor)
 
     def _persist_spec(self, spec: ProcessSpec, *,

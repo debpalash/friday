@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from friday_host import fs
 
 from .graph import GraphStore, canonical_json, new_id
 
@@ -255,13 +256,12 @@ def verify_p256_signature(
 
 def _load_or_create_auth_key(path: Path) -> bytes:
     path.parent.mkdir(parents=True, exist_ok=True)
-    flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | fs.PRIVATE_OPEN_FLAGS
     try:
         descriptor = os.open(path, flags)
     except FileNotFoundError:
         key = secrets.token_bytes(32)
-        create_flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
-                        | getattr(os, "O_NOFOLLOW", 0))
+        create_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | fs.PRIVATE_OPEN_FLAGS
         try:
             descriptor = os.open(path, create_flags, 0o600)
         except FileExistsError:
@@ -271,23 +271,17 @@ def _load_or_create_auth_key(path: Path) -> bytes:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
-        directory_descriptor = os.open(
-            path.parent, os.O_RDONLY | os.O_CLOEXEC
-            | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory_descriptor)
-        finally:
-            os.close(directory_descriptor)
+        fs.fsync_directory(path.parent)
         return key
     except OSError as exc:
         raise RuntimeError(
             "controller authentication key identity is invalid") from exc
     try:
         observed = os.fstat(descriptor)
-        if (not stat.S_ISREG(observed.st_mode) or observed.st_uid != os.getuid()
+        if (not stat.S_ISREG(observed.st_mode) or not fs.owned_by_caller(observed)
                 or observed.st_nlink != 1 or observed.st_size != 32):
             raise RuntimeError("controller authentication key identity is invalid")
-        os.fchmod(descriptor, 0o600)
+        fs.chmod_private(descriptor, 0o600)
         key = os.read(descriptor, 33)
     finally:
         os.close(descriptor)

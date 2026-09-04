@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Sequence
 
 import numpy as np
+from friday_host import fs, procs
 
 
 MODEL_ID = "intfloat/multilingual-e5-small"
@@ -53,11 +54,7 @@ def _sha256_file(path: Path) -> str:
 
 def _host_capacity() -> tuple[int, int]:
     cpus = max(1, int(os.cpu_count() or 1))
-    try:
-        memory = int(os.sysconf("SC_PHYS_PAGES")) * int(
-            os.sysconf("SC_PAGE_SIZE"))
-    except (OSError, TypeError, ValueError):
-        memory = 0
+    memory = procs.physical_memory_bytes()
     return cpus, memory
 
 
@@ -90,7 +87,7 @@ class LocalTextEmbedder:
         except OSError as exc:
             raise RuntimeError("pinned local embedding model is unavailable") from exc
         if (not stat.S_ISDIR(metadata.st_mode) or self.model_path.is_symlink()
-                or metadata.st_uid != os.getuid()):
+                or not fs.owned_by_caller(metadata)):
             raise RuntimeError("pinned local embedding directory is invalid")
         for name, (expected_size, expected_hash) in _ASSETS.items():
             path = self.model_path / name
@@ -100,7 +97,7 @@ class LocalTextEmbedder:
                 raise RuntimeError(
                     f"pinned embedding asset is unavailable: {name}") from exc
             if (not stat.S_ISREG(item.st_mode) or path.is_symlink()
-                    or item.st_uid != os.getuid() or item.st_size != expected_size
+                    or not fs.owned_by_caller(item) or item.st_size != expected_size
                     or _sha256_file(path) != expected_hash):
                 raise RuntimeError(f"pinned embedding asset is invalid: {name}")
         self._verified = True
