@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import platform
 import shutil
 import ssl
 import subprocess
@@ -18,16 +17,18 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from friday_core.speech import pinned_omnivoice_model_path
+from friday_host.host import current_host
+from friday_host.paths import default_install_root, venv_python
+from friday_host.service import backend_for
 
-
+HOST = current_host()
 STATE = Path(os.environ.get("FRIDAY_STATE_DIR", str(REPO / "state"))).expanduser()
-DEFAULT_INSTALL_ROOT = Path(
-    os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
-) / "friday"
+DEFAULT_INSTALL_ROOT = default_install_root()
 QWEN = Path(
     os.environ.get("FRIDAY_LLM_REPO", str(DEFAULT_INSTALL_ROOT / "runtime" / "qwen"))
 ).expanduser()
+RUNTIME_ROOT = Path(os.environ.get("FRIDAY_RUNTIME_ROOT", str(QWEN.parent))).expanduser()
+ENGINE = os.environ.get("FRIDAY_LLM_ENGINE", "vllm" if HOST.is_linux else "auto").strip()
 
 
 def _check(name: str, passed: bool, detail: str, *, required: bool = True) -> dict[str, Any]:
@@ -59,19 +60,53 @@ def _gpu() -> dict[str, Any]:
     )
 
 
-def _systemd() -> dict[str, Any]:
-    try:
-        result = subprocess.run(
-            ["systemctl", "--user", "show-environment"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-            text=True, timeout=10,
+def _service_manager() -> dict[str, Any]:
+    if HOST.is_linux:
+        try:
+            result = subprocess.run(
+                ["systemctl", "--user", "show-environment"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                text=True, timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return _check("systemd_user", False, str(exc))
+        return _check(
+            "systemd_user", result.returncode == 0,
+            "available" if result.returncode == 0 else result.stderr.strip()[-300:],
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        return _check("systemd_user", False, str(exc))
-    return _check(
-        "systemd_user", result.returncode == 0,
-        "available" if result.returncode == 0 else result.stderr.strip()[-300:],
-    )
+    if HOST.is_macos:
+        try:
+            backend = backend_for(HOST)
+            registered = backend.is_enabled()
+        except (OSError, NotImplementedError) as exc:
+            return _check("launchd_agent", False, str(exc))
+        return _check("launchd_agent", registered,
+                      "login agent registered" if registered
+                      else "login agent is not registered; run the installer",
+                      required=False)
+    return _check("service_manager", False, "no service backend for this platform")
+
+
+def _portable_engine() -> list[dict[str, Any]]:
+    """Engine checks for the llama-server and MLX runtimes."""
+    checks = []
+    if ENGINE == "mlx_lm" or (ENGINE == "auto" and HOST.is_macos and HOST.arch == "aarch64"):
+        checks.append(_check(
+            "mlx_runtime", (RUNTIME_ROOT / "mlx" / "FRIDAY_ENGINE_PIN").is_file(),
+            str(RUNTIME_ROOT / "mlx")))
+    else:
+        pins = list((RUNTIME_ROOT / "llama-server").glob("*/FRIDAY_ENGINE_PIN"))
+        checks.append(_check("llama_server", bool(pins),
+                             str(pins[0].parent) if pins else "no pinned llama-server build"))
+    model_pins = list((REPO / "models").glob("qwen3-*/FRIDAY_MODEL_PIN"))
+    checks.append(_check("local_model", bool(model_pins),
+                         str(model_pins[0].parent) if model_pins
+                         else "no pinned Qwen3 checkpoint under models/"))
+    key_file = Path(os.environ.get("FRIDAY_LOCAL_API_KEY_FILE", str(STATE / "local-api-key")))
+    checks.append(_check("local_api_key", key_file.is_file() or not key_file.parent.exists(),
+                         "created on first start" if not key_file.is_file() else str(key_file),
+                         required=False))
+    return checks
 
 
 def _health(port: int) -> dict[str, Any]:
@@ -92,6 +127,8 @@ def _health(port: int) -> dict[str, Any]:
 
 
 def _omnivoice() -> dict[str, Any]:
+    from friday_core.speech import pinned_omnivoice_model_path  # noqa: PLC0415
+
     try:
         model = pinned_omnivoice_model_path(REPO)
     except RuntimeError as exc:
@@ -100,25 +137,32 @@ def _omnivoice() -> dict[str, Any]:
 
 
 def run(*, expect_running: bool = False) -> dict[str, Any]:
+    supported = (HOST.is_linux and HOST.arch == "x86_64") or (HOST.is_macos and HOST.arch == "aarch64")
+    linux_vllm = HOST.is_linux and ENGINE in {"vllm", "auto"}
     results = [
         _check(
-            "platform",
-            sys.platform.startswith("linux") and platform.machine() in {"x86_64", "amd64"},
-            f"{sys.platform}/{platform.machine()}; supported: Linux x86_64",
+            "platform", supported,
+            f"{HOST.os}/{HOST.arch}; supported: Linux x86_64, macOS Apple Silicon",
         ),
-        _systemd(),
-        *(_command(name) for name in ("curl", "openssl", "bwrap", "systemctl")),
-        _gpu(),
-        _check("app_python", (REPO / "venv" / "bin" / "python").is_file(), str(REPO / "venv")),
+        _service_manager(),
+        *(_command(name) for name in
+          (("curl", "openssl", "bwrap", "systemctl") if HOST.is_linux else ("curl", "launchctl"))),
+        *([_gpu()] if linux_vllm else []),
+        _check("app_python", venv_python(REPO, HOST).is_file(), str(REPO / "venv")),
         _check("asr_model", (REPO / "models" / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8" / "encoder.int8.onnx").is_file(), "pinned Parakeet int8 assets"),
         _check("piper_voice", any((REPO / "models").glob("piper-en_US-kristin-medium-*/en_US-kristin-medium.onnx")), "pinned Kristin voice"),
-        _omnivoice(),
+        *([_omnivoice()] if linux_vllm else []),
         _check("embedding_model", any((REPO / "models").glob("multilingual-e5-small-*/onnx/model.onnx")), "pinned multilingual embedding model (ONNX)", required=False),
         _check("vad_model", any((REPO / "models").glob("silero-vad-*/silero_vad.onnx")), "pinned Silero VAD model"),
-        _check("qwen_root", (QWEN / "single-user" / "start_qwen.sh").is_file(), str(QWEN)),
-        _check("qwen_runtime", (QWEN / "venv" / "bin" / "vllm").is_file(), "pinned vLLM runtime"),
-        _check("qwen_model", (QWEN / "models" / "Huihui-Qwen3.8-27B-Abliterated-W4A16-AutoRound" / "config.json").is_file(), "Friday's default local checkpoint"),
     ]
+    if linux_vllm:
+        results += [
+            _check("qwen_root", (QWEN / "single-user" / "start_qwen.sh").is_file(), str(QWEN)),
+            _check("qwen_runtime", (QWEN / "venv" / "bin" / "vllm").is_file(), "pinned vLLM runtime"),
+            _check("qwen_model", (QWEN / "models" / "Huihui-Qwen3.8-27B-Abliterated-W4A16-AutoRound" / "config.json").is_file(), "Friday's default local checkpoint"),
+        ]
+    else:
+        results += _portable_engine()
     if expect_running:
         try:
             port = int(os.environ.get("FRIDAY_PORT", "8500"))

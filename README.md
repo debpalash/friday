@@ -125,22 +125,25 @@ The release checks reject them if they become tracked.
 
 ## Supported machine
 
-The first public target is deliberately specific.
+Two qualified targets today; Windows follows in the next phase of the port.
 
-| Requirement | Support |
-|---|---|
-| Operating system | Linux x86_64 with a working systemd user session |
-| GPU | NVIDIA CUDA GPU with at least 22 GiB VRAM |
-| Disk | About 50 GiB free for the default runtime and model assets |
-| Python | Python 3.12 in installer-owned virtual environments |
-| Desktop actions | Hyprland in the current preview |
-| Browser actions | A managed Chromium installation |
-| Host tools | `bash`, `bwrap`, `curl`, `git`, `openssl`, `patch`, `tar`, `systemctl` |
+| Requirement | Linux | macOS |
+|---|---|---|
+| Operating system | x86_64 with a working systemd user session | macOS 14 or newer on Apple Silicon |
+| Model engine | vLLM on an NVIDIA CUDA GPU with at least 22 GiB VRAM | MLX with a pinned 4-bit Qwen3 checkpoint sized to unified memory |
+| Memory / disk | About 50 GiB free for the default runtime and model | At least 16 GiB unified memory and about 30 GiB free |
+| Python | Python 3.12 in installer-owned virtual environments | Same, provisioned by a pinned `uv` |
+| Service | systemd user unit `friday.service` | launchd login agent `dev.palash.friday` |
+| Desktop actions | Hyprland in the current preview | Reported as unavailable |
+| Browser actions | A managed Chromium installation | Reported as unavailable |
+| Host tools | `bash`, `bwrap`, `curl`, `git`, `openssl`, `patch`, `tar`, `systemctl` | `curl`, `tar`, `shasum`, `launchctl` |
 
-The installer does not currently support macOS, native Windows, containers,
-multi-user hosts, or non-NVIDIA inference. WSL 2 is reachable through the
-Windows bootstrap but is unqualified. Other Linux desktops may run the conversation
-interface, but desktop automation is not supported outside Hyprland yet.
+Conversation, memory, reminders, documents in granted paths, web and news
+tools, and voice run on both. Desktop control, sandboxed process launches, the
+managed browser, PDF and OCR readers, and Omarchy integration stay Linux-only
+and are listed as unavailable in the UI rather than silently dropped. Intel
+Macs, native Windows, containers, multi-user hosts, and Linux without an
+NVIDIA GPU are not supported yet.
 
 Friday selects the runtime profile from physical GPU identity and VRAM. A
 single 22 to 28 GiB card keeps the long-context model on GPU and moves Piper to
@@ -152,11 +155,17 @@ resource-admission rules.
 
 ## Install a release
 
-One command on Linux:
+One command on Linux or macOS:
 
 ```bash
 curl -fsSL https://friday.palash.dev/install | bash
 ```
+
+On macOS the installer bootstraps a pinned `uv`, verifies the source with
+`shasum`, installs under `~/Library/Application Support/Friday`, registers a
+login agent, and provisions the MLX runtime and a Qwen3 checkpoint that fits
+the machine. `friday open` then launches the pinned app window; `friday
+trust-ca` optionally trusts the private loopback CA for other browsers.
 
 From Windows PowerShell, into an existing WSL 2 distribution:
 

@@ -26,3 +26,11 @@ condition = "AND"
 regexTarget = "match"
 regexes = ['''key_b64"\s*:\s*"[A-Za-z0-9+/]{86}=="''']
 paths = ['''tests/fixtures/crypto/(?:step_payload|corrected_audio)_openssl_v1\.json''']
+
+[[allowlists]]
+description = "Logical asset identifier passed to the installer test's ModelAsset"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+regexes = ['''key="qwen3-test-[a-z0-9-]{1,32}"''']
+paths = ['''tests/test_engine_installers\.py''']

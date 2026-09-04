@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Friday installer for Linux/x86_64. The whole implementation is parsed before
-# execution so a streamed invocation cannot strand a half-read script.
+# Friday installer for Linux/x86_64 and macOS/Apple Silicon. The whole
+# implementation is parsed before execution so a streamed invocation cannot
+# strand a half-read script. macOS hands over to ops/install_core.py after
+# bootstrapping uv and the source tree; Linux runs the bash transaction below.
 
 friday_install() {
+  if [[ "$(uname -s 2>/dev/null || true)" == Darwin ]]; then
+    friday_install_darwin "$@"
+    return
+  fi
   set -Eeuo pipefail
 
   local repository="${FRIDAY_REPOSITORY:-debpalash/friday}"
@@ -460,7 +466,7 @@ PY
   "$uv_bin" pip sync --python "$release_dir/venv/bin/python" \
     --require-hashes "$release_dir/$lock_file"
   (cd "$release_dir" && venv/bin/python - <<'PY'
-import fastapi, numpy, openai, pydantic, sherpa_onnx, silero_vad, torch, uvicorn, websockets
+import cryptography, fastapi, numpy, onnxruntime, openai, pydantic, sherpa_onnx, uvicorn, websockets
 from friday_core import GraphStore
 print("app runtime imports verified")
 PY
@@ -559,6 +565,160 @@ PY
   trap - EXIT HUP INT TERM
   printf '\n  %s\n' '────────────────────────────────────────────────────'
   printf '  Friday installed\n  launch         friday open\n  status         friday status\n  diagnostics    friday doctor\n  stop model     friday stop\n\n'
+}
+
+friday_install_darwin() {
+  set -Eeuo pipefail
+
+  local repository="${FRIDAY_REPOSITORY:-debpalash/friday}"
+  local install_ref="${FRIDAY_INSTALL_REF:-main}"
+  local source_sha256="${FRIDAY_SOURCE_SHA256:-}"
+  local source_dir="" source_archive="" source_revision=""
+  local install_root="${FRIDAY_INSTALL_ROOT:-$HOME/Library/Application Support/Friday/app}"
+  local cache_root="${FRIDAY_CACHE_ROOT:-$HOME/Library/Caches/Friday}"
+  local core_args=()
+  local uv_version=0.12.9
+  local uv_arm64_sha256=301f72afaf54060f92da7016cb0115bd077f43a9c8e39c1d8170a0bac80fd398
+
+  fail() { printf '\nFriday install failed: %s\n' "$*" >&2; exit 1; }
+  step() { printf '\n  %-14s %s\n' "$1" "$2"; }
+  usage() {
+    cat <<'EOF'
+Install Friday as a private local desktop assistant (macOS, Apple Silicon).
+
+Usage:
+  Download and verify a versioned installer from GitHub Releases, then run it.
+  Development checkout: ./install.sh --local .
+
+Options:
+  --local PATH          Install an exact local Git checkout
+  --archive PATH        Install a release-style source tarball from disk
+  --source-sha256 HASH  Required SHA-256 for --archive; optional for --ref
+  --ref REF             Install a GitHub branch, tag, or commit (default: main)
+  --root PATH           App/runtime root (default: ~/Library/Application Support/Friday/app)
+  --state-root PATH     Personal state root (default: ~/Library/Application Support/Friday/state)
+  --config-root PATH    Private configuration root (default: ~/Library/Application Support/Friday/config)
+  --owner NAME          Owner identity used by Friday
+  --engine NAME         auto (default), mlx_lm, or llama_server
+  --skip-assets         Do not install ASR, voice, embedding, or model assets
+  --no-start            Install and enable Friday without starting it
+  --repair              Reinstall even when the same source revision is present
+  -h, --help            Show this help
+
+Public install requirements: macOS 14 or newer on Apple Silicon with at least
+16 GiB of unified memory and about 30 GiB free disk for the default model.
+EOF
+  }
+
+  while (($#)); do
+    case "$1" in
+      --local) [[ $# -ge 2 ]] || fail "--local needs a path"; source_dir="$2"; shift 2 ;;
+      --archive) [[ $# -ge 2 ]] || fail "--archive needs a path"; source_archive="$2"; shift 2 ;;
+      --source-sha256) [[ $# -ge 2 ]] || fail "--source-sha256 needs a value"; source_sha256="$2"; shift 2 ;;
+      --ref) [[ $# -ge 2 ]] || fail "--ref needs a value"; install_ref="$2"; shift 2 ;;
+      --root) [[ $# -ge 2 ]] || fail "--root needs a path"; install_root="$2"; core_args+=(--root "$2"); shift 2 ;;
+      --state-root|--config-root|--llm-root|--owner|--engine)
+        [[ $# -ge 2 ]] || fail "$1 needs a value"; core_args+=("$1" "$2"); shift 2 ;;
+      --build-venv|--skip-assets|--skip-hardware-check|--no-start|--repair)
+        core_args+=("$1"); shift ;;
+      -h|--help) usage; return 0 ;;
+      *) fail "unknown argument: $1" ;;
+    esac
+  done
+  [[ -z "$source_dir" || -z "$source_archive" ]] \
+    || fail "--local and --archive are mutually exclusive"
+  if [[ -n "$source_sha256" && ! "$source_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+    fail "source SHA-256 must be 64 lowercase hexadecimal characters"
+  fi
+  [[ -z "$source_archive" || -n "$source_sha256" ]] \
+    || fail "--archive requires --source-sha256"
+
+  [[ "$(id -u)" -ne 0 ]] || fail "run the installer as your desktop user, not root"
+  [[ "$(uname -m)" == arm64 ]] \
+    || fail "macOS installs need Apple Silicon; Intel Macs are not supported by this release"
+  local product_version
+  product_version="$(sw_vers -productVersion 2>/dev/null || printf '0')"
+  [[ "${product_version%%.*}" -ge 14 ]] || fail "macOS 14 or newer is required"
+  local command_name
+  for command_name in curl tar shasum mktemp launchctl; do
+    command -v "$command_name" >/dev/null || fail "$command_name is required"
+  done
+  [[ "$install_root" == /* && "$install_root" != "$HOME" && "$install_root" != / ]] \
+    || fail "unsafe install root: $install_root"
+  [[ "$install_root" != *"'"* && "$cache_root" != *"'"* ]] \
+    || fail "install paths must not contain quotes"
+  umask 077
+  mkdir -p "$install_root/tools" "$cache_root/downloads"
+
+  printf '\n  Friday Installer\n  %s\n' '────────────────────────────────────────────────────'
+  step platform "macOS $product_version / Apple Silicon"
+
+  local uv_bin
+  if command -v uv >/dev/null 2>&1; then
+    uv_bin="$(command -v uv)"
+  else
+    local tool_root="$install_root/tools/uv/$uv_version"
+    local bundle="$cache_root/downloads/uv-$uv_version-aarch64-apple-darwin.tar.gz"
+    if [[ ! -x "$tool_root/uv" ]]; then
+      step bootstrap "downloading uv $uv_version"
+      mkdir -p "$tool_root"
+      curl --fail --location --retry 5 --retry-all-errors --output "$bundle.part" \
+        "https://github.com/astral-sh/uv/releases/download/$uv_version/uv-aarch64-apple-darwin.tar.gz"
+      printf '%s  %s\n' "$uv_arm64_sha256" "$bundle.part" | shasum -a 256 -c - >/dev/null \
+        || fail "uv archive SHA-256 does not match"
+      tar -xzf "$bundle.part" --strip-components=1 -C "$tool_root"
+      mv "$bundle.part" "$bundle"
+    fi
+    uv_bin="$tool_root/uv"
+  fi
+  step bootstrap "resolving a managed Python 3.12 for the installer"
+  "$uv_bin" python install 3.12 >/dev/null 2>&1 || true
+  local python_bin
+  python_bin="$("$uv_bin" python find 3.12)" || fail "uv could not provide Python 3.12"
+  [[ -x "$python_bin" ]] || fail "installer Python is not executable: $python_bin"
+
+  if [[ -n "$source_dir" ]]; then
+    [[ -d "$source_dir" ]] || fail "local source is not a directory: $source_dir"
+    source_dir="$(cd "$source_dir" && pwd -P)"
+    [[ -f "$source_dir/server.py" && -f "$source_dir/ops/install_core.py" ]] \
+      || fail "local source is not a Friday checkout: $source_dir"
+  else
+    local workdir archive top_levels
+    workdir="$(mktemp -d "$cache_root/source.XXXXXX")"
+    archive="$workdir/source.tar.gz"
+    if [[ -n "$source_archive" ]]; then
+      [[ -f "$source_archive" && ! -L "$source_archive" ]] \
+        || fail "source archive must be a regular non-symlink file"
+      step source "verified local release archive ${source_sha256:0:12}"
+      cp -- "$source_archive" "$archive"
+      source_revision="archive-${source_sha256:0:12}"
+    else
+      step source "GitHub $repository@$install_ref"
+      curl --fail --location --retry 5 --retry-all-errors --output "$archive" \
+        "https://codeload.github.com/$repository/tar.gz/$install_ref"
+      source_revision="$(printf '%s' "$install_ref" | tr -c 'A-Za-z0-9._-' '_')"
+    fi
+    if [[ -n "$source_sha256" ]]; then
+      printf '%s  %s\n' "$source_sha256" "$archive" | shasum -a 256 -c - >/dev/null \
+        || fail "source archive SHA-256 does not match"
+    fi
+    if tar -tzf "$archive" | grep -Eq '(^/|^\.\./|/\.\./|/\.\.$|^\.\.$)'; then
+      fail "unsafe source archive member path"
+    fi
+    top_levels="$(tar -tzf "$archive" | cut -d/ -f1 | sort -u | grep -c .)"
+    [[ "$top_levels" == 1 ]] || fail "source archive has multiple top-level roots"
+    mkdir "$workdir/source"
+    tar -xzf "$archive" --strip-components=1 -C "$workdir/source"
+    source_dir="$workdir/source"
+    [[ -f "$source_dir/server.py" && -f "$source_dir/ops/install_core.py" ]] \
+      || fail "source archive is missing Friday install/runtime files"
+  fi
+
+  exec "$python_bin" "$source_dir/ops/install_core.py" \
+    --uv "$uv_bin" --source-dir "$source_dir" \
+    --host-os Darwin --host-arch "$(uname -m)" \
+    ${source_revision:+--source-revision "$source_revision"} \
+    ${core_args[@]+"${core_args[@]}"}
 }
 
 friday_install "$@"

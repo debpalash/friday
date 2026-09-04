@@ -7,9 +7,9 @@ import interfaceImage from "../assets/og.png";
 const version = versionFile.trim();
 const repository = "https://github.com/debpalash/friday";
 const docs = `${repository}/tree/main/docs`;
-const title = "Friday — a local assistant for your Linux workstation";
+const title = "Friday — a local assistant for your workstation";
 const description =
-  "Friday is a private voice and text assistant that runs locally, remembers context, and uses approved tools on your Linux workstation.";
+  "Friday is a private voice and text assistant that runs locally on Linux or macOS, remembers context, and uses approved tools on your workstation.";
 const linuxCommand = "curl -fsSL https://friday.palash.dev/install | bash";
 const windowsCommand = "irm https://friday.palash.dev/install.ps1 | iex";
 ---
@@ -28,22 +28,23 @@ const windowsCommand = "irm https://friday.palash.dev/install.ps1 | iex";
 
   <main id="main">
     <section class="hero" aria-labelledby="hero-heading">
-      <p class="status">Linux · local · developer preview</p>
+      <p class="status">Linux · macOS · local · developer preview</p>
       <h1 id="hero-heading">Your computer,<br />with a voice.</h1>
       <p class="intro">
         Talk, type, and hand off work. Friday runs on your machine, remembers
         context, and asks before it changes anything.
       </p>
 
-      <div class="install" aria-label="Linux install command">
+      <div class="install" aria-label="Linux and macOS install command">
         <code>{linuxCommand}</code>
-        <button type="button" data-copy={linuxCommand} aria-label="Copy the Linux install command">
+        <button type="button" data-copy={linuxCommand} aria-label="Copy the Linux and macOS install command">
           Copy
         </button>
       </div>
 
       <p class="requirements">
-        Linux x86_64 · NVIDIA GPU with 22+ GiB VRAM · about 50 GiB free
+        Linux x86_64 with an NVIDIA GPU (22+ GiB VRAM) · macOS 14+ on Apple
+        Silicon (16+ GiB unified memory)
       </p>
 
       <details>
