@@ -1,21 +1,21 @@
 # Direct Friday application dependencies for the portable core (every OS).
 # Compile every platform lock with scripts/compile-locks.sh.
-cryptography==46.0.5
+cryptography==50.0.1
 fastapi==0.141.1
 faster-whisper==1.2.1
 httpx==0.28.1
 numpy==2.5.2
 onnxruntime==1.29.0
-openai==3.3.1
+openai==3.6.0
 pillow==12.3.0
-piper-tts==1.4.2
-playwright==1.55.0
+piper-tts==1.7.0
+playwright==1.62.0
 psutil==7.2.2
-pydantic==2.13.4
-scipy==1.18.0
+pydantic==2.13.5
+scipy==1.18.1
 sherpa-onnx==1.13.3
 sherpa-onnx-core==1.13.3
 soundfile==0.14.0
-tokenizers==0.22.2
+tokenizers==0.23.1
 uvicorn==0.52.4
 websockets==17.1
