@@ -1,28 +1,15 @@
-"""Portable defaults for Friday's installed runtime paths."""
+"""Portable defaults for Friday's installed runtime paths.
+
+The implementation lives in :mod:`friday_host.paths`; these names remain for
+existing callers.
+"""
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
+from friday_host.paths import (default_config_root, default_install_root,
+                               default_qwen_runtime, default_state_root)
 
-
-def default_install_root() -> Path:
-    data_home = Path(os.environ.get(
-        "XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
-    return data_home.expanduser() / "friday"
-
-
-def default_config_root() -> Path:
-    config_home = Path(os.environ.get(
-        "XDG_CONFIG_HOME", str(Path.home() / ".config")))
-    return config_home.expanduser() / "friday"
-
-
-def default_state_root() -> Path:
-    state_home = Path(os.environ.get(
-        "XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
-    return state_home.expanduser() / "friday"
-
-
-def default_qwen_runtime() -> Path:
-    return default_install_root() / "runtime" / "qwen"
+__all__ = [
+    "default_config_root", "default_install_root", "default_qwen_runtime",
+    "default_state_root",
+]
