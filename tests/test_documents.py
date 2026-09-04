@@ -170,7 +170,7 @@ class DocumentExtractionTests(unittest.TestCase):
 class DocumentOperatorTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
-        root = Path(self.temporary.name)
+        root = Path(self.temporary.name).resolve()
         self.project = root / "project"
         self.state = root / "state"
         self.project.mkdir()

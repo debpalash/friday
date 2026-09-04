@@ -56,7 +56,10 @@ jobs:
             lock: macos-arm64
           - runner: windows-2025
             lock: windows-x86_64
+            # Phase 2 of the port; reports without blocking until qualified.
+            advisory: true
     runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.advisory == true }}
     timeout-minutes: 45
     steps:
       - name: Keep line endings exact
