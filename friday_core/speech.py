@@ -12,6 +12,7 @@ from typing import Mapping
 
 import numpy as np
 from scipy.signal import resample_poly
+from friday_host import fs
 
 
 PIPER_VOICE_REVISION = "375a0fe641dea077c2a47b4e9a056d6da521eed3"
@@ -94,9 +95,9 @@ def verify_pinned_piper_voice(repo: Path) -> Path:
         except OSError as exc:
             raise RuntimeError(f"the pinned Piper asset is unavailable: {name}") from exc
         if (not stat.S_ISREG(metadata.st_mode) or path.is_symlink()
-                or metadata.st_uid != os.geteuid()
+                or not fs.owned_by_caller(metadata)
                 or metadata.st_size != expected_size
-                or metadata.st_mode & 0o022):
+                or not fs.private_mode_ok(metadata, mask=0o022)):
             raise RuntimeError(f"the pinned Piper asset boundary is invalid: {name}")
         if _sha256(path) != expected_digest:
             raise RuntimeError(f"the pinned Piper asset digest is invalid: {name}")
@@ -115,9 +116,9 @@ def pinned_omnivoice_model_path(repo: Path) -> Path:
             raise RuntimeError(
                 f"the pinned OmniVoice asset is unavailable: {name}") from exc
         if (not stat.S_ISREG(metadata.st_mode) or path.is_symlink()
-                or metadata.st_uid != os.geteuid()
+                or not fs.owned_by_caller(metadata)
                 or metadata.st_size != expected_size
-                or metadata.st_mode & 0o022):
+                or not fs.private_mode_ok(metadata, mask=0o022)):
             raise RuntimeError(
                 f"the pinned OmniVoice asset boundary is invalid: {name}")
         if _sha256(path) != expected_digest:

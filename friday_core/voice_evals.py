@@ -15,6 +15,7 @@ from typing import Any
 
 import numpy as np
 import soundfile as sf
+from friday_host import fs
 
 from .endpointing import PlaybackEchoGate, UtteranceBuffer
 from .graph import GraphStore, utc_now
@@ -84,8 +85,7 @@ class VoiceEvalRunner:
     def _load_suite(path: str | Path) -> tuple[dict[str, Any], str]:
         try:
             descriptor = os.open(
-                Path(path), os.O_RDONLY | os.O_CLOEXEC
-                | getattr(os, "O_NOFOLLOW", 0))
+                Path(path), os.O_RDONLY | fs.PRIVATE_OPEN_FLAGS)
         except OSError as exc:
             raise ValueError("voice suite is unavailable") from exc
         try:

@@ -79,6 +79,7 @@ from friday_core.omarchy import (
     OmarchyActionBinding, OmarchyBindingError, OmarchyBrokerError,
     OmarchyDesktopBackend, OmarchyDesktopBroker,
 )
+from friday_host import desktop_io, procs
 from friday_core.embeddings import configured_local_embedder
 from friday_core.vision_evals import has_qualified_native_vision_score
 from friday_core.tasks import (tool_arguments_are_private,
@@ -2371,7 +2372,8 @@ def _desktop_expected() -> bool:
         return False
     if DESKTOP_MODE == "required":
         return True
-    return (Path(f"/run/user/{os.getuid()}") / "hypr").is_dir()
+    runtime = procs.runtime_dir()
+    return runtime is not None and (runtime / "hypr").is_dir()
 
 
 def _curated_process_registry() -> ProcessSpecRegistry:
@@ -2511,19 +2513,7 @@ def _runtime_manifest() -> dict:
 
 
 def _memory_info_mib(*, live: bool = False) -> tuple[int, int]:
-    values: dict[str, int] = {}
-    try:
-        for line in Path("/proc/meminfo").read_text().splitlines():
-            name, raw = line.split(":", 1)
-            values[name] = int(raw.strip().split()[0]) // 1024
-    except (OSError, ValueError, IndexError):
-        fallback = max(128, int(os.sysconf("SC_PHYS_PAGES")
-                                * os.sysconf("SC_PAGE_SIZE") // (1024 ** 2)))
-        return fallback, 0 if live else fallback
-    total = max(128, values.get("MemTotal", 128))
-    if live and "MemAvailable" not in values:
-        return total, 0
-    return total, max(0, values.get("MemAvailable", total))
+    return procs.memory_info_mib(live=live)
 
 
 def _admission_budget_from_manifest(manifest: dict) -> AdmissionBudget:
@@ -2602,7 +2592,7 @@ def _sample_admission_resources() -> ResourceSnapshot:
     memory_reserve = max(2048, math.ceil(total_mib * 0.10))
     cpu_available = ADMISSION_BUDGET.cpu_millis
     try:
-        load = float(Path("/proc/loadavg").read_text().split()[0])
+        load = procs.load_average_1m()
         cpu_available = max(0, cpu_available - math.ceil(load * 1000))
     except (OSError, ValueError, IndexError):
         cpu_available = 0
@@ -2866,7 +2856,7 @@ async def protect_control_plane(request: Request, call_next):
 async def _deliver_reminder(receipt: dict):
     text = str(receipt.get("text") or "Reminder")
     await asyncio.to_thread(
-        subprocess.run, ["notify-send", "Friday reminder", text],
+        subprocess.run, desktop_io.notification_command("Friday reminder", text),
         capture_output=True, timeout=10, check=True)
 
 

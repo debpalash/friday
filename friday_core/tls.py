@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import ipaddress
 import json
@@ -16,6 +15,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+from friday_host import fs
 
 
 _DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
@@ -80,10 +80,10 @@ def _secure_directory(path: Path, *, create: bool = False) -> None:
         metadata = path.lstat()
     except OSError as exc:
         raise TLSBootstrapError("TLS state directory is unavailable") from exc
-    if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid()
-            or metadata.st_mode & 0o022):
+    if (not stat.S_ISDIR(metadata.st_mode) or not fs.owned_by_caller(metadata)
+            or not fs.private_mode_ok(metadata, mask=0o022)):
         raise TLSBootstrapError("TLS state directory identity is unsafe")
-    os.chmod(path, 0o700)
+    fs.chmod_private(path, 0o700)
 
 
 def _secure_file(path: Path) -> None:
@@ -91,10 +91,10 @@ def _secure_file(path: Path) -> None:
         metadata = path.lstat()
     except OSError as exc:
         raise TLSBootstrapError(f"TLS material is unavailable: {path.name}") from exc
-    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid()
+    if (not stat.S_ISREG(metadata.st_mode) or not fs.owned_by_caller(metadata)
             or metadata.st_nlink != 1):
         raise TLSBootstrapError(f"TLS material identity is unsafe: {path.name}")
-    os.chmod(path, 0o600)
+    fs.chmod_private(path, 0o600)
 
 
 def _run(openssl_path: str, arguments: list[str], *,
@@ -124,8 +124,7 @@ def _run(openssl_path: str, arguments: list[str], *,
 def _write_private(path: Path, value: bytes) -> None:
     descriptor = os.open(
         path,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
-        | getattr(os, "O_NOFOLLOW", 0),
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | fs.PRIVATE_OPEN_FLAGS,
         0o600,
     )
     try:
@@ -144,7 +143,7 @@ def _atomic_json(path: Path, value: dict) -> None:
         prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
     try:
-        os.fchmod(descriptor, 0o600)
+        fs.chmod_private(descriptor, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             descriptor = -1
             json.dump(value, stream, sort_keys=True, separators=(",", ":"))
@@ -152,12 +151,7 @@ def _atomic_json(path: Path, value: dict) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        directory = os.open(
-            path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        fs.fsync_directory(path.parent)
     finally:
         if descriptor >= 0:
             os.close(descriptor)
@@ -393,12 +387,7 @@ def _initial_material(
             days=certificate_days)
         _publish_generation(staging, ca_certificate, generation, hosts)
         os.rename(staging, root)
-        directory = os.open(
-            state_root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        fs.fsync_directory(state_root)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -424,8 +413,7 @@ def ensure_tls_material(
     _secure_directory(state, create=True)
     root = state / "tls"
     lock_path = state / "tls-bootstrap.lock"
-    flags = (os.O_RDWR | os.O_CREAT | os.O_CLOEXEC
-             | getattr(os, "O_NOFOLLOW", 0))
+    flags = os.O_RDWR | os.O_CREAT | fs.PRIVATE_OPEN_FLAGS
     try:
         descriptor = os.open(lock_path, flags, 0o600)
     except OSError as exc:
@@ -433,11 +421,11 @@ def ensure_tls_material(
     try:
         metadata = os.fstat(descriptor)
         if (not stat.S_ISREG(metadata.st_mode)
-                or metadata.st_uid != os.geteuid()
+                or not fs.owned_by_caller(metadata)
                 or metadata.st_nlink != 1):
             raise TLSBootstrapError("TLS bootstrap lock identity is unsafe")
-        os.fchmod(descriptor, 0o600)
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        fs.chmod_private(descriptor, 0o600)
+        fs.lock_exclusive(descriptor)
         if not root.exists():
             _initial_material(
                 state, root, openssl_path, desired_hosts,
@@ -474,7 +462,7 @@ def ensure_tls_material(
         )
     finally:
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            fs.unlock(descriptor)
         finally:
             os.close(descriptor)
 

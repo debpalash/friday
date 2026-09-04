@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 from friday_core import GraphStore, ReminderService, ReminderWorker
+from friday_host import desktop_io
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -20,7 +21,8 @@ STATE = Path(
 async def deliver(receipt: dict) -> None:
     await asyncio.to_thread(
         subprocess.run,
-        ["notify-send", "Friday reminder", str(receipt.get("text") or "Reminder")],
+        desktop_io.notification_command(
+            "Friday reminder", str(receipt.get("text") or "Reminder")),
         capture_output=True, timeout=10, check=True)
 
 

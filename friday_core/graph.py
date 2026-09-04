@@ -7,7 +7,6 @@ objects are committed together.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -19,6 +18,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator
+from friday_host import fs
 
 from .db_migrations import apply_schema_migrations
 
@@ -73,22 +73,21 @@ class GraphStore:
             if self._initialized:
                 return
             lock_path = Path(str(self.path) + ".schema.lock")
-            flags = (os.O_RDWR | os.O_CREAT | os.O_CLOEXEC
-                     | getattr(os, "O_NOFOLLOW", 0))
+            flags = os.O_RDWR | os.O_CREAT | fs.PRIVATE_OPEN_FLAGS
             descriptor = os.open(lock_path, flags, 0o600)
             try:
                 observed = os.fstat(descriptor)
                 if (not stat.S_ISREG(observed.st_mode)
-                        or observed.st_uid != os.getuid()
+                        or not fs.owned_by_caller(observed)
                         or observed.st_nlink != 1):
                     raise RuntimeError("database schema lock identity is invalid")
-                os.fchmod(descriptor, 0o600)
-                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                fs.chmod_private(descriptor, 0o600)
+                fs.lock_exclusive(descriptor)
                 with self._connect() as conn:
                     conn.executescript(self._schema)
                     apply_schema_migrations(conn)
             finally:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
+                fs.unlock(descriptor)
                 os.close(descriptor)
             self._harden_files()
             self._initialized = True

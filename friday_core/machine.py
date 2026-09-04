@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from friday_host import fs
 
 from .documents import (MAX_DOCUMENT_CHARS, document_source_sha256,
                         extract_document)
@@ -341,8 +342,7 @@ class MachineOperator:
                     raise PermissionError("invalid path component")
                 next_fd = os.open(
                     component,
-                    os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
-                    | getattr(os, "O_NOFOLLOW", 0),
+                    os.O_RDONLY | os.O_DIRECTORY | fs.PRIVATE_OPEN_FLAGS,
                     dir_fd=current)
                 os.close(current)
                 current = next_fd
@@ -357,7 +357,7 @@ class MachineOperator:
         if not relative.parts:
             return self._open_root(authorized.root)
         parent, leaf = self._open_parent(authorized)
-        flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
+        flags = os.O_RDONLY | fs.PRIVATE_OPEN_FLAGS
         if directory:
             flags |= os.O_DIRECTORY
         try:
@@ -397,13 +397,12 @@ class MachineOperator:
         if not relative.parts:
             fd = os.open(
                 authorized.root, getattr(os, "O_PATH", os.O_RDONLY)
-                | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0))
+                | fs.PRIVATE_OPEN_FLAGS)
         else:
             parent, leaf = self._open_parent(authorized)
             try:
                 fd = os.open(
-                    leaf, getattr(os, "O_PATH", os.O_RDONLY) | os.O_CLOEXEC
-                    | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent)
+                    leaf, getattr(os, "O_PATH", os.O_RDONLY) | fs.PRIVATE_OPEN_FLAGS, dir_fd=parent)
             finally:
                 os.close(parent)
         try:
@@ -590,7 +589,7 @@ class MachineOperator:
 
     def _load_backup(self, operation_id: str) -> dict[str, Any] | None:
         path = self._backup_path(operation_id)
-        flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
+        flags = os.O_RDONLY | fs.PRIVATE_OPEN_FLAGS
         try:
             fd = os.open(path, flags)
         except FileNotFoundError:
@@ -636,8 +635,7 @@ class MachineOperator:
     def _existing_bytes(parent: int, leaf: str) -> tuple[bool, bytes, int]:
         try:
             fd = os.open(
-                leaf, os.O_RDONLY | os.O_CLOEXEC
-                | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent)
+                leaf, os.O_RDONLY | fs.PRIVATE_OPEN_FLAGS, dir_fd=parent)
         except FileNotFoundError:
             return False, b"", 0o600
         except OSError as exc:
