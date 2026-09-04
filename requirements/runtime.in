@@ -1,11 +1,11 @@
-# Direct Friday application dependencies. Compile with:
-#   uv pip compile requirements/runtime.in -o requirements/runtime.lock
-accelerate==1.14.0
+# Direct Friday application dependencies for the portable core (every OS).
+# Compile every platform lock with scripts/compile-locks.sh.
+cryptography==46.0.5
 fastapi==0.141.1
 faster-whisper==1.2.1
 httpx==0.28.1
 numpy==2.5.2
-omnivoice==0.2.1
+onnxruntime==1.29.0
 openai==3.3.1
 pillow==12.3.0
 piper-tts==1.4.2
@@ -15,14 +15,7 @@ pydantic==2.13.4
 scipy==1.18.0
 sherpa-onnx==1.13.3
 sherpa-onnx-core==1.13.3
-silero-vad==6.2.1
-sounddevice==0.5.6
 soundfile==0.14.0
-torch==2.13.0
-torchaudio==2.11.0
-transformers==5.15.1
+tokenizers==0.22.2
 uvicorn==0.52.4
 websockets==17.1
-cryptography==46.0.5
-onnxruntime==1.29.0
-tokenizers==0.22.2

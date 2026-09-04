@@ -146,7 +146,8 @@ exit 0
             "install.sh", "ops/fridayctl", "ops/friday.service.in",
             "ops/friday.desktop.in", "ops/provision_qwen_runtime.sh",
             "scripts/uninstall.sh", "assets/friday.svg",
-            "requirements/runtime.lock",
+            "requirements/runtime-linux-x86_64.lock",
+            "requirements/cuda-linux-x86_64.lock",
         ):
             destination = target / relative
             destination.parent.mkdir(parents=True, exist_ok=True)

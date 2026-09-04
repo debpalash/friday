@@ -68,7 +68,7 @@ discovery metadata, not evidence of safety or quality.
 Install Friday's complete hash-locked application environment with:
 
 ```bash
-uv pip sync --python venv/bin/python --require-hashes requirements/runtime.lock
+uv pip sync --python venv/bin/python --require-hashes requirements/cuda-linux-x86_64.lock
 ```
 
 Install Friday's fast local CPU speech backend and exact hash-pinned voice with:

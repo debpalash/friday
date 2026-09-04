@@ -8,7 +8,7 @@ line in the diagnostic panel.
 Install the complete hash-locked Friday environment and exact ASR assets:
 
 ```bash
-uv pip sync --python venv/bin/python --require-hashes requirements/runtime.lock
+uv pip sync --python venv/bin/python --require-hashes requirements/cuda-linux-x86_64.lock
 venv/bin/python ops/install_asr_model.py
 ```
 

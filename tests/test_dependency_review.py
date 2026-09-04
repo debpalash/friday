@@ -4,7 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from friday_core.dependency_review import parse_lock, write_private_review
+from friday_core.dependency_review import (host_lock_name, parse_lock,
+                                           run_dependency_review,
+                                           write_private_review)
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -29,6 +31,40 @@ class DependencyReviewTests(unittest.TestCase):
             policy["distribution_approval"],
             "approved_apache_2_0_with_gpl_3_piper_runtime",
         )
+
+    def test_review_probes_the_host_environment_and_checks_foreign_locks(self):
+        import sys
+
+        python = Path(sys.executable)
+        from friday_host.paths import default_qwen_runtime
+
+        qwen_python = default_qwen_runtime() / "venv" / "bin" / "python"
+        result = run_dependency_review(
+            REPO, app_python=python,
+            qwen_python=qwen_python if qwen_python.is_file() else None)
+        self.assertEqual(result["review_version"], 2)
+        reviewed = result["installed_reviewed"]
+        self.assertIn(len(reviewed), (1, 2))
+        installed = result["environments"][[n for n in reviewed if n != "qwen_runtime"][0]]
+        self.assertEqual(installed["review"], "installed")
+        self.assertEqual(installed["mismatches"], [], installed["mismatches"][:5])
+        self.assertTrue(installed["passed"], installed["missing_license_evidence"][:5])
+        for name, value in result["environments"].items():
+            if name in reviewed or name == "qwen_runtime":
+                continue
+            with self.subTest(lock=name):
+                self.assertEqual(value["review"], "lock_only")
+                self.assertTrue(value["policy_sha256_matches"])
+                self.assertEqual(value["missing_license_evidence"], [])
+        self.assertTrue(result["binaries_complete"])
+        self.assertTrue(result["models_complete"])
+        if "qwen_runtime" in reviewed:
+            self.assertTrue(result["passed"], result["environments"]["qwen_runtime"]["missing_license_evidence"][:5])
+        self.assertEqual(host_lock_name("macos-arm64"), "application-macos-arm64")
+
+    def test_unknown_environment_names_are_rejected(self):
+        with self.assertRaises(ValueError):
+            run_dependency_review(REPO, environments={"nope": Path("/usr/bin/python3")})
 
     def test_private_report_is_mode_600_and_never_overwrites(self):
         with tempfile.TemporaryDirectory() as temporary:

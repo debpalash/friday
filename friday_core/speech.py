@@ -187,7 +187,7 @@ class PiperSpeechSynthesizer:
             from piper import PiperVoice
         except ImportError as exc:
             raise RuntimeError(
-                "Piper is unavailable; sync requirements/runtime.lock") from exc
+                "Piper is unavailable; sync the application dependency lock") from exc
         self._voice = PiperVoice.load(str(model_path), use_cuda=False)
         self._lock = threading.Lock()
         self.output_rate = output_rate

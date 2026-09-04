@@ -21,7 +21,8 @@ Friday currently develops and tests against Python 3.12 on Linux x86_64.
 
 ```bash
 uv venv --python 3.12 venv
-uv pip sync --python venv/bin/python --require-hashes requirements/runtime.lock
+uv pip sync --python venv/bin/python --require-hashes requirements/cuda-linux-x86_64.lock
+# On a machine without an NVIDIA GPU, sync requirements/runtime-<os>-<arch>.lock instead.
 venv/bin/python -m unittest discover -v
 ```
 

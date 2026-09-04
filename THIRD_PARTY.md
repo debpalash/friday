@@ -6,8 +6,8 @@ Those components keep their own licenses and terms. Friday does not grant rights
 to them.
 
 This file covers the large or operationally important components. It is not a
-replacement for the metadata shipped by every Python package in
-`requirements/runtime.lock`.
+replacement for the metadata shipped by every Python package in the
+per-platform locks under `requirements/`.
 
 ## Language model runtime
 
@@ -16,9 +16,17 @@ replacement for the metadata shipped by every Python package in
 | [syv-ai/qwen38-27b-rtx3090](https://github.com/syv-ai/qwen38-27b-rtx3090) | `f238b9320a2ef1a48cfe47c4c2db3b0ef89d93b1` | Apache-2.0 |
 | [ababaka/Huihui-Qwen3.8-27B-Abliterated-W4A16-AutoRound](https://huggingface.co/ababaka/Huihui-Qwen3.8-27B-Abliterated-W4A16-AutoRound) | `92600100b5c2b97bf1fd1745479c1e0f8007e008` | Apache-2.0 |
 | [vLLM](https://github.com/vllm-project/vllm) | `0.27.1`, then patched by the pinned runtime | Apache-2.0 |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` | release `b10786`, prebuilt archives SHA-256 pinned per OS and backend | MIT |
+| [MLX](https://github.com/ml-explore/mlx) and [mlx-lm](https://github.com/ml-explore/mlx-lm) | `0.32.2` and `0.31.3` in a separate hash-locked environment | MIT |
+| [Qwen/Qwen3-{4B,8B,14B,30B-A3B,32B}-GGUF](https://huggingface.co/Qwen) | Q4_K_M files, exact revision and SHA-256 pinned in `friday_core/engine_assets.json` | Apache-2.0 |
+| [mlx-community/Qwen3-{4B,8B,14B,30B-A3B}-4bit](https://huggingface.co/mlx-community) | community 4-bit conversions, exact revision and file SHA-256 pinned | Apache-2.0 (from the Qwen3 base models) |
 
 The selected Qwen checkpoint is an independently modified, abliterated, and
 quantized derivative. Its outputs can be inaccurate, unsafe, or offensive.
+
+vLLM and the 27B checkpoint serve Linux hosts with an NVIDIA GPU. Apple
+Silicon runs the official Qwen3 checkpoints through mlx-lm; every other
+supported host runs the official Qwen3 GGUF checkpoints through llama-server.
 
 ## Speech
 
@@ -61,7 +69,9 @@ license files whenever a pin changes.
 The exact lock digests, package counts, manual metadata resolutions, model
 pins, and copyleft disposition are recorded in
 [`compliance/dependency-review-v1.json`](compliance/dependency-review-v1.json).
-`ops/review_release_dependencies.py` compares both installed environments with
-all 322 exact lock entries and requires license evidence for each package. The
+`ops/review_release_dependencies.py` reviews every per-platform lock: the
+environments installed on the reviewing host are compared package by package,
+and the other locks are checked by digest, count, and the license evidence
+gathered from reviewed environments or the manual table. The
 engineering inventory is complete and the Apache-2.0 decision for Friday,
 with the GPL-3.0-or-later Piper disposition, is recorded in that file.

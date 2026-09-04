@@ -451,10 +451,14 @@ PY
     step environment "creating a pinned Python 3.12 runtime"
     "$uv_bin" venv --python 3.12 "$release_dir/venv"
   fi
-  [[ -f "$release_dir/requirements/runtime.lock" ]] \
-    || fail "requirements/runtime.lock is missing"
+  local lock_file="requirements/runtime-linux-x86_64.lock"
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    lock_file="requirements/cuda-linux-x86_64.lock"
+  fi
+  [[ -f "$release_dir/$lock_file" ]] \
+    || fail "$lock_file is missing"
   "$uv_bin" pip sync --python "$release_dir/venv/bin/python" \
-    --require-hashes "$release_dir/requirements/runtime.lock"
+    --require-hashes "$release_dir/$lock_file"
   (cd "$release_dir" && venv/bin/python - <<'PY'
 import fastapi, numpy, openai, pydantic, sherpa_onnx, silero_vad, torch, uvicorn, websockets
 from friday_core import GraphStore
