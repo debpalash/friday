@@ -10,3 +10,19 @@ condition = "AND"
 regexTarget = "match"
 regexes = ['''forged_operation_0001''']
 paths = ['''tests/test_machine_operator_server_integration\.py''']
+
+[[allowlists]]
+description = "Logical engine identifiers in the versioned asset registry"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+regexes = ['''key"\s*:\s*"[a-z0-9][a-z0-9_-]{0,63}"''']
+paths = ['''friday_core/engine_assets\.json''']
+
+[[allowlists]]
+description = "Synthetic base64 keys in legacy encrypted-payload fixtures"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+regexes = ['''key_b64"\s*:\s*"[A-Za-z0-9+/]{86}=="''']
+paths = ['''tests/fixtures/crypto/(?:step_payload|corrected_audio)_openssl_v1\.json''']
