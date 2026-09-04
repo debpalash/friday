@@ -2,337 +2,477 @@
 import versionFile from "../../../VERSION?raw";
 import Base from "../layouts/Base.astro";
 import logo from "../../../assets/friday.svg";
-import tour from "../../../assets/friday-tour.gif";
+import interfaceImage from "../assets/og.png";
 
 const version = versionFile.trim();
 const repository = "https://github.com/debpalash/friday";
 const docs = `${repository}/tree/main/docs`;
-const title = "Friday: a private voice and text assistant for one Linux workstation";
+const title = "Friday — a local assistant for your Linux workstation";
 const description =
-  "Friday runs conversation, memory, speech, and approved computer actions on your own Linux workstation. Local Qwen inference, durable SQLite memory, exact approvals, and receipts for every effect. No hosted inference or telemetry required.";
-
+  "Friday is a private voice and text assistant that runs locally, remembers context, and uses approved tools on your Linux workstation.";
 const linuxCommand = "curl -fsSL https://friday.palash.dev/install | bash";
 const windowsCommand = "irm https://friday.palash.dev/install.ps1 | iex";
-
-const features = [
-  {
-    title: "Addressed by name",
-    body: "Voice commands start with “Friday, …” in the same utterance. Audio that is not addressed to Friday is discarded before it reaches the journal or the model.",
-  },
-  {
-    title: "Memory that survives restarts",
-    body: "Transcripts, tasks, corrections, preferences, reminders, and receipts live in SQLite on your machine. Plans and task steps resume after a process restart.",
-  },
-  {
-    title: "Exact approvals",
-    body: "Any action that crosses a state or permission boundary stops at an approval card showing the exact tool and arguments. Nothing runs until you say so.",
-  },
-  {
-    title: "Receipts, not claims",
-    body: "The model can propose that something happened. Friday reports completion only after the executor records evidence and a postcondition check agrees.",
-  },
-  {
-    title: "Bounded tools",
-    body: "Typed tools for files, processes, documents, the public web, a managed browser, Hyprland, and Omarchy. Model text never reaches a shell command or an authorization decision.",
-  },
-  {
-    title: "Local by default",
-    body: "Transcription, Qwen inference, speech, and memory stay on the workstation. Search, news, and page reading connect only when you ask for them.",
-  },
-];
-
-const tasks = [
-  ["“Remind me to call the dentist tomorrow at 9.”", "A durable reminder, delivered in the app and on the desktop."],
-  ["“What's in the news this morning?”", "Headlines fetched because you asked, rendered as links you open yourself."],
-  ["“Switch the theme to Tokyo Night and turn on night light.”", "An approval card, then both Omarchy changes verified from a status receipt."],
-  ["“Read ~/Documents/lease.pdf and list the dates I need to remember.”", "The document is read inside a granted path and answered as a table."],
-  ["“Friday, what's using my GPU right now?”", "Heard, inspected, answered, and spoken back."],
-  ["“Undo that file change.”", "The last write is rolled back from its recorded receipt."],
-];
-
-const machine = [
-  ["Operating system", "Linux x86_64 with a working systemd user session"],
-  ["GPU", "NVIDIA CUDA GPU with at least 22 GiB VRAM"],
-  ["Disk", "About 50 GiB free for the runtime and model assets"],
-  ["Python", "Python 3.12 in installer-owned virtual environments"],
-  ["Desktop actions", "Hyprland in the current preview"],
-  ["Browser actions", "A managed Chromium installation"],
-];
-
-const network = [
-  ["Conversation, ASR, Qwen inference, TTS, memory", "Local by default"],
-  ["Installation and update", "Downloads pinned code, packages, and model assets"],
-  ["Search, news, page reading, managed browser", "Connects when you request the capability"],
-  ["Remote reasoning", "Disabled unless configured and approved"],
-  ["Telemetry", "No telemetry or analytics sender is implemented"],
-];
 ---
 
 <Base title={title} description={description} path="/">
-  <header class="top">
+  <header class="site-header">
     <a class="brand" href="/" aria-label="Friday home">
-      <img src={logo.src} width="34" height="34" alt="" />
+      <img src={logo.src} width="28" height="28" alt="" />
       <span>Friday</span>
     </a>
     <nav aria-label="Primary">
-      <a href="#install">Install</a>
-      <a href="#tour">Tour</a>
-      <a href="#machine">Requirements</a>
       <a href={docs}>Docs</a>
       <a href={repository} rel="noopener">GitHub</a>
     </nav>
   </header>
 
   <main id="main">
-    <section class="hero">
-      <p class="eyebrow">Developer preview · {version} · Apache-2.0</p>
-      <h1>A private voice and text assistant for one Linux workstation.</h1>
-      <p class="lede">
-        Local conversation, durable memory, and approved computer actions. Friday
-        runs the whole conversation path on your own GPU and asks before it
-        changes anything.
+    <section class="hero" aria-labelledby="hero-heading">
+      <p class="status">Linux · local · developer preview</p>
+      <h1 id="hero-heading">Your computer,<br />with a voice.</h1>
+      <p class="intro">
+        Talk, type, and hand off work. Friday runs on your machine, remembers
+        context, and asks before it changes anything.
       </p>
 
-      <div id="install" class="install" aria-labelledby="install-heading">
-        <h2 id="install-heading" class="visually-hidden">Install</h2>
-        <div class="tabs" role="tablist" aria-label="Install command">
-          <button role="tab" id="tab-linux" aria-selected="true" aria-controls="panel-linux" data-tab="linux">Linux</button>
-          <button role="tab" id="tab-windows" aria-selected="false" aria-controls="panel-windows" data-tab="windows" tabindex="-1">Windows (WSL 2)</button>
-        </div>
-        <div id="panel-linux" role="tabpanel" aria-labelledby="tab-linux" class="panel" data-panel="linux">
-          <pre><code>{linuxCommand}</code></pre>
-          <button class="copy" type="button" data-copy={linuxCommand} aria-label="Copy the Linux install command">Copy</button>
-        </div>
-        <div id="panel-windows" role="tabpanel" aria-labelledby="tab-windows" class="panel" data-panel="windows" hidden>
-          <pre><code>{windowsCommand}</code></pre>
-          <button class="copy" type="button" data-copy={windowsCommand} aria-label="Copy the Windows install command">Copy</button>
-        </div>
-        <p class="fine">
-          The bootstrap resolves the newest published release, downloads its
-          versioned installer and <code>SHA256SUMS</code> from GitHub Releases,
-          verifies the checksum, and only then runs the installer. On Windows it
-          hands off to an existing WSL 2 distribution, which is not a qualified
-          target. Prefer to verify by hand? Follow the
-          <a href={`${repository}#install-a-release`}>manual steps in the README</a>.
-        </p>
+      <div class="install" aria-label="Linux install command">
+        <code>{linuxCommand}</code>
+        <button type="button" data-copy={linuxCommand} aria-label="Copy the Linux install command">
+          Copy
+        </button>
       </div>
 
-      <div class="notice" role="note">
-        <strong>Narrow target on purpose.</strong> Friday is a developer preview for
-        Linux with an NVIDIA GPU. It has not received an independent security
-        audit. Do not use it for safety-critical work.
-      </div>
-    </section>
-
-    <section id="tour" class="tour" aria-labelledby="tour-heading">
-      <h2 id="tour-heading">Thirty seconds of everyday use</h2>
-      <p class="sub">
-        Rendered from the shipped interface with scripted, synthetic turns. No
-        real conversation, model output, or personal data appears in it.
+      <p class="requirements">
+        Linux x86_64 · NVIDIA GPU with 22+ GiB VRAM · about 50 GiB free
       </p>
-      <figure>
-        <img
-          src={tour.src}
-          width={tour.width}
-          height={tour.height}
-          alt="Animated tour of Friday: a reminder is saved, headlines are listed, a desktop theme change waits for approval and is verified, a lease PDF is summarized into a table of dates, and a voice question about GPU memory is answered"
-          loading="lazy"
-          decoding="async"
-        />
-        <figcaption>Reminder, headlines, an approved desktop change, a document, and a voice turn.</figcaption>
-      </figure>
-      <ol class="tasks">
-        {tasks.map(([ask, result]) => (
-          <li><span class="ask">{ask}</span><span class="result">{result}</span></li>
-        ))}
-      </ol>
+
+      <details>
+        <summary>Windows via WSL 2</summary>
+        <div class="windows-command">
+          <code>{windowsCommand}</code>
+          <button type="button" data-copy={windowsCommand} aria-label="Copy the Windows install command">
+            Copy
+          </button>
+        </div>
+        <p>WSL 2 is available as an unqualified preview target.</p>
+      </details>
     </section>
 
-    <section class="features" aria-labelledby="features-heading">
-      <h2 id="features-heading">Built around boundaries</h2>
-      <div class="grid">
-        {features.map((feature) => (
-          <article class="card">
-            <h3>{feature.title}</h3>
-            <p>{feature.body}</p>
-          </article>
-        ))}
-      </div>
+    <figure class="product">
+      <img
+        src={interfaceImage.src}
+        width={interfaceImage.width}
+        height={interfaceImage.height}
+        alt="Friday showing a release plan, checklist, and evidence table beside its voice orb"
+        decoding="async"
+      />
+      <figcaption>The shipped interface. Synthetic data.</figcaption>
+    </figure>
+
+    <section class="principles" aria-label="What Friday does">
+      <article>
+        <p class="number">01</p>
+        <h2>Local</h2>
+        <p>Conversation, speech, and memory stay on your workstation.</p>
+      </article>
+      <article>
+        <p class="number">02</p>
+        <h2>Useful</h2>
+        <p>Files, documents, the web, reminders, and your Omarchy desktop.</p>
+      </article>
+      <article>
+        <p class="number">03</p>
+        <h2>Accountable</h2>
+        <p>Approval before a sensitive action. A receipt after it runs.</p>
+      </article>
     </section>
 
-    <section class="flow" aria-labelledby="flow-heading">
-      <h2 id="flow-heading">How a request moves</h2>
-      <pre class="diagram" aria-label="Request flow diagram"><code>browser microphone or text
-            |
-            v
-loopback HTTPS interface
-            |
- VAD -> ASR -> address gate -> planner -> local Qwen -> response -> TTS
-                           |             |
-                           v             v
-                  policy and approval    SQLite graph and private state
-                           |
-                           v
-                  bounded executor -> receipt -> reconciliation</code></pre>
-      <p>
-        State-changing work follows a typed tool contract, resource admission,
-        policy, an exact approval when required, a bounded executor, and an
-        independent receipt or postcondition check. An HTTP success alone is
-        never proof that a computer action succeeded.
-      </p>
-    </section>
-
-    <section id="machine" class="tables" aria-labelledby="machine-heading">
+    <section class="boundary" aria-labelledby="boundary-heading">
+      <h2 id="boundary-heading">Built for one machine.</h2>
       <div>
-        <h2 id="machine-heading">Supported machine</h2>
-        <table>
-          <thead><tr><th scope="col">Requirement</th><th scope="col">Support</th></tr></thead>
-          <tbody>
-            {machine.map(([k, v]) => <tr><th scope="row">{k}</th><td>{v}</td></tr>)}
-          </tbody>
-        </table>
-        <p class="fine">
-          macOS and native Windows are not supported. Other Linux desktops may
-          run the conversation interface, but desktop automation is Hyprland
-          only for now.
+        <p>
+          Friday binds to loopback, has no telemetry, and does not require hosted
+          inference. It is early software and has not received an independent
+          security audit.
         </p>
+        <a href={`${repository}/blob/main/docs/privacy.md`}>Read the privacy model <span aria-hidden="true">↗</span></a>
       </div>
-      <div>
-        <h2>Privacy and network access</h2>
-        <table>
-          <thead><tr><th scope="col">Activity</th><th scope="col">Network behavior</th></tr></thead>
-          <tbody>
-            {network.map(([k, v]) => <tr><th scope="row">{k}</th><td>{v}</td></tr>)}
-          </tbody>
-        </table>
-        <p class="fine">
-          The interface binds to loopback only. Your operating-system account is
-          the security boundary. Read the
-          <a href={`${repository}/blob/main/docs/privacy.md`}>privacy and retention notes</a>.
-        </p>
-      </div>
-    </section>
-
-    <section class="commands" aria-labelledby="commands-heading">
-      <h2 id="commands-heading">After install</h2>
-      <dl>
-        <div><dt><code>friday open</code></dt><dd>Start Friday if needed, wait for readiness, then open the local app.</dd></div>
-        <div><dt><code>friday doctor</code></dt><dd>Check hardware, assets, permissions, model identity, and health.</dd></div>
-        <div><dt><code>friday update</code></dt><dd>Install the next release through the same transactional path, with rollback.</dd></div>
-        <div><dt><code>friday stop</code></dt><dd>Stop the service and unload the model from the GPU.</dd></div>
-        <div><dt><code>friday uninstall</code></dt><dd>Remove the app and runtime while preserving personal data and models.</dd></div>
-      </dl>
     </section>
   </main>
 
-  <footer class="foot">
-    <p>
-      Friday is released under the
-      <a href={`${repository}/blob/main/LICENSE`}>Apache License 2.0</a>.
-      Downloaded models and runtimes keep their own licenses, including the
-      GPL-3.0-or-later Piper speech runtime.
-    </p>
+  <footer class="site-footer">
+    <p>Friday {version} · Apache-2.0</p>
     <nav aria-label="Footer">
-      <a href={repository}>Source</a>
       <a href={`${repository}/releases`}>Releases</a>
-      <a href={docs}>Documentation</a>
-      <a href={`${repository}/blob/main/docs/privacy.md`}>Privacy</a>
       <a href={`${repository}/blob/main/SECURITY.md`}>Security</a>
-      <a href={`${repository}/discussions`}>Discussions</a>
+      <a href={`${repository}/discussions`}>Discuss</a>
     </nav>
   </footer>
 </Base>
 
 <script>
-  const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=tab]"));
-  const panels = Array.from(document.querySelectorAll<HTMLElement>("[data-panel]"));
-  function select(name: string) {
-    for (const tab of tabs) {
-      const active = tab.dataset.tab === name;
-      tab.setAttribute("aria-selected", String(active));
-      tab.tabIndex = active ? 0 : -1;
-    }
-    for (const panel of panels) panel.hidden = panel.dataset.panel !== name;
-  }
-  for (const tab of tabs) {
-    tab.addEventListener("click", () => select(tab.dataset.tab ?? "linux"));
-    tab.addEventListener("keydown", (event) => {
-      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-      const index = tabs.indexOf(tab);
-      const next = tabs[(index + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
-      next.focus();
-      select(next.dataset.tab ?? "linux");
-    });
-  }
-  if (navigator.userAgent.includes("Windows")) select("windows");
-  for (const button of document.querySelectorAll<HTMLButtonElement>(".copy")) {
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-copy]")) {
     button.addEventListener("click", async () => {
+      const label = button.textContent;
       try {
         await navigator.clipboard.writeText(button.dataset.copy ?? "");
         button.textContent = "Copied";
       } catch {
-        button.textContent = "Select and copy";
+        button.textContent = "Select";
       }
-      setTimeout(() => (button.textContent = "Copy"), 1800);
+      window.setTimeout(() => (button.textContent = label), 1600);
     });
   }
 </script>
 
 <style>
-  .top, main, .foot { width: min(var(--measure), 100% - 2.5rem); margin-inline: auto; }
-  .top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.4rem 0; }
-  .brand { display: inline-flex; align-items: center; gap: 0.65rem; color: var(--fg); font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; font-size: 0.85rem; }
-  .brand img { border-radius: 10px; }
-  .top nav { display: flex; flex-wrap: wrap; gap: 0.2rem 1.2rem; font-size: 0.95rem; }
-  .top nav a { color: var(--fg-soft); }
+  .site-header,
+  main,
+  .site-footer {
+    width: min(72rem, calc(100% - 3rem));
+    margin-inline: auto;
+  }
 
-  .hero { padding: clamp(2.5rem, 6vw, 5rem) 0 2rem; max-width: 52rem; }
-  .eyebrow { color: var(--accent); font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 1rem; }
-  h1 { font-size: clamp(2.1rem, 1.4rem + 3.2vw, 3.6rem); font-weight: 650; margin-bottom: 1rem; }
-  .lede { font-size: 1.2rem; max-width: 40rem; color: var(--fg-soft); }
+  .site-header {
+    min-height: 5.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--line);
+  }
 
-  .install { margin-top: 2rem; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); padding: 1rem 1.1rem 1.1rem; backdrop-filter: blur(12px); }
-  .tabs { display: flex; gap: 0.3rem; margin-bottom: 0.8rem; }
-  .tabs button { font: inherit; font-size: 0.9rem; color: var(--dim); background: transparent; border: 1px solid transparent; border-radius: 999px; padding: 0.35rem 0.9rem; cursor: pointer; }
-  .tabs button[aria-selected="true"] { color: var(--fg); background: var(--panel-high); border-color: var(--line-strong); }
-  .panel { display: flex; align-items: center; gap: 0.8rem; border: 1px solid var(--line); border-radius: 12px; background: rgba(4, 7, 12, 0.6); padding: 0.85rem 1rem; }
-  .panel[hidden] { display: none; }
-  .panel pre { flex: 1; min-width: 0; }
-  @media (max-width: 540px) { .panel { flex-direction: column; align-items: stretch; } .copy { align-self: flex-end; } }
-  .panel code { color: var(--fg); font-size: 1rem; }
-  .copy { font: inherit; font-size: 0.85rem; color: var(--bg); background: var(--accent); border: 0; border-radius: 999px; padding: 0.45rem 0.9rem; cursor: pointer; white-space: nowrap; }
-  .copy:hover { background: var(--accent-strong); color: #fff; }
-  .fine { font-size: 0.9rem; color: var(--dim); margin: 0.9rem 0 0; }
-  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    color: var(--fg);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
 
-  .notice { margin-top: 1.5rem; border-left: 3px solid var(--amber); background: rgba(255, 200, 120, 0.06); border-radius: 0 12px 12px 0; padding: 0.8rem 1rem; font-size: 0.95rem; }
-  .notice strong { color: var(--amber); }
+  .brand:hover,
+  .brand:focus-visible {
+    text-decoration: none;
+  }
 
-  section { padding: clamp(2rem, 5vw, 4rem) 0; }
-  .sub { color: var(--dim); max-width: 44rem; margin-top: -0.3rem; }
-  .tour figure { margin: 1.5rem 0 0; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; background: var(--bg-soft); box-shadow: var(--shadow); }
-  .tour figcaption { padding: 0.7rem 1rem; font-size: 0.85rem; color: var(--dim); border-top: 1px solid var(--line); }
-  .tasks { list-style: none; padding: 0; margin: 1.5rem 0 0; display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
-  .tasks li { border: 1px solid var(--line); border-radius: 12px; padding: 0.8rem 1rem; background: var(--panel); display: grid; gap: 0.3rem; }
-  .ask { color: var(--fg); font-weight: 500; }
-  .result { color: var(--dim); font-size: 0.92rem; }
+  .brand img {
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+  }
 
-  .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); }
-  .card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 1.2rem 1.25rem; }
-  .card h3 { margin-bottom: 0.4rem; }
-  .card p { margin: 0; font-size: 0.95rem; color: var(--fg-soft); }
+  nav {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
 
-  .diagram { border: 1px solid var(--line); border-radius: var(--radius); background: rgba(4, 7, 12, 0.6); padding: 1.2rem 1.4rem; color: var(--accent); font-size: 0.85rem; line-height: 1.45; margin-bottom: 1.2rem; }
+  nav a {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
 
-  .tables { display: grid; gap: 2.5rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
-  .tables th[scope="row"] { color: var(--fg-soft); font-weight: 500; font-size: 0.95rem; letter-spacing: 0; text-transform: none; width: 42%; }
+  .hero {
+    max-width: 54rem;
+    padding: clamp(5rem, 11vw, 9rem) 0 clamp(4rem, 8vw, 7rem);
+  }
 
-  .commands dl { display: grid; gap: 0.7rem; margin: 0; }
-  .commands div { display: grid; grid-template-columns: minmax(9rem, 12rem) 1fr; gap: 1rem; align-items: baseline; border-bottom: 1px solid var(--line); padding-bottom: 0.7rem; }
-  .commands dt code { color: var(--fg); }
-  .commands dd { margin: 0; font-size: 0.95rem; }
-  @media (max-width: 540px) { .commands div { grid-template-columns: 1fr; gap: 0.2rem; } }
+  .status,
+  .number {
+    margin: 0 0 1.35rem;
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 650;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
 
-  .foot { border-top: 1px solid var(--line); padding: 2rem 0 3rem; font-size: 0.9rem; color: var(--dim); }
-  .foot nav { display: flex; flex-wrap: wrap; gap: 0.3rem 1.2rem; }
+  h1 {
+    max-width: 13ch;
+    margin: 0;
+    font-size: clamp(3.4rem, 9vw, 7rem);
+    font-weight: 560;
+    letter-spacing: -0.065em;
+    line-height: 0.93;
+  }
+
+  .intro {
+    max-width: 37rem;
+    margin: 2rem 0 0;
+    color: var(--muted);
+    font-size: clamp(1.05rem, 2vw, 1.28rem);
+    line-height: 1.55;
+  }
+
+  .install,
+  .windows-command {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1rem;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+  }
+
+  .install {
+    max-width: 48rem;
+    margin-top: 2.5rem;
+    padding: 0.65rem 0.65rem 0.65rem 1.1rem;
+  }
+
+  .install code,
+  .windows-command code {
+    min-width: 0;
+    overflow-x: auto;
+    color: var(--fg);
+    font-size: 0.9rem;
+    line-height: 1.4;
+    white-space: nowrap;
+    scrollbar-width: thin;
+  }
+
+  button {
+    min-width: 5.5rem;
+    min-height: 2.75rem;
+    border: 0;
+    border-radius: 2px;
+    color: #080a0e;
+    background: var(--accent);
+    font: 650 0.82rem var(--sans);
+    cursor: pointer;
+  }
+
+  button:hover {
+    background: var(--fg);
+  }
+
+  .requirements {
+    margin: 0.9rem 0 0;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+  }
+
+  details {
+    width: max-content;
+    max-width: 100%;
+    margin-top: 1.4rem;
+    color: var(--dim);
+    font-size: 0.82rem;
+  }
+
+  summary {
+    min-height: 2.75rem;
+    display: list-item;
+    align-content: center;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  summary::marker {
+    color: var(--accent);
+  }
+
+  .windows-command {
+    width: min(43rem, calc(100vw - 3rem));
+    margin-top: 0.5rem;
+    padding: 0.55rem 0.55rem 0.55rem 0.9rem;
+  }
+
+  details p {
+    margin: 0.6rem 0 0;
+  }
+
+  .product {
+    margin: 0;
+    border-top: 1px solid var(--line);
+    padding: clamp(3rem, 7vw, 6rem) 0;
+  }
+
+  .product img {
+    width: 100%;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    background: #090c12;
+  }
+
+  .product figcaption {
+    margin-top: 0.8rem;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 0.7rem;
+  }
+
+  .principles {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border-top: 1px solid var(--line-strong);
+    border-bottom: 1px solid var(--line-strong);
+  }
+
+  .principles article {
+    min-width: 0;
+    padding: 2.4rem 2.2rem 2.7rem 0;
+  }
+
+  .principles article + article {
+    border-left: 1px solid var(--line);
+    padding-left: 2.2rem;
+  }
+
+  .principles .number {
+    margin-bottom: 2.5rem;
+  }
+
+  .principles h2 {
+    margin: 0 0 0.7rem;
+    font-size: 1.15rem;
+    font-weight: 620;
+  }
+
+  .principles article > p:last-child {
+    max-width: 20rem;
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+    line-height: 1.55;
+  }
+
+  .boundary {
+    display: grid;
+    grid-template-columns: 1fr 1.35fr;
+    gap: 2rem 5rem;
+    align-items: start;
+    padding: clamp(4.5rem, 9vw, 8rem) 0;
+  }
+
+  .boundary h2 {
+    margin: 0;
+    font-size: clamp(2rem, 4vw, 3.5rem);
+    font-weight: 560;
+    letter-spacing: -0.045em;
+  }
+
+  .boundary p {
+    margin: 0 0 1.4rem;
+    color: var(--muted);
+    line-height: 1.65;
+  }
+
+  .boundary a {
+    font-size: 0.9rem;
+  }
+
+  .site-footer {
+    min-height: 7rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+    border-top: 1px solid var(--line);
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+  }
+
+  .site-footer p {
+    margin: 0;
+  }
+
+  .site-footer nav a {
+    font-family: var(--sans);
+    font-size: 0.8rem;
+  }
+
+  @media (max-width: 700px) {
+    .site-header,
+    main,
+    .site-footer {
+      width: min(100% - 2rem, 72rem);
+    }
+
+    .site-header {
+      min-height: 4.75rem;
+    }
+
+    .site-header nav {
+      gap: 1rem;
+    }
+
+    .hero {
+      padding-top: 4.5rem;
+    }
+
+    h1 {
+      font-size: clamp(3rem, 16vw, 4.5rem);
+    }
+
+    .install,
+    .windows-command {
+      grid-template-columns: 1fr;
+      padding: 0;
+      gap: 0;
+      background: transparent;
+      border: 0;
+    }
+
+    .install code,
+    .windows-command code {
+      padding: 1rem;
+      border: 1px solid var(--line-strong);
+      background: var(--surface);
+    }
+
+    .install button,
+    .windows-command button {
+      width: 100%;
+      margin-top: 0.5rem;
+    }
+
+    .requirements {
+      max-width: 32rem;
+      line-height: 1.6;
+    }
+
+    .windows-command {
+      width: calc(100vw - 2rem);
+    }
+
+    .principles {
+      grid-template-columns: 1fr;
+    }
+
+    .principles article {
+      padding: 2rem 0;
+    }
+
+    .principles article + article {
+      border-top: 1px solid var(--line);
+      border-left: 0;
+      padding-left: 0;
+    }
+
+    .principles .number {
+      margin-bottom: 1.5rem;
+    }
+
+    .boundary {
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+
+    .site-footer {
+      min-height: auto;
+      align-items: flex-start;
+      flex-direction: column;
+      padding: 2rem 0 2.5rem;
+    }
+
+    .site-footer nav {
+      flex-wrap: wrap;
+      gap: 0.7rem 1.2rem;
+    }
+  }
 </style>
