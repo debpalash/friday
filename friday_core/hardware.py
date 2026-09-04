@@ -12,15 +12,24 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from friday_host import procs
+from friday_host.host import normalize_arch, normalize_os
+
+from .engine_assets import (ENGINES, ModelAsset, engine_backends,
+                            select_model_tier)
+
 
 GIB = 1024 ** 3
+PORTABLE_ENGINES = frozenset({"llama_server", "mlx_lm"})
 DEFAULT_QWEN_MODEL = "models/Huihui-Qwen3.8-27B-Abliterated-W4A16-AutoRound"
 DEFAULT_SERVED_MODEL = "qwen3.8-27b"
 DEFAULT_LLM_HOST = "127.0.0.1"
@@ -58,6 +67,11 @@ class HardwareSnapshot:
     accelerators: tuple[Accelerator, ...] = ()
     detection_errors: tuple[str, ...] = ()
     cuda_probe: str = "unknown"
+    # Additive host facts. Linux x86_64 without unified memory keeps the
+    # pre-port fingerprint byte for byte.
+    platform: str = "linux"
+    arch: str = "x86_64"
+    unified_memory: bool = False
 
     @property
     def primary_cuda(self) -> Accelerator | None:
@@ -74,6 +88,9 @@ class HardwareSnapshot:
             "accelerators": [item.to_dict() for item in self.accelerators],
             "detection_errors": list(self.detection_errors),
             "cuda_probe": self.cuda_probe,
+            "platform": self.platform,
+            "arch": self.arch,
+            "unified_memory": self.unified_memory,
         }
 
     @property
@@ -102,6 +119,11 @@ class HardwareSnapshot:
                 )
             ],
         }
+        if (self.platform, self.arch, self.unified_memory) != (
+                "linux", "x86_64", False):
+            topology["platform"] = self.platform
+            topology["arch"] = self.arch
+            topology["unified_memory"] = self.unified_memory
         encoded = json.dumps(
             topology, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()
@@ -140,6 +162,44 @@ class RuntimeProfile:
     native_vision_max_side: int = 0
     native_vision_gpu_reserve_gib: float = 0.0
     native_vision_host_reserve_mib: int = 0
+    # Engine seam. "vllm" is the original Linux/NVIDIA runtime; every field
+    # below is omitted from fingerprints while the engine is vLLM.
+    engine: str = "vllm"
+    engine_backend: str = "cuda"
+    model_asset: str = ""
+    model_path: str = ""
+    gpu_layers: int = -1
+    engine_threads: int = 0
+
+    @property
+    def portable_engine(self) -> bool:
+        return self.engine != "vllm"
+
+    def engine_launch(self) -> dict[str, Any]:
+        """Deterministic, secret-free launch description for the engine."""
+        if self.engine == "llama_server":
+            arguments = [
+                "--ctx-size", str(self.context_tokens),
+                "--parallel", str(self.max_sequences),
+                "--n-gpu-layers", str(self.gpu_layers),
+                "--reasoning-budget", "0", "--jinja", "--no-webui",
+                "--flash-attn", "auto",
+                "--alias", self.served_model,
+                "--host", self.llm_host, "--port", str(self.llm_port),
+            ]
+            if self.engine_threads:
+                arguments += ["--threads", str(self.engine_threads)]
+            return {"engine": self.engine, "backend": self.engine_backend,
+                    "model_asset": self.model_asset, "args": arguments}
+        if self.engine == "mlx_lm":
+            return {"engine": self.engine, "backend": "metal",
+                    "model_asset": self.model_asset, "args": [
+                        "--context-tokens", str(self.context_tokens),
+                        "--served-model", self.served_model,
+                        "--max-sequences", str(self.max_sequences),
+                        "--host", self.llm_host, "--port", str(self.llm_port),
+                    ]}
+        return {"engine": "vllm", "qwen_environment": self.qwen_environment()}
 
     @property
     def effective_llm_cuda_devices(self) -> tuple[int, ...]:
@@ -180,6 +240,10 @@ class RuntimeProfile:
             family["tensor_parallel_size"] = self.tensor_parallel_size
         if self.native_vision_enabled:
             family["native_vision"] = self.native_vision_config
+        if self.portable_engine:
+            family["engine"] = self.engine
+            family["engine_backend"] = self.engine_backend
+            family["model_asset"] = self.model_asset
         encoded = json.dumps(
             family, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()
@@ -236,6 +300,8 @@ class RuntimeProfile:
         if self.launch_override_fingerprint:
             config["launch_override_fingerprint"] = (
                 self.launch_override_fingerprint)
+        if self.portable_engine:
+            config["engine_launch"] = self.engine_launch()
         return config
 
     @property
@@ -288,6 +354,8 @@ class RuntimeProfile:
             "FRIDAY_TTS_DEVICE": self.tts_device,
             "FRIDAY_ASR_THREADS": str(self.asr_threads),
         }
+        if self.portable_engine:
+            result["FRIDAY_LLM_ENGINE"] = self.engine
         if self.native_vision_enabled:
             result.update({
                 "FRIDAY_NATIVE_VISION": "1",
@@ -330,6 +398,12 @@ class RuntimeProfile:
         value["tensor_parallel_size"] = self.tensor_parallel_size
         value["llm_total_memory_budget_gib"] = round(
             self.llm_memory_budget_gib * self.tensor_parallel_size, 3)
+        value["engine"] = self.engine
+        value["engine_backend"] = self.engine_backend
+        value["model_asset"] = self.model_asset
+        value["model_path"] = self.model_path
+        value["gpu_layers"] = self.gpu_layers
+        value["engine_launch"] = self.engine_launch()
         return value
 
 
@@ -374,9 +448,7 @@ def _system_memory_bytes(meminfo_path: Path) -> int:
                 return int(line.split()[1]) * 1024
     except (OSError, ValueError, IndexError):
         pass
-    page_size = int(os.sysconf("SC_PAGE_SIZE"))
-    pages = int(os.sysconf("SC_PHYS_PAGES"))
-    return page_size * pages
+    return procs.physical_memory_bytes()
 
 
 def _drm_accelerators(root: Path) -> tuple[Accelerator, ...]:
@@ -402,34 +474,115 @@ def _drm_accelerators(root: Path) -> tuple[Accelerator, ...]:
     return tuple(found)
 
 
+def parse_sysctl_darwin(memsize: str, brand: str, arch: str) -> tuple[
+        int, tuple[Accelerator, ...], bool]:
+    """Interpret ``sysctl -n hw.memsize`` and the CPU brand on macOS."""
+    total = int(memsize.strip())
+    brand = brand.strip() or "Apple CPU"
+    if arch == "aarch64":
+        return total, (Accelerator(
+            backend="metal", index=0, name=brand, total_memory_bytes=total,
+            free_memory_bytes=None, identity=brand),), True
+    return total, (), False
+
+
+def parse_win32_video_controllers(text: str) -> tuple[Accelerator, ...]:
+    """Interpret ``Get-CimInstance Win32_VideoController`` JSON output."""
+    try:
+        loaded = json.loads(text) if text.strip() else []
+    except json.JSONDecodeError as exc:
+        raise ValueError("Win32_VideoController output is not JSON") from exc
+    rows = loaded if isinstance(loaded, list) else [loaded]
+    found = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("Name") or "").strip()
+        ram = row.get("AdapterRAM")
+        if not name or "nvidia" in name.lower():
+            continue
+        try:
+            total = int(ram) if ram is not None else 0
+        except (TypeError, ValueError):
+            total = 0
+        found.append(Accelerator(
+            backend="vulkan", index=index, name=name,
+            total_memory_bytes=max(0, total), free_memory_bytes=None,
+            identity=name))
+    return tuple(found)
+
+
+_WIN32_VIDEO_QUERY = (
+    "Get-CimInstance Win32_VideoController | "
+    "Select-Object Name,AdapterRAM | ConvertTo-Json -Compress")
+
+
 def detect_hardware(*, probe: Probe | None = None,
                     meminfo_path: str | Path = "/proc/meminfo",
                     drm_root: str | Path = "/sys/class/drm",
-                    device_root: str | Path = "/dev") -> HardwareSnapshot:
+                    device_root: str | Path = "/dev",
+                    platform_name: str | None = None,
+                    machine: str | None = None) -> HardwareSnapshot:
     """Collect a lightweight inventory without importing a GPU framework."""
     run = probe or _default_probe
+    host_os = normalize_os(platform_name or sys.platform)
+    import platform as _platform  # noqa: PLC0415
+
+    arch = normalize_arch(machine or _platform.machine())
     errors: list[str] = []
     accelerators: tuple[Accelerator, ...] = ()
-    try:
-        output = run([
-            "nvidia-smi", "--query-gpu=index,uuid,name,memory.total,memory.free",
-            "--format=csv,noheader,nounits",
-        ])
-        accelerators = parse_nvidia_smi(output)
-    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-        errors.append(f"nvidia-smi: {str(exc)[:240]}")
-    if not accelerators:
-        accelerators = _drm_accelerators(Path(drm_root))
-    cuda_probe = "available" if any(
-        item.backend == "cuda" for item in accelerators
-    ) else ("probe_failed" if (Path(device_root) / "nvidia0").exists()
-            else "absent")
+    unified = False
+    memory = 0
+    if host_os == "macos":
+        try:
+            memory, accelerators, unified = parse_sysctl_darwin(
+                run(["sysctl", "-n", "hw.memsize"]),
+                run(["sysctl", "-n", "machdep.cpu.brand_string"]), arch)
+        except (OSError, RuntimeError, ValueError,
+                subprocess.SubprocessError) as exc:
+            errors.append(f"sysctl: {str(exc)[:240]}")
+        cuda_probe = "absent"
+    else:
+        try:
+            output = run([
+                "nvidia-smi",
+                "--query-gpu=index,uuid,name,memory.total,memory.free",
+                "--format=csv,noheader,nounits",
+            ])
+            accelerators = parse_nvidia_smi(output)
+        except (OSError, RuntimeError, ValueError,
+                subprocess.SubprocessError) as exc:
+            errors.append(f"nvidia-smi: {str(exc)[:240]}")
+        if not accelerators and host_os == "linux":
+            accelerators = _drm_accelerators(Path(drm_root))
+        elif not accelerators and host_os == "windows":
+            try:
+                accelerators = parse_win32_video_controllers(run([
+                    "powershell", "-NoProfile", "-NonInteractive",
+                    "-Command", _WIN32_VIDEO_QUERY]))
+            except (OSError, RuntimeError, ValueError,
+                    subprocess.SubprocessError) as exc:
+                errors.append(f"Win32_VideoController: {str(exc)[:240]}")
+        if any(item.backend == "cuda" for item in accelerators):
+            cuda_probe = "available"
+        elif host_os == "linux":
+            cuda_probe = ("probe_failed"
+                          if (Path(device_root) / "nvidia0").exists()
+                          else "absent")
+        else:
+            cuda_probe = ("probe_failed" if shutil.which("nvidia-smi")
+                          else "absent")
+    if not memory:
+        memory = _system_memory_bytes(Path(meminfo_path))
     return HardwareSnapshot(
         cpu_count=max(os.cpu_count() or 1, 1),
-        system_memory_bytes=_system_memory_bytes(Path(meminfo_path)),
+        system_memory_bytes=memory,
         accelerators=accelerators,
         detection_errors=tuple(errors),
         cuda_probe=cuda_probe,
+        platform=host_os,
+        arch=arch,
+        unified_memory=unified,
     )
 
 
@@ -605,6 +758,27 @@ def select_runtime_profile(snapshot: HardwareSnapshot, *,
         snapshot.cuda_probe in {"probe_failed", "unknown"})
     local_runtime_available = bool(cuda_devices) or can_assume_cuda
 
+    engine_request = env.get("FRIDAY_LLM_ENGINE", "").strip().lower() or "auto"
+    if engine_request not in {"auto", "vllm", *PORTABLE_ENGINES}:
+        raise ValueError(
+            "FRIDAY_LLM_ENGINE must be auto, vllm, llama_server, or mlx_lm")
+    if engine_request != "auto":
+        overrides.append("FRIDAY_LLM_ENGINE")
+    vllm_possible = snapshot.platform == "linux" and local_runtime_available
+    if engine_request == "vllm" and not vllm_possible:
+        raise ValueError(
+            "FRIDAY_LLM_ENGINE=vllm requires Linux with an NVIDIA CUDA GPU")
+    if engine_request in PORTABLE_ENGINES or (
+            engine_request == "auto" and snapshot.platform != "linux"):
+        return _select_portable_profile(
+            snapshot, env, engine_request, overrides=overrides,
+            warnings=warnings,
+            launch_override_fingerprint=launch_override_fingerprint,
+            served_model=served_model, llm_host=llm_host,
+            cuda_devices=cuda_devices, explicit_tts_device=explicit_tts_device,
+            tts_device=tts_device)
+    _reject_vllm_only_overrides(env, engine="vllm", enforce=False)
+
     llm_override, llm_changed = _cuda_devices_override(
         env, "FRIDAY_LLM_CUDA_DEVICES",
         detected_indices=detected_indices, allow_unprobed=can_assume_cuda)
@@ -699,6 +873,9 @@ def select_runtime_profile(snapshot: HardwareSnapshot, *,
                 warnings.append(
                     "the installed Qwen/OmniVoice stack currently requires an "
                     "NVIDIA CUDA GPU")
+            warnings.append(
+                "set FRIDAY_LLM_ENGINE=llama_server to run a smaller Qwen3 "
+                "checkpoint through llama.cpp on this machine")
     else:
         vram_gib = cuda.total_memory_bytes / GIB
         if dedicated_tts:
@@ -926,6 +1103,172 @@ def select_runtime_profile(snapshot: HardwareSnapshot, *,
     # of silently dropping warnings appended during those decisions.
     return replace(
         profile, overrides=tuple(overrides), warnings=tuple(warnings))
+
+
+_VLLM_ONLY_VARIABLES = (
+    "FRIDAY_GPU_UTIL", "FRIDAY_KV_MODE", "FRIDAY_CUDAGRAPH_CAPTURE",
+    "FRIDAY_LLM_CUDA_DEVICES", "FRIDAY_TTS_CUDA_DEVICES",
+    "FRIDAY_TTS_RESERVE_GIB", "FRIDAY_LLM_EXTRA_ARGS",
+)
+
+
+def _reject_vllm_only_overrides(environment: Mapping[str, str], *,
+                                engine: str, enforce: bool) -> None:
+    if not enforce:
+        return
+    for name in _VLLM_ONLY_VARIABLES:
+        if environment.get(name, "").strip():
+            raise ValueError(f"{name} requires the vLLM engine, not {engine}")
+    vision = environment.get("FRIDAY_NATIVE_VISION", "").strip().lower()
+    if vision in {"1", "true", "yes", "on", "enabled"}:
+        raise ValueError(
+            f"FRIDAY_NATIVE_VISION=enabled requires the vLLM engine, not {engine}")
+    tts = environment.get("FRIDAY_TTS_DEVICE", "").strip().lower()
+    if tts.startswith("cuda"):
+        raise ValueError(
+            f"FRIDAY_TTS_DEVICE=cuda requires the vLLM engine, not {engine}")
+
+
+def _portable_backend(snapshot: HardwareSnapshot, engine: str,
+                      requested: str, cuda_devices: list[Accelerator]
+                      ) -> tuple[str, Accelerator | None]:
+    """Choose the compute backend and the accelerator that funds the budget."""
+    backends = engine_backends(engine, snapshot.platform, snapshot.arch)
+    if engine == "mlx_lm":
+        metal = next((item for item in snapshot.accelerators
+                      if item.backend == "metal"), None)
+        return "metal", metal
+    if requested:
+        if requested not in backends:
+            available = ", ".join(sorted(backends)) or "none"
+            raise ValueError(
+                f"FRIDAY_LLM_BACKEND={requested} is not available for "
+                f"{snapshot.platform}/{snapshot.arch}; available: {available}")
+        backend = requested
+    elif cuda_devices and "cuda" in backends:
+        backend = "cuda"
+    elif any(item.backend == "rocm" for item in snapshot.accelerators) \
+            and "rocm" in backends:
+        backend = "rocm"
+    elif any(item.backend in {"vulkan", "rocm", "oneapi"}
+             for item in snapshot.accelerators) and "vulkan" in backends:
+        backend = "vulkan"
+    elif "metal" in backends:
+        backend = "metal"
+    else:
+        backend = "cpu"
+    if backend == "cuda":
+        device = max(cuda_devices, key=lambda item: (
+            item.total_memory_bytes, -item.index), default=None)
+    elif backend in {"rocm", "vulkan"}:
+        candidates = [item for item in snapshot.accelerators
+                      if item.backend in {"rocm", "vulkan", "oneapi"}]
+        device = max(candidates, key=lambda item: (
+            item.total_memory_bytes, -item.index), default=None)
+    elif backend == "metal":
+        device = next((item for item in snapshot.accelerators
+                       if item.backend == "metal"), None)
+    else:
+        device = None
+    return backend, device
+
+
+def _select_portable_profile(
+        snapshot: HardwareSnapshot, env: Mapping[str, str], engine_request: str,
+        *, overrides: list[str], warnings: list[str],
+        launch_override_fingerprint: str, served_model: str, llm_host: str,
+        cuda_devices: list[Accelerator], explicit_tts_device: bool,
+        tts_device: str) -> RuntimeProfile:
+    apple_silicon = snapshot.platform == "macos" and snapshot.arch == "aarch64"
+    if engine_request == "mlx_lm" and not apple_silicon:
+        raise ValueError("FRIDAY_LLM_ENGINE=mlx_lm requires Apple Silicon macOS")
+    engine = ("mlx_lm" if engine_request == "mlx_lm"
+              or (engine_request == "auto" and apple_silicon)
+              else "llama_server")
+    _reject_vllm_only_overrides(env, engine=engine, enforce=True)
+    requested_backend = env.get("FRIDAY_LLM_BACKEND", "").strip().lower()
+    if requested_backend:
+        overrides.append("FRIDAY_LLM_BACKEND")
+    backend, device = _portable_backend(
+        snapshot, engine, requested_backend, cuda_devices)
+    if device is not None and device.total_memory_bytes > 0 and (
+            backend in {"cuda", "rocm", "vulkan"}) and not snapshot.unified_memory:
+        total_bytes = device.total_memory_bytes
+        budget_bytes = int(total_bytes * (0.90 if backend == "cuda" else 0.85))
+        budget_source = f"{backend} device memory"
+    elif backend == "metal":
+        total_bytes = snapshot.system_memory_bytes
+        budget_bytes = int(total_bytes * 0.70)
+        budget_source = "unified memory"
+    else:
+        total_bytes = snapshot.system_memory_bytes
+        budget_bytes = int(total_bytes * 0.60)
+        budget_source = "system memory"
+    tier = select_model_tier(engine, budget_bytes, cpu_only=backend == "cpu")
+    if explicit_tts_device and tts_device.lower() != "cpu":
+        raise ValueError(
+            f"FRIDAY_TTS_DEVICE must be cpu with the {engine} engine")
+    cuda_index = device.index if backend == "cuda" and device else None
+    asr_threads = min(8, max(2, snapshot.cpu_count // 8))
+    if tier is None:
+        warnings.append(
+            f"no Qwen3 tier fits the {budget_source} budget of "
+            f"{budget_bytes / GIB:.1f} GiB; the local model runtime is unavailable")
+        profile = RuntimeProfile(
+            name="unsupported-local-runtime", source="unsupported",
+            hardware=snapshot, qwen_model="", served_model=served_model,
+            llm_host=llm_host, llm_port=DEFAULT_LLM_PORT,
+            context_tokens=8192, max_sequences=1, gpu_memory_utilization=0.30,
+            kv_mode="huge", cuda_graph_capture_size=1, tts_device="cpu",
+            asr_threads=asr_threads, llm_cuda_device=None, tts_cuda_device=None,
+            llm_memory_budget_gib=0.0, tts_reserve_gib=0.0,
+            unallocated_gpu_gib=round(total_bytes / GIB, 3),
+            local_runtime_available=False,
+            launch_override_fingerprint=launch_override_fingerprint,
+            warnings=tuple(warnings), overrides=tuple(overrides),
+            engine=engine, engine_backend=backend)
+        return profile
+    asset, context, sequences = tier
+    utilization = round(min(0.98, max(0.30, budget_bytes / total_bytes)), 3)
+    profile = RuntimeProfile(
+        name=f"{engine.replace('_', '-')}-{backend}-{asset.key}",
+        source="hardware", hardware=snapshot,
+        qwen_model=f"models/{asset.directory}",
+        served_model=(served_model if "FRIDAY_LOCAL_MODEL" in overrides
+                      else f"qwen3-{asset.size_label}"),
+        llm_host=llm_host, llm_port=DEFAULT_LLM_PORT,
+        context_tokens=context, max_sequences=sequences,
+        gpu_memory_utilization=utilization, kv_mode="huge",
+        cuda_graph_capture_size=1, tts_device="cpu", asr_threads=asr_threads,
+        llm_cuda_device=cuda_index, tts_cuda_device=None,
+        llm_memory_budget_gib=round(budget_bytes / GIB, 3),
+        tts_reserve_gib=0.0,
+        unallocated_gpu_gib=round(max(total_bytes - budget_bytes, 0) / GIB, 3),
+        local_runtime_available=True,
+        launch_override_fingerprint=launch_override_fingerprint,
+        llm_cuda_devices=(cuda_index,) if cuda_index is not None else (),
+        engine=engine, engine_backend=backend, model_asset=asset.key,
+        model_path=f"models/{asset.directory}",
+        gpu_layers=-1 if backend != "cpu" else 0)
+    integer_overrides = (
+        ("FRIDAY_LLM_PORT", "llm_port", 1, 65535),
+        ("FRIDAY_MODEL_CONTEXT_TOKENS", "context_tokens", 2048, 1_000_000),
+        ("FRIDAY_MAX_SEQS", "max_sequences", 1, 256),
+        ("FRIDAY_ASR_THREADS", "asr_threads", 1, 256),
+        ("FRIDAY_LLM_GPU_LAYERS", "gpu_layers", -1, 1024),
+        ("FRIDAY_LLM_THREADS", "engine_threads", 0, 1024),
+    )
+    for variable, field, minimum, maximum in integer_overrides:
+        value, changed = _env_int(
+            env, variable, getattr(profile, field), minimum=minimum,
+            maximum=maximum)
+        if changed:
+            profile = replace(profile, **{field: value})
+            overrides.append(variable)
+    warnings.append(
+        f"{engine} selected {asset.repo} ({asset.size_label}) for a "
+        f"{budget_bytes / GIB:.1f} GiB {budget_source} budget")
+    return replace(profile, overrides=tuple(overrides), warnings=tuple(warnings))
 
 
 def _write_runtime_manifest(path: str | Path, value: dict[str, Any]) -> None:
