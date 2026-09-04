@@ -23,7 +23,8 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VENV_PYTHON = ROOT / "venv" / "bin" / "python"
+_PROJECT_PYTHON = ROOT / "venv" / "bin" / "python"
+VENV_PYTHON = _PROJECT_PYTHON if _PROJECT_PYTHON.is_file() else Path(sys.executable)
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

@@ -19,7 +19,7 @@ class MachineOperatorTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         self.project = self.root / "project"
         self.home = self.root / "home"
         self.state = self.root / "state"

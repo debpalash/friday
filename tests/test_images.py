@@ -14,6 +14,13 @@ from friday_core.images import extract_image_text, prepare_native_vision_image
 from friday_core.machine import MachineOperator, OperatorGrantService
 from friday_core.tasks import redact_tool_arguments, redact_tool_result
 
+from tests.platform_markers import require_platform
+
+require_platform("linux")
+if not all(Path(tool).is_file() for tool in (
+        "/usr/bin/bwrap", "/usr/bin/magick", "/usr/bin/tesseract")):
+    raise unittest.SkipTest("environment: sandboxed image tools are unavailable")
+
 
 FONT = Path("/usr/share/fonts/liberation/LiberationSans-Regular.ttf")
 

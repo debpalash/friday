@@ -19,9 +19,10 @@ class IdentityTests(unittest.TestCase):
         identity = procs.process_identity(os.getpid())
         self.assertEqual(identity.pid, os.getpid())
         self.assertEqual(identity.cwd, cwd.resolve())
-        self.assertIn("python", identity.cmdline.lower())
+        self.assertTrue(identity.cmdline)
         self.assertTrue(identity.comm)
-        self.assertTrue(procs.owned(os.getpid(), cwd, "python"))
+        marker = identity.cmdline.split()[0]
+        self.assertTrue(procs.owned(os.getpid(), cwd, marker))
         self.assertFalse(procs.owned(os.getpid(), cwd, "definitely-not-in-argv"))
         self.assertFalse(procs.owned(os.getpid(), cwd / "elsewhere", "python"))
 

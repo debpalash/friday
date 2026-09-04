@@ -2,6 +2,10 @@ import asyncio
 import json
 import tempfile
 import unittest
+
+from tests.platform_markers import require_platform
+
+require_platform("linux")
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch

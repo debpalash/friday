@@ -15,6 +15,7 @@ from unittest.mock import patch
 import numpy as np
 
 import server
+from tests.platform_markers import linux_only
 from friday_core import (Accelerator, AdmissionBudget, GraphStore,
                          HardwareSnapshot, MemoryCurator, ReflectionService,
                          ResourceAdmissionController, ResourceClaim,
@@ -405,6 +406,7 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(health_ready, expected_ready)
                 self.assertEqual(status_body["ready"], health_ready)
 
+    @linux_only
     def test_admission_sampler_fails_closed_per_missing_proc_dimension(self):
         budget = AdmissionBudget(
             cpu_millis=8_000,
@@ -1188,6 +1190,9 @@ class ServerStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(friday._is_news_followup(
             "When I ask for news, always give me one concise line.", False))
 
+    @unittest.skipUnless(
+        (Path(__file__).resolve().parents[1] / "persona" / "voices" / "scarlet" / "scarlet_1.mp3").is_file(),
+        "environment: local voice reference clip is not installed")
     def test_clone_prompt_reuses_cpu_asr_transcript(self):
         class Tokens:
             def cpu(self):
