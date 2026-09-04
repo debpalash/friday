@@ -1,0 +1,2 @@
+# Host audio capture for the legacy friday.py terminal client only.
+sounddevice==0.5.6

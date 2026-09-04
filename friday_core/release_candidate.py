@@ -215,10 +215,12 @@ class ReleaseCandidateRunner:
                 "dependency_review": {
                     "passed": dependency["passed"],
                     "policy_sha256": dependency["policy_sha256"],
-                    "application_packages": dependency["environments"][
-                        "application"]["locked_packages"],
-                    "qwen_runtime_packages": dependency["environments"][
-                        "qwen_runtime"]["locked_packages"],
+                    "locks": {
+                        name: {"packages": value["locked_packages"],
+                               "review": value["review"],
+                               "passed": value["passed"]}
+                        for name, value in dependency["environments"].items()},
+                    "installed_reviewed": dependency["installed_reviewed"],
                     "models_and_assets": len(dependency["models_and_assets"]),
                     "distribution_approval": dependency[
                         "distribution_approval"],

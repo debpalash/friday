@@ -1,0 +1,3 @@
+# Pinned MLX inference environment for Apple Silicon (separate venv).
+mlx==0.32.2
+mlx-lm==0.31.3

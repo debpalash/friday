@@ -1,16 +1,79 @@
 {
-  "review_version": 1,
+  "review_version": 2,
   "scope": "0.1.x-alpha",
   "locks": {
-    "application": {
-      "path": "requirements/runtime.lock",
-      "sha256": "93f301e8f15e65a9233098cfcc7b41bb85befd578787383bb970ac0c6aa398c3",
-      "packages": 126
+    "application-cuda-linux-x86_64": {
+      "path": "requirements/cuda-linux-x86_64.lock",
+      "sha256": "529c0ecbd340070edce3a75a23ff92e3c5ff61f4795107d1cdd4331b23c1ec1d",
+      "packages": 124,
+      "platform": "linux-x86_64",
+      "engines": [
+        "vllm"
+      ]
+    },
+    "application-linux-x86_64": {
+      "path": "requirements/runtime-linux-x86_64.lock",
+      "sha256": "fd679f49e89347140da67d765c17648ada686b11c1c0d71a0fb1a0814b8b7312",
+      "packages": 53,
+      "platform": "linux-x86_64",
+      "engines": [
+        "llama_server"
+      ]
+    },
+    "application-linux-arm64": {
+      "path": "requirements/runtime-linux-arm64.lock",
+      "sha256": "0d4bd130834596215653d9bad7c6d34bb4293281ff0e27cbb6f0c070023fd5a9",
+      "packages": 53,
+      "platform": "linux-arm64",
+      "engines": [
+        "llama_server"
+      ]
+    },
+    "application-macos-arm64": {
+      "path": "requirements/runtime-macos-arm64.lock",
+      "sha256": "2ae0c3dc43a83ac6bafddb035acfe6607f9529327d139f9b8dffab0efc7f80bd",
+      "packages": 53,
+      "platform": "macos-arm64",
+      "engines": [
+        "mlx_lm",
+        "llama_server"
+      ]
+    },
+    "application-windows-x86_64": {
+      "path": "requirements/runtime-windows-x86_64.lock",
+      "sha256": "390c88b2abb2a849a1ebd00fb250a8c9b79b899da941b123d8e038c227a07ff1",
+      "packages": 54,
+      "platform": "windows-x86_64",
+      "engines": [
+        "llama_server"
+      ]
+    },
+    "mlx-runtime": {
+      "path": "requirements/mlx-runtime.lock",
+      "sha256": "c82a73774a038647d821475e1c57fe51c166c993353a2ba5d7994ef8b59e73c1",
+      "packages": 34,
+      "platform": "macos-arm64",
+      "engines": [
+        "mlx_lm"
+      ]
+    },
+    "legacy-cli-linux-x86_64": {
+      "path": "requirements/legacy-cli-linux-x86_64.lock",
+      "sha256": "16c7fe1e3ee9209c6e2bf9802a08a1e5a5860eb66a3744b70061aa6f3ae9ed11",
+      "packages": 54,
+      "platform": "linux-x86_64",
+      "engines": [
+        "vllm"
+      ]
     },
     "qwen_runtime": {
       "path": "requirements/qwen-runtime.lock",
       "sha256": "556189fbc77e19cfad800364689682e6d4a943229b8d9cc9cedb04dac81f6f2b",
-      "packages": 197
+      "packages": 197,
+      "platform": "linux-x86_64",
+      "engines": [
+        "vllm"
+      ]
     }
   },
   "manual_license_evidence": {
@@ -20,7 +83,12 @@
     "detect-installer==0.1.0": "0BSD",
     "mistral-common==1.11.7": "Apache-2.0",
     "opentelemetry-semantic-conventions-ai==0.5.1": "Apache-2.0",
-    "sentencepiece==0.2.2": "Apache-2.0"
+    "sentencepiece==0.2.2": "Apache-2.0",
+    "colorama==0.4.6": "BSD-3-Clause",
+    "mlx==0.32.2": "MIT",
+    "mlx-lm==0.31.3": "MIT",
+    "mlx-metal==0.32.2": "MIT",
+    "sounddevice==0.5.6": "MIT"
   },
   "models_and_assets": [
     {
@@ -47,6 +115,102 @@
       "name": "en_US-kristin-medium",
       "pin": "sha256-pinned-files",
       "license": "MIT-metadata-and-public-domain-recordings"
+    },
+    {
+      "name": "Qwen/Qwen3-4B-GGUF",
+      "pin": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+      "license": "Apache-2.0",
+      "platforms": [
+        "linux-x86_64",
+        "linux-arm64",
+        "macos-arm64",
+        "windows-x86_64"
+      ],
+      "engine": "llama_server"
+    },
+    {
+      "name": "Qwen/Qwen3-8B-GGUF",
+      "pin": "7c41481f57cb95916b40956ab2f0b139b296d974",
+      "license": "Apache-2.0",
+      "platforms": [
+        "linux-x86_64",
+        "linux-arm64",
+        "macos-arm64",
+        "windows-x86_64"
+      ],
+      "engine": "llama_server"
+    },
+    {
+      "name": "Qwen/Qwen3-14B-GGUF",
+      "pin": "530227a7d994db8eca5ab5ced2fb692b614357fd",
+      "license": "Apache-2.0",
+      "platforms": [
+        "linux-x86_64",
+        "linux-arm64",
+        "macos-arm64",
+        "windows-x86_64"
+      ],
+      "engine": "llama_server"
+    },
+    {
+      "name": "Qwen/Qwen3-30B-A3B-GGUF",
+      "pin": "e4d4bafdfb96a411a163846265362aceb0b9c63a",
+      "license": "Apache-2.0",
+      "platforms": [
+        "linux-x86_64",
+        "linux-arm64",
+        "macos-arm64",
+        "windows-x86_64"
+      ],
+      "engine": "llama_server"
+    },
+    {
+      "name": "Qwen/Qwen3-32B-GGUF",
+      "pin": "938a7432affaec9157f883a87164e2646ae17555",
+      "license": "Apache-2.0",
+      "platforms": [
+        "linux-x86_64",
+        "linux-arm64",
+        "macos-arm64",
+        "windows-x86_64"
+      ],
+      "engine": "llama_server"
+    },
+    {
+      "name": "mlx-community/Qwen3-4B-4bit",
+      "pin": "4dcb3d101c2a062e5c1d4bb173588c54ea6c4d25",
+      "license": "Apache-2.0",
+      "platforms": [
+        "macos-arm64"
+      ],
+      "engine": "mlx_lm"
+    },
+    {
+      "name": "mlx-community/Qwen3-8B-4bit",
+      "pin": "545dc4251c05440727734bcd94334791f6ab0192",
+      "license": "Apache-2.0",
+      "platforms": [
+        "macos-arm64"
+      ],
+      "engine": "mlx_lm"
+    },
+    {
+      "name": "mlx-community/Qwen3-14B-4bit",
+      "pin": "a4d9b2df59d2c150bef02fcbe0d91046b7ca33a4",
+      "license": "Apache-2.0",
+      "platforms": [
+        "macos-arm64"
+      ],
+      "engine": "mlx_lm"
+    },
+    {
+      "name": "mlx-community/Qwen3-30B-A3B-4bit",
+      "pin": "d388dead1515f5e085ef7a0431dd8fadf0886c57",
+      "license": "Apache-2.0",
+      "platforms": [
+        "macos-arm64"
+      ],
+      "engine": "mlx_lm"
     }
   ],
   "copyleft_findings": [
@@ -58,5 +222,27 @@
   ],
   "engineering_review": "complete",
   "friday_license": "Apache-2.0",
-  "distribution_approval": "approved_apache_2_0_with_gpl_3_piper_runtime"
+  "distribution_approval": "approved_apache_2_0_with_gpl_3_piper_runtime",
+  "binary_assets": [
+    {
+      "name": "llama-server (ggml-org/llama.cpp)",
+      "version": "b10786",
+      "license": "MIT",
+      "artifacts": {
+        "macos-aarch64-metal": "47782edcf0f92591487cc5ba243a194bd98b1921a13b6dd3bbc4e94797d555f0",
+        "macos-x86_64-cpu": "9f670f73172e1df3c61b7207a626703007e340779eb448cbc165c27e6eb36c28",
+        "linux-x86_64-cpu": "79c0a6d479cc306bcac6aa891c3d97e0c32d817e898e32a5947bfe0dd22439ef",
+        "linux-x86_64-vulkan": "e80087b8f40149417e05df1a204252a06df3b82d588888cdbabe5c381a8045df",
+        "linux-x86_64-rocm": "eb4279efa88129366927e851c0baeaae1ad505a807f9e7eea95851c06e971f7d",
+        "windows-x86_64-cpu": "4bd5eef83548aa73f712c74406640df294bcb98d916c4eef21f7bd41c2232a6e",
+        "windows-x86_64-cuda": "01b849246103016844ae3baf45fa414d4b3ffcdac71d0fc80f0837652409c9f6",
+        "windows-x86_64-cuda-cudart": "1462a050eb4c684921ba51dcc4cc488a036674c3e73e9945ee705b854808d03e",
+        "windows-x86_64-vulkan": "044ee17fb5bf14a9abec2d63c937a104641b60f9064b6cd805a2a72d57935e6a",
+        "windows-x86_64-rocm": "2f38b193d50b6abf422b163521f9a8bc1484e3ad0f18a8ef57e92b63aa5d0a47",
+        "windows-aarch64-cpu": "94e6c58290c36af67a3fa37239a74f3e37ce37ed1eebf26538c34d2b9f9bfd5d",
+        "windows-aarch64-cuda": "eaf7400f0d418f7ef2c64e99e401cd228d334ec32dbb9283d7b91ee00ec4d6bf",
+        "windows-aarch64-cuda-cudart": "5a40dc7c5fa3d0a80ceeba4f16f9e8d25d87bcf1399c9233588953c43436c33c"
+      }
+    }
+  ]
 }
