@@ -7,9 +7,9 @@ import subprocess
 import unittest
 from unittest import mock
 
-from friday_host import secret_store
+from friday_host import host_keyring as secret_store
 from friday_host.host import HostPlatform
-from friday_host.secret_store import SecretStore, SecretStoreUnavailable
+from friday_host.host_keyring import SecretStore, SecretStoreUnavailable
 
 LINUX = HostPlatform(os="linux", arch="x86_64")
 MACOS = HostPlatform(os="macos", arch="aarch64")

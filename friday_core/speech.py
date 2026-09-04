@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import stat
@@ -232,3 +233,35 @@ class PiperSpeechSynthesizer:
                 or float(np.sqrt(np.mean(np.square(result)))) < 1e-5):
             raise RuntimeError("Piper returned silent or invalid audio")
         return result
+
+
+def inference_context():
+    """``torch.inference_mode()`` when torch is present, else a no-op context."""
+    try:
+        import torch  # noqa: PLC0415
+    except ImportError:
+        return contextlib.nullcontext()
+    return torch.inference_mode()
+
+
+def release_accelerator_memory() -> None:
+    """Return cached CUDA memory to the driver when torch and CUDA exist."""
+    try:
+        import torch  # noqa: PLC0415
+    except ImportError:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+class _NoAcceleratorMemoryError(Exception):
+    """Placeholder when torch is unavailable; never raised."""
+
+
+def accelerator_oom_error() -> type[BaseException]:
+    """The accelerator out-of-memory exception type for ``except`` clauses."""
+    try:
+        import torch  # noqa: PLC0415
+    except ImportError:
+        return _NoAcceleratorMemoryError
+    return torch.cuda.OutOfMemoryError

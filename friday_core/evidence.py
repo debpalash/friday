@@ -11,7 +11,7 @@ import secrets
 from pathlib import Path
 from typing import Callable
 
-from friday_host.secret_store import SecretStore, SecretStoreUnavailable
+from friday_host.host_keyring import SecretStore, SecretStoreUnavailable
 
 from .local_cipher import aes256_ctr
 

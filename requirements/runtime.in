@@ -24,3 +24,5 @@ transformers==5.15.1
 uvicorn==0.52.4
 websockets==17.1
 cryptography==46.0.5
+onnxruntime==1.29.0
+tokenizers==0.22.2

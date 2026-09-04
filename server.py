@@ -29,7 +29,6 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import numpy as np
-import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -116,7 +115,10 @@ from friday_core.builtin_tools import (
     OMARCHY_STATUS_TOOL, OMARCHY_TOOL_NAMES, PROCESS_TOOL_NAMES,
     BuiltinToolAdapters, BuiltinToolRuntime,
 )
-from friday_core.speech import load_omnivoice_runtime
+from friday_core.speech import (accelerator_oom_error, inference_context,
+                                load_omnivoice_runtime,
+                                release_accelerator_memory)
+from friday_core.vad import SileroOnnxVad, pinned_vad_model_path
 SAMPLE_RATE = 16000
 TTS_RATE = 24000
 SPEECH_THRESHOLD = 0.5
@@ -252,8 +254,7 @@ def _harden_private_runtime_file(path: Path) -> None:
 _harden_private_runtime_file(SESSION_FILE)
 _harden_private_runtime_file(SERVER_LOG_FILE)
 def _empty_cuda_cache() -> None:
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    release_accelerator_memory()
 
 def _tokenize_url() -> str:
     root = LOCAL_BASE_URL[:-3] if LOCAL_BASE_URL.endswith("/v1") else LOCAL_BASE_URL
@@ -343,9 +344,7 @@ def exec_tool(name: str, args: dict) -> str:
         name, args, _builtin_tool_adapters())
 class Friday:
     def __init__(self):
-        from silero_vad import load_silero_vad
-
-        self.vad = load_silero_vad()
+        self.vad = SileroOnnxVad(pinned_vad_model_path(REPO))
         self._session_lock = threading.RLock()
         self._voice_lock = threading.RLock()
         print("loading asr...", flush=True)
@@ -604,7 +603,7 @@ class Friday:
             _empty_cuda_cache()
             raise
     def _verify_current_voice(self) -> dict:
-        with torch.no_grad():
+        with inference_context():
             if self.ref_audio:
                 out = self.tts.generate(
                     text="Friday voice verification.", language="English",
@@ -899,8 +898,7 @@ class Friday:
 
     # ---------- audio ----------
     def speech_prob(self, x16: np.ndarray) -> float:
-        with torch.no_grad():
-            return self.vad(torch.from_numpy(x16).float(), SAMPLE_RATE).item()
+        return float(self.vad(x16, SAMPLE_RATE))
 
     def transcribe(self, x16: np.ndarray) -> str:
         return self.asr.transcribe_samples(x16, SAMPLE_RATE)
@@ -918,7 +916,7 @@ class Friday:
             return piper.synthesize(text)
 
         def _gen(**kwargs):
-            with torch.no_grad():
+            with inference_context():
                 return self.tts.generate(language="English", **kwargs)
 
         attempts = []
@@ -934,7 +932,7 @@ class Friday:
                 del a, out
                 _empty_cuda_cache()
                 return audio
-            except torch.cuda.OutOfMemoryError as e:
+            except accelerator_oom_error() as e:
                 # The LLM server shares this GPU and can squeeze us mid-decode;
                 # dropping our cache usually buys the headroom back.
                 last_error = e

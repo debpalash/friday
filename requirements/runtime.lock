@@ -1334,6 +1334,7 @@ onnxruntime==1.29.0 \
     --hash=sha256:e417ef8628dcce310d2d53023e750ea298ec14d4341ae6dc3a572bfd9bc7fa97 \
     --hash=sha256:e74b278af1d949876f5d91d1268fd6c680e79f2bac194967394eaba9fdf69e7e
     # via
+    #   -r requirements/runtime.in
     #   faster-whisper
     #   piper-tts
 openai==3.3.1 \
@@ -2284,6 +2285,7 @@ tokenizers==0.22.2 \
     --hash=sha256:e10bf9113d209be7cd046d40fbabbaf3278ff6d18eb4da4c500443185dc1896c \
     --hash=sha256:f01a9c019878532f98927d2bacb79bbb404b43d3437455522a00a30718cdedb5
     # via
+    #   -r requirements/runtime.in
     #   faster-whisper
     #   transformers
 tomlkit==0.14.0 \
