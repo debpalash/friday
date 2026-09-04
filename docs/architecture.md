@@ -52,6 +52,24 @@ The installer uses versioned release directories and a single atomic `current`
 link. Personal state and large shared assets live beside those releases, so a
 code rollback does not roll back or delete user data.
 
+## Platform boundary
+
+`friday_host/` is a standard-library-only package that owns every
+operating-system difference: host detection, per-OS default paths, private
+file and lock primitives, process probes, notifications, clipboard, keyring,
+and the per-platform capability gate. `friday_core` imports from it; nothing
+in `friday_host` imports the application core. On Linux every helper
+reproduces the pre-port expression, so the original target is unchanged.
+
+The language model runs behind one OpenAI-compatible loopback endpoint. Three
+engines can stand behind it: the pinned vLLM runtime on Linux with an NVIDIA
+GPU, `mlx-lm` on Apple Silicon through a Friday-owned launcher that adds
+bearer authentication and a context probe, and llama.cpp's `llama-server`
+elsewhere. Engine binaries and Qwen3 checkpoints are pinned by size and
+SHA-256 in `friday_core/engine_assets.json`. Action classes that depend on
+systemd, bubblewrap, Hyprland, Omarchy, or the managed Chromium are reported
+as unsupported on other hosts; they are never hidden.
+
 ## Trust boundaries
 
 Friday assumes one trusted local operating-system user. The kernel, filesystem
@@ -72,8 +90,9 @@ not an action receipt.
 
 ## Enforced composition boundaries
 
-`scripts/check-architecture.py` prevents the frontend from returning to an
-embedded Python string, requires every named boundary, and caps growth of the
+`scripts/check_architecture.py` prevents the frontend from returning to an
+embedded Python string, requires every named boundary including the platform
+gate, rejects POSIX-only imports outside `friday_host`, and caps growth of the
 composition root. Unit and integration tests exercise each extracted boundary
 and the retained server-facing compatibility wrappers.
 

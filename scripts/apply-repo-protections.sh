@@ -57,7 +57,8 @@ gh api --silent -X PATCH "repos/$repository" --input - <<'JSON'
 JSON
 
 step "Branch ruleset for $default_branch"
-# Required checks are the CI and CodeQL job names from .github/workflows.
+# Required checks are the reusable verify workflow's Linux jobs and CodeQL;
+# the macOS and Windows columns report without blocking until qualified.
 ruleset="$(python3 - "$require_signatures" <<'PY'
 import json
 import sys
@@ -80,7 +81,8 @@ rules = [
         "parameters": {
             "strict_required_status_checks_policy": True,
             "required_status_checks": [
-                {"context": "source-and-installer"},
+                {"context": "verify / release-tree"},
+                {"context": "verify / tests-linux-x86_64"},
                 {"context": "analyze"},
             ],
         },

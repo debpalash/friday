@@ -1,0 +1,98 @@
+name: Verify
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  release-tree:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check release tree
+        run: scripts/check-release.sh
+      - name: Parse shell entrypoints
+        run: >-
+          bash -n install.sh ops/fridayctl ops/provision_qwen_runtime.sh
+          scripts/uninstall.sh scripts/build-release.sh scripts/check-release.sh
+          scripts/apply-repo-protections.sh scripts/configure-install-site.sh
+          scripts/compile-locks.sh scripts/scan-secrets.sh site/public/install
+      - name: Parse PowerShell entrypoints
+        run: >-
+          pwsh -NoProfile -Command
+          '$null = [scriptblock]::Create((Get-Content -Raw site/public/install.ps1))'
+      - name: Compile Python source
+        run: >-
+          python3 -m compileall -q friday.py server.py supervisor.py friday_core
+          friday_host ops scripts tests
+      - name: Exercise installer lifecycle
+        run: >-
+          python3 -m unittest -v
+          tests.test_installer.AsrInstallerTests
+          tests.test_installer.InstallerLifecycleTests
+      - name: Exercise install bootstrap
+        run: python3 -m unittest -v tests.test_bootstrap
+      - name: Scan Git history for secrets
+        run: scripts/scan-secrets.sh
+      - name: Reject whitespace errors
+        run: git diff --check
+
+  tests:
+    name: tests-${{ matrix.lock }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            lock: linux-x86_64
+          - runner: macos-15
+            lock: macos-arm64
+          - runner: windows-2025
+            lock: windows-x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - name: Keep line endings exact
+        run: git config --global core.autocrlf false
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.9"
+          enable-cache: true
+          cache-dependency-glob: requirements/runtime-${{ matrix.lock }}.lock
+      - name: Create the application environment
+        run: uv venv --python 3.12 .venv
+      - name: Sync the platform lock
+        run: >-
+          uv pip sync --python .venv --require-hashes
+          requirements/runtime-${{ matrix.lock }}.lock
+      - name: Run accounted tests (Linux must skip nothing for platform reasons)
+        if: runner.os == 'Linux'
+        run: >-
+          uv run --python .venv --no-project python scripts/run_tests.py
+          --require-no-platform-skips --summary "$RUNNER_TEMP/tests.json"
+          --github-summary
+      - name: Run accounted tests
+        if: runner.os != 'Linux'
+        shell: bash
+        run: >-
+          uv run --python .venv --no-project python scripts/run_tests.py
+          --summary "$RUNNER_TEMP/tests.json" --github-summary
+      - name: Upload test summary
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: test-summary-${{ matrix.lock }}
+          path: ${{ runner.temp }}/tests.json
+          if-no-files-found: warn
