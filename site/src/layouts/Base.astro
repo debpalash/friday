@@ -6,7 +6,6 @@ import ogImage from "../assets/og.png";
 interface Props {
   title: string;
   description: string;
-  /** Canonical path, for example "/" or "/404". */
   path?: string;
   noindex?: boolean;
 }
@@ -38,11 +37,7 @@ const jsonLd = {
       image: ogUrl,
       sameAs: [repository],
     },
-    {
-      "@type": "WebSite",
-      name: "Friday",
-      url: site.href,
-    },
+    { "@type": "WebSite", name: "Friday", url: site.href },
   ],
 };
 ---
@@ -56,7 +51,7 @@ const jsonLd = {
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
     {noindex ? <meta name="robots" content="noindex" /> : <meta name="robots" content="index,follow,max-image-preview:large" />}
-    <meta name="theme-color" content="#07090d" />
+    <meta name="theme-color" content="#090a0d" />
     <meta name="color-scheme" content="dark" />
     <meta name="generator" content={Astro.generator} />
     <meta name="author" content="Palash Debnath" />
@@ -72,13 +67,13 @@ const jsonLd = {
     <meta property="og:image" content={ogUrl} />
     <meta property="og:image:width" content={String(ogImage.width)} />
     <meta property="og:image:height" content={String(ogImage.height)} />
-    <meta property="og:image:alt" content="The Friday interface answering a text request with a checklist and table" />
+    <meta property="og:image:alt" content="The Friday interface showing a release plan and evidence table" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogUrl} />
 
-    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -88,65 +83,100 @@ const jsonLd = {
 
 <style is:global>
   :root {
-    --bg: #07090d;
-    --bg-soft: #0c1018;
-    --panel: rgba(15, 20, 31, 0.78);
-    --panel-solid: #111722;
-    --panel-high: #171e2c;
-    --line: rgba(170, 190, 225, 0.12);
-    --line-strong: rgba(170, 190, 225, 0.22);
-    --fg: #f1f5fb;
-    --fg-soft: #c3ccda;
-    --dim: #7f8999;
-    --accent: #8eb8ff;
-    --accent-strong: #5d8ff0;
-    --ok: #74dfb0;
-    --amber: #ffc878;
-    --violet: #b79cff;
-    --warn: #ff8098;
-    --shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
-    --radius: 18px;
+    --bg: #090a0d;
+    --surface: #0f1116;
+    --line: #20232b;
+    --line-strong: #30343e;
+    --fg: #f2f1ed;
+    --muted: #a6a7ad;
+    --dim: #8b8e97;
+    --accent: #91b6ff;
     --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --measure: 68rem;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
     color-scheme: dark;
   }
-  *, *::before, *::after { box-sizing: border-box; }
-  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
   body {
+    min-width: 20rem;
+    min-height: 100vh;
     margin: 0;
+    color: var(--fg);
+    background: var(--bg);
     font-family: var(--sans);
-    font-size: 17px;
-    line-height: 1.6;
-    color: var(--fg-soft);
-    background:
-      radial-gradient(60rem 40rem at 15% -10%, rgba(93, 143, 240, 0.16), transparent 60%),
-      radial-gradient(50rem 30rem at 110% 20%, rgba(183, 156, 255, 0.1), transparent 55%),
-      var(--bg);
+    font-size: 16px;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
-  h1, h2, h3 { color: var(--fg); line-height: 1.15; letter-spacing: -0.015em; margin: 0 0 0.5em; }
-  h2 { font-size: clamp(1.6rem, 1.2rem + 1.4vw, 2.2rem); }
-  h3 { font-size: 1.1rem; }
-  p { margin: 0 0 1em; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover, a:focus-visible { text-decoration: underline; text-underline-offset: 0.2em; }
-  code, pre, kbd { font-family: var(--mono); font-size: 0.92em; }
-  code { background: rgba(170, 190, 225, 0.1); padding: 0.1em 0.4em; border-radius: 6px; }
-  pre { margin: 0; overflow-x: auto; }
-  pre code { background: none; padding: 0; }
-  img { max-width: 100%; height: auto; display: block; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
-  th, td { text-align: left; padding: 0.65rem 0.8rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--fg); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; }
-  .skip {
-    position: absolute; left: -999px; top: 0; background: var(--accent-strong); color: #fff;
-    padding: 0.5rem 1rem; border-radius: 0 0 10px 0; z-index: 10;
+
+  a {
+    color: var(--accent);
+    text-decoration: none;
   }
-  .skip:focus { left: 0; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  a:hover,
+  a:focus-visible {
+    text-decoration: underline;
+    text-underline-offset: 0.22em;
+  }
+
+  code,
+  pre,
+  kbd {
+    font-family: var(--mono);
+  }
+
+  img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  ::selection {
+    color: #090a0d;
+    background: var(--accent);
+  }
+
+  .skip {
+    position: fixed;
+    top: 0.75rem;
+    left: -999px;
+    z-index: 20;
+    padding: 0.65rem 0.9rem;
+    color: #090a0d;
+    background: var(--accent);
+  }
+
+  .skip:focus {
+    left: 0.75rem;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    html { scroll-behavior: auto; }
-    *, *::before, *::after { animation: none !important; transition: none !important; }
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 </style>
