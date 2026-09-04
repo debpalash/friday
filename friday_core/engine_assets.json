@@ -1,0 +1,505 @@
+{
+ "schema_version": 1,
+ "llama_server": {
+  "tag": "b10786",
+  "license": "MIT",
+  "repository": "ggml-org/llama.cpp",
+  "binaries": [
+   {
+    "platform": "macos",
+    "arch": "aarch64",
+    "backend": "metal",
+    "tag": "b10786",
+    "name": "llama-b10786-bin-macos-arm64.tar.gz",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/llama-b10786-bin-macos-arm64.tar.gz",
+    "size": 11108628,
+    "sha256": "47782edcf0f92591487cc5ba243a194bd98b1921a13b6dd3bbc4e94797d555f0",
+    "executable": "llama-server",
+    "extra": []
+   },
+   {
+    "platform": "macos",
+    "arch": "x86_64",
+    "backend": "cpu",
+    "tag": "b10786",
+    "name": "llama-b10786-bin-macos-x64.tar.gz",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/llama-b10786-bin-macos-x64.tar.gz",
+    "size": 11156339,
+    "sha256": "9f670f73172e1df3c61b7207a626703007e340779eb448cbc165c27e6eb36c28",
+    "executable": "llama-server",
+    "extra": []
+   },
+   {
+    "platform": "linux",
+    "arch": "x86_64",
+    "backend": "cpu",
+    "tag": "b10786",
+    "name": "llama-b10786-bin-ubuntu-x64.tar.gz",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/llama-b10786-bin-ubuntu-x64.tar.gz",
+    "size": 16734376,
+    "sha256": "79c0a6d479cc306bcac6aa891c3d97e0c32d817e898e32a5947bfe0dd22439ef",
+    "executable": "llama-server",
+    "extra": []
+   },
+   {
+    "platform": "linux",
+    "arch": "x86_64",
+    "backend": "vulkan",
+    "tag": "b10786",
+    "name": "llama-b10786-bin-ubuntu-vulkan-x64.tar.gz",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/llama-b10786-bin-ubuntu-vulkan-x64.tar.gz",
+    "size": 33801362,
+    "sha256": "e80087b8f40149417e05df1a204252a06df3b82d588888cdbabe5c381a8045df",
+    "executable": "llama-server",
+    "extra": []
+   },
+   {
+    "platform": "linux",
+    "arch": "x86_64",
+    "backend": "rocm",
+    "tag": "b10786",
+    "name": "llama-b10786-bin-ubuntu-rocm-10.0-x64.tar.gz",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/llama-b10786-bin-ubuntu-rocm-10.0-x64.tar.gz",
+    "size": 218387888,
+    "sha256": "eb4279efa88129366927e851c0baeaae1ad505a807f9e7eea95851c06e971f7d",
+    "executable": "llama-server",
+    "extra": []
+   },
+   {
+    "platform": "windows",
+    "arch": "x86_64",
+    "backend": "cpu",
+    "tag": "b10786",
+    "name": "llama-b10786-bin-win-cpu-x64.zip",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/llama-b10786-bin-win-cpu-x64.zip",
+    "size": 18389835,
+    "sha256": "4bd5eef83548aa73f712c74406640df294bcb98d916c4eef21f7bd41c2232a6e",
+    "executable": "llama-server.exe",
+    "extra": []
+   },
+   {
+    "platform": "windows",
+    "arch": "x86_64",
+    "backend": "cuda",
+    "tag": "b10786",
+    "name": "llama-b10786-bin-win-cuda-13.3-x64.zip",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/llama-b10786-bin-win-cuda-13.3-x64.zip",
+    "size": 149552739,
+    "sha256": "01b849246103016844ae3baf45fa414d4b3ffcdac71d0fc80f0837652409c9f6",
+    "executable": "llama-server.exe",
+    "extra": [
+     {
+      "name": "cudart-llama-bin-win-cuda-13.3-x64.zip",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/cudart-llama-bin-win-cuda-13.3-x64.zip",
+      "size": 390970417,
+      "sha256": "1462a050eb4c684921ba51dcc4cc488a036674c3e73e9945ee705b854808d03e"
+     }
+    ]
+   },
+   {
+    "platform": "windows",
+    "arch": "x86_64",
+    "backend": "vulkan",
+    "tag": "b10786",
+    "name": "llama-b10786-bin-win-vulkan-x64.zip",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/llama-b10786-bin-win-vulkan-x64.zip",
+    "size": 35208337,
+    "sha256": "044ee17fb5bf14a9abec2d63c937a104641b60f9064b6cd805a2a72d57935e6a",
+    "executable": "llama-server.exe",
+    "extra": []
+   },
+   {
+    "platform": "windows",
+    "arch": "x86_64",
+    "backend": "rocm",
+    "tag": "b10786",
+    "name": "llama-b10786-bin-win-rocm-10.0-x64.zip",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/llama-b10786-bin-win-rocm-10.0-x64.zip",
+    "size": 244224729,
+    "sha256": "2f38b193d50b6abf422b163521f9a8bc1484e3ad0f18a8ef57e92b63aa5d0a47",
+    "executable": "llama-server.exe",
+    "extra": []
+   },
+   {
+    "platform": "windows",
+    "arch": "aarch64",
+    "backend": "cpu",
+    "tag": "b10786",
+    "name": "llama-b10786-bin-win-cpu-arm64.zip",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/llama-b10786-bin-win-cpu-arm64.zip",
+    "size": 11961593,
+    "sha256": "94e6c58290c36af67a3fa37239a74f3e37ce37ed1eebf26538c34d2b9f9bfd5d",
+    "executable": "llama-server.exe",
+    "extra": []
+   },
+   {
+    "platform": "windows",
+    "arch": "aarch64",
+    "backend": "cuda",
+    "tag": "b10786",
+    "name": "llama-b10786-bin-win-cuda-13.4-arm64.zip",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/llama-b10786-bin-win-cuda-13.4-arm64.zip",
+    "size": 142721892,
+    "sha256": "eaf7400f0d418f7ef2c64e99e401cd228d334ec32dbb9283d7b91ee00ec4d6bf",
+    "executable": "llama-server.exe",
+    "extra": [
+     {
+      "name": "cudart-llama-bin-win-cuda-13.4-arm64.zip",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10786/cudart-llama-bin-win-cuda-13.4-arm64.zip",
+      "size": 153318797,
+      "sha256": "5a40dc7c5fa3d0a80ceeba4f16f9e8d25d87bcf1399c9233588953c43436c33c"
+     }
+    ]
+   }
+  ]
+ },
+ "mlx_runtime": {
+  "mlx": "0.32.2",
+  "mlx-lm": "0.31.3",
+  "license": "MIT"
+ },
+ "models": [
+  {
+   "key": "qwen3-4b-gguf-q4_k_m",
+   "engine": "llama_server",
+   "size_label": "4b",
+   "repo": "Qwen/Qwen3-4B-GGUF",
+   "revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+   "license": "Apache-2.0",
+   "files": [
+    [
+     "Qwen3-4B-Q4_K_M.gguf",
+     2497280256,
+     "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5"
+    ]
+   ],
+   "weights_bytes": 2497280256,
+   "kv_bytes_per_token": 147456,
+   "entry": "Qwen3-4B-Q4_K_M.gguf"
+  },
+  {
+   "key": "qwen3-8b-gguf-q4_k_m",
+   "engine": "llama_server",
+   "size_label": "8b",
+   "repo": "Qwen/Qwen3-8B-GGUF",
+   "revision": "7c41481f57cb95916b40956ab2f0b139b296d974",
+   "license": "Apache-2.0",
+   "files": [
+    [
+     "Qwen3-8B-Q4_K_M.gguf",
+     5027783488,
+     "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785"
+    ]
+   ],
+   "weights_bytes": 5027783488,
+   "kv_bytes_per_token": 147456,
+   "entry": "Qwen3-8B-Q4_K_M.gguf"
+  },
+  {
+   "key": "qwen3-14b-gguf-q4_k_m",
+   "engine": "llama_server",
+   "size_label": "14b",
+   "repo": "Qwen/Qwen3-14B-GGUF",
+   "revision": "530227a7d994db8eca5ab5ced2fb692b614357fd",
+   "license": "Apache-2.0",
+   "files": [
+    [
+     "Qwen3-14B-Q4_K_M.gguf",
+     9001752960,
+     "500a8806e85ee9c83f3ae08420295592451379b4f8cf2d0f41c15dffeb6b81f0"
+    ]
+   ],
+   "weights_bytes": 9001752960,
+   "kv_bytes_per_token": 163840,
+   "entry": "Qwen3-14B-Q4_K_M.gguf"
+  },
+  {
+   "key": "qwen3-30b-a3b-gguf-q4_k_m",
+   "engine": "llama_server",
+   "size_label": "30b-a3b",
+   "repo": "Qwen/Qwen3-30B-A3B-GGUF",
+   "revision": "e4d4bafdfb96a411a163846265362aceb0b9c63a",
+   "license": "Apache-2.0",
+   "files": [
+    [
+     "Qwen3-30B-A3B-Q4_K_M.gguf",
+     18556685824,
+     "0d003f6662faee786ed5da3e31b29c978de5ae5d275c8794c606a7f3c01aa8f5"
+    ]
+   ],
+   "weights_bytes": 18556685824,
+   "kv_bytes_per_token": 98304,
+   "entry": "Qwen3-30B-A3B-Q4_K_M.gguf"
+  },
+  {
+   "key": "qwen3-32b-gguf-q4_k_m",
+   "engine": "llama_server",
+   "size_label": "32b",
+   "repo": "Qwen/Qwen3-32B-GGUF",
+   "revision": "938a7432affaec9157f883a87164e2646ae17555",
+   "license": "Apache-2.0",
+   "files": [
+    [
+     "Qwen3-32B-Q4_K_M.gguf",
+     19762149024,
+     "efd971561896866f0e910cce52761ca77b1b138090c7f15fe284676d57d1f689"
+    ]
+   ],
+   "weights_bytes": 19762149024,
+   "kv_bytes_per_token": 262144,
+   "entry": "Qwen3-32B-Q4_K_M.gguf"
+  },
+  {
+   "key": "qwen3-4b-mlx-4bit",
+   "engine": "mlx_lm",
+   "size_label": "4b",
+   "repo": "mlx-community/Qwen3-4B-4bit",
+   "revision": "4dcb3d101c2a062e5c1d4bb173588c54ea6c4d25",
+   "license": "Apache-2.0",
+   "files": [
+    [
+     "added_tokens.json",
+     707,
+     "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680"
+    ],
+    [
+     "config.json",
+     937,
+     "b5efdcf3b0035a3638e7228dad4d85f5c4a23f156eb7cdb0b44c8366a5d34d9b"
+    ],
+    [
+     "merges.txt",
+     1671853,
+     "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+    ],
+    [
+     "model.safetensors",
+     2263022529,
+     "e240c0bdc0ebb0681bf0da0f98d9719fd6ebe269a3633f81542c13e81345651d"
+    ],
+    [
+     "model.safetensors.index.json",
+     63924,
+     "f7825defe5865d179c3b593173d37056be5f202dcb7153985cf74e75ecf1628b"
+    ],
+    [
+     "special_tokens_map.json",
+     613,
+     "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"
+    ],
+    [
+     "tokenizer.json",
+     11422654,
+     "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+    ],
+    [
+     "tokenizer_config.json",
+     9706,
+     "253153d0738ceb4c668d2eff957714dd2bea0b56de772a9fdccd96cbf517e6a0"
+    ],
+    [
+     "vocab.json",
+     2776833,
+     "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    ]
+   ],
+   "weights_bytes": 2263022529,
+   "kv_bytes_per_token": 147456,
+   "entry": ""
+  },
+  {
+   "key": "qwen3-8b-mlx-4bit",
+   "engine": "mlx_lm",
+   "size_label": "8b",
+   "repo": "mlx-community/Qwen3-8B-4bit",
+   "revision": "545dc4251c05440727734bcd94334791f6ab0192",
+   "license": "Apache-2.0",
+   "files": [
+    [
+     "added_tokens.json",
+     707,
+     "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680"
+    ],
+    [
+     "config.json",
+     939,
+     "e5485285fd7e289e76e9cffa112f6dc2e3426519082f7db9b69041589f81a218"
+    ],
+    [
+     "merges.txt",
+     1671853,
+     "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+    ],
+    [
+     "model.safetensors",
+     4607835174,
+     "f2d29621aab300336ad645567ff38c42aac755513006ef4e8a579cf7ef5256d8"
+    ],
+    [
+     "model.safetensors.index.json",
+     64065,
+     "3fb25463b4078b1fc27159daa605190029c2e965f533bf0b1b594f96cbfceb8a"
+    ],
+    [
+     "special_tokens_map.json",
+     613,
+     "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"
+    ],
+    [
+     "tokenizer.json",
+     11422654,
+     "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+    ],
+    [
+     "tokenizer_config.json",
+     9706,
+     "253153d0738ceb4c668d2eff957714dd2bea0b56de772a9fdccd96cbf517e6a0"
+    ],
+    [
+     "vocab.json",
+     2776833,
+     "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    ]
+   ],
+   "weights_bytes": 4607835174,
+   "kv_bytes_per_token": 147456,
+   "entry": ""
+  },
+  {
+   "key": "qwen3-14b-mlx-4bit",
+   "engine": "mlx_lm",
+   "size_label": "14b",
+   "repo": "mlx-community/Qwen3-14B-4bit",
+   "revision": "a4d9b2df59d2c150bef02fcbe0d91046b7ca33a4",
+   "license": "Apache-2.0",
+   "files": [
+    [
+     "added_tokens.json",
+     707,
+     "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680"
+    ],
+    [
+     "config.json",
+     939,
+     "a54ec18ffe24f3c909e9556471dc156ed9b3b61b872008831c7cba9d4768b4a5"
+    ],
+    [
+     "merges.txt",
+     1671853,
+     "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+    ],
+    [
+     "model-00001-of-00002.safetensors",
+     5354381380,
+     "5795efcfc7c96fd273e600562e8b111bfcc427415de9001d0a07e70cd99cff19"
+    ],
+    [
+     "model-00002-of-00002.safetensors",
+     2953517134,
+     "2814562d654fe2d541fd4682804a0ccaa400e79701872c8e9f5998cf9481fdf8"
+    ],
+    [
+     "model.safetensors.index.json",
+     86266,
+     "eb522fa2269e4a958bf625765bccde4a0677895a09eed23cdd8d1760dfc0259c"
+    ],
+    [
+     "special_tokens_map.json",
+     613,
+     "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"
+    ],
+    [
+     "tokenizer.json",
+     11422654,
+     "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+    ],
+    [
+     "tokenizer_config.json",
+     9706,
+     "253153d0738ceb4c668d2eff957714dd2bea0b56de772a9fdccd96cbf517e6a0"
+    ],
+    [
+     "vocab.json",
+     2776833,
+     "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    ]
+   ],
+   "weights_bytes": 8307898514,
+   "kv_bytes_per_token": 163840,
+   "entry": ""
+  },
+  {
+   "key": "qwen3-30b-a3b-mlx-4bit",
+   "engine": "mlx_lm",
+   "size_label": "30b-a3b",
+   "repo": "mlx-community/Qwen3-30B-A3B-4bit",
+   "revision": "d388dead1515f5e085ef7a0431dd8fadf0886c57",
+   "license": "Apache-2.0",
+   "files": [
+    [
+     "added_tokens.json",
+     707,
+     "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680"
+    ],
+    [
+     "config.json",
+     1190,
+     "5a5fdac36fffb64ead4a539e0cd4ca865105a01298d62f3346e407c25e6ff3e6"
+    ],
+    [
+     "merges.txt",
+     1671853,
+     "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+    ],
+    [
+     "model-00001-of-00004.safetensors",
+     5319507366,
+     "18e9a14cae093ba31a9033f065a9815d048dd46ee5b3550a4804f0c11edc5d40"
+    ],
+    [
+     "model-00002-of-00004.safetensors",
+     5364678660,
+     "b4d2137faf0903ab2bdaeebda18e8ce201af08c6a07bc732ed2d437cf327e321"
+    ],
+    [
+     "model-00003-of-00004.safetensors",
+     5274790383,
+     "345483f1cd9ba445a764330cccf3f5545c59bbc02f4ec38eac842f200e445ddc"
+    ],
+    [
+     "model-00004-of-00004.safetensors",
+     1215804259,
+     "2d41885ffa0a1f4edd67def6208573d92afdbbf6f49eee39a13a16fb89bad956"
+    ],
+    [
+     "model.safetensors.index.json",
+     119557,
+     "d8c5294637ef27a946db4c76f708895fa4907f96e93d5a0c8c0f1ca995ec9db9"
+    ],
+    [
+     "special_tokens_map.json",
+     613,
+     "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"
+    ],
+    [
+     "tokenizer.json",
+     11422654,
+     "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+    ],
+    [
+     "tokenizer_config.json",
+     9706,
+     "253153d0738ceb4c668d2eff957714dd2bea0b56de772a9fdccd96cbf517e6a0"
+    ],
+    [
+     "vocab.json",
+     2776833,
+     "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    ]
+   ],
+   "weights_bytes": 17174780668,
+   "kv_bytes_per_token": 98304,
+   "entry": ""
+  }
+ ]
+}
