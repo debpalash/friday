@@ -172,6 +172,12 @@ class OpenSSLInteropTests(unittest.TestCase):
     def setUp(self) -> None:
         if not Path(self.OPENSSL).is_file():
             self.skipTest("environment: openssl is not installed")
+        import subprocess
+
+        banner = subprocess.run([self.OPENSSL, "version"], capture_output=True,
+                                text=True, timeout=10).stdout
+        if not banner.startswith("OpenSSL"):
+            self.skipTest(f"environment: {banner.strip() or 'unknown'} is not OpenSSL")
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)

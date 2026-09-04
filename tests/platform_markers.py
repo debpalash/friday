@@ -57,6 +57,26 @@ requires_symlinks = unittest.skipUnless(
     _symlinks_work(), "environment: symlinks unavailable")
 
 
+def sandbox_available() -> bool:
+    """True when bubblewrap can build Friday's minimal sandbox on this host."""
+    if not IS_LINUX or not Path("/usr/bin/bwrap").is_file():
+        return False
+    import subprocess
+
+    try:
+        return subprocess.run(
+            ["/usr/bin/bwrap", "--ro-bind", "/usr", "/usr", "--symlink",
+             "usr/lib", "/lib", "--symlink", "usr/lib", "/lib64", "--proc",
+             "/proc", "--dev", "/dev", "--unshare-all", "--die-with-parent",
+             "/usr/bin/true"], capture_output=True, timeout=20).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+requires_sandbox = unittest.skipUnless(
+    sandbox_available(), "environment: bubblewrap sandbox is unavailable")
+
+
 def assert_private_file(testcase: unittest.TestCase, path: Path) -> None:
     """Owner-only file: exact 0600 on POSIX; ACL-bounded on Windows."""
     if IS_POSIX:
@@ -80,5 +100,5 @@ __all__ = [
     "HOST_PLATFORM", "IS_LINUX", "IS_MACOS", "IS_POSIX", "IS_WINDOWS",
     "assert_private_dir", "assert_private_file", "linux_only", "macos_only",
     "posix_only", "require_platform", "requires_executable",
-    "requires_symlinks", "windows_only",
+    "requires_sandbox", "requires_symlinks", "sandbox_available", "windows_only",
 ]

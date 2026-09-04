@@ -1,6 +1,8 @@
 import json
 import tempfile
 import unittest
+
+from tests.platform_markers import sandbox_available
 from pathlib import Path
 
 from friday_core.generalization_evals import GroundedQAEvalRunner
@@ -70,7 +72,7 @@ class GroundedQAEvalTests(unittest.TestCase):
         self.assertFalse(case["evidence_requirements_met"])
 
     @unittest.skipUnless(
-        all(Path(tool).is_file() for tool in ("/usr/bin/bwrap", "/usr/bin/pdftotext")),
+        sandbox_available() and Path("/usr/bin/pdftotext").is_file(),
         "environment: sandboxed PDF extraction is unavailable")
     def test_insufficient_evidence_requires_exact_abstention_and_empty_citations(self):
         case = {

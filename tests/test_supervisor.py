@@ -201,7 +201,7 @@ class SupervisorEnvironmentTests(IsolatedSupervisorStateTestCase):
         profile = _Profile(native_vision=True)
         profile.qwen_model = "models/vision"
         with tempfile.TemporaryDirectory() as temporary:
-            qwen = Path(temporary)
+            qwen = Path(temporary).resolve()
             model = qwen / "models" / "vision"
             model.mkdir(parents=True)
             (model / "config.json").write_text(json.dumps({
