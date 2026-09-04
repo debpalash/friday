@@ -4,4 +4,4 @@ accelerate==1.14.0
 omnivoice==0.2.1
 torch==2.13.0
 torchaudio==2.11.0
-transformers==5.15.1
+transformers==5.16.1
