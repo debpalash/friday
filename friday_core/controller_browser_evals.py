@@ -8,7 +8,6 @@ import json
 import os
 import re
 import stat
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -53,23 +52,18 @@ def _der_signature_to_raw(value: bytes) -> bytes:
 
 class _ControllerKey:
     def __init__(self, root: Path):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+
         self.path = root / "controller-private.pem"
-        subprocess.run(
-            ["/usr/bin/openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
-             "ec_paramgen_curve:P-256", "-out", str(self.path)],
-            check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, timeout=5,
-            env={"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"},
-        )
+        self._key = ec.generate_private_key(ec.SECP256R1())
+        self.path.write_bytes(self._key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption()))
         os.chmod(self.path, 0o600)
-        public_der = subprocess.run(
-            ["/usr/bin/openssl", "pkey", "-in", str(self.path), "-pubout",
-             "-outform", "DER"],
-            check=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, timeout=5,
-            env={"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"},
-        ).stdout
-        point = public_der[-65:]
+        point = self._key.public_key().public_bytes(
+            serialization.Encoding.X962,
+            serialization.PublicFormat.UncompressedPoint)
         if len(point) != 65 or point[0] != 4:
             raise RuntimeError("controller public key is malformed")
         self.jwk = {
@@ -78,12 +72,11 @@ class _ControllerKey:
         }
 
     def sign(self, payload: str) -> str:
-        signature = subprocess.run(
-            ["/usr/bin/openssl", "dgst", "-sha256", "-sign", str(self.path)],
-            input=payload.encode("utf-8"), check=True,
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5,
-            env={"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"},
-        ).stdout
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        signature = self._key.sign(
+            payload.encode("utf-8"), ec.ECDSA(hashes.SHA256()))
         return _b64url(_der_signature_to_raw(signature))
 
 

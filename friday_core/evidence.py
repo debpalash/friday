@@ -8,16 +8,19 @@ import hmac
 import json
 import os
 import secrets
-import subprocess
 from pathlib import Path
 from typing import Callable
+
+from friday_host.secret_store import SecretStore, SecretStoreUnavailable
+
+from .local_cipher import aes256_ctr
 
 
 KeyProvider = Callable[[], bytes]
 
 
 class CorrectedAudioStore:
-    """AES-256-CTR plus encrypt-then-MAC, with the master key in Secret Service."""
+    """AES-256-CTR plus encrypt-then-MAC, with the master key in the host keyring."""
 
     def __init__(self, root: str | Path, key_provider: KeyProvider | None = None):
         self.root = Path(root)
@@ -26,36 +29,21 @@ class CorrectedAudioStore:
 
     @staticmethod
     def _desktop_key() -> bytes:
-        lookup = subprocess.run(
-            ["secret-tool", "lookup", "application", "friday",
-             "purpose", "corrected-audio"], capture_output=True, timeout=5)
-        value = lookup.stdout.strip()
-        if not value:
-            value = base64.urlsafe_b64encode(secrets.token_bytes(64))
-            stored = subprocess.run(
-                ["secret-tool", "store", "--label=Friday corrected audio",
-                 "application", "friday", "purpose", "corrected-audio"],
-                input=value + b"\n", capture_output=True, timeout=10)
-            if stored.returncode:
-                raise RuntimeError("desktop keyring refused the corrected-audio key")
         try:
-            key = base64.urlsafe_b64decode(value)
-        except Exception as exc:
-            raise RuntimeError("corrected-audio key is invalid") from exc
-        if len(key) < 64:
-            raise RuntimeError("corrected-audio key is too short")
-        return key[:64]
+            return SecretStore().get_or_create("corrected-audio", 64)
+        except SecretStoreUnavailable as exc:
+            raise RuntimeError(str(exc)) from exc
 
-    def store(self, artifact_id: str, pcm: bytes, metadata: dict) -> str:
+    def store(self, artifact_id: str, pcm: bytes, metadata: dict, *,
+              iv: bytes | None = None) -> str:
         if not pcm:
             raise ValueError("audio evidence is empty")
         master = self.key_provider()
         encryption_key, mac_key = master[:32], master[32:64]
-        iv = secrets.token_bytes(16)
-        encrypted = subprocess.run(
-            ["openssl", "enc", "-aes-256-ctr", "-K", encryption_key.hex(),
-             "-iv", iv.hex()], input=pcm, capture_output=True, timeout=15,
-             check=True).stdout
+        iv = secrets.token_bytes(16) if iv is None else bytes(iv)
+        if len(iv) != 16:
+            raise ValueError("audio evidence IV must contain 16 bytes")
+        encrypted = aes256_ctr(encryption_key, iv, pcm)
         authenticated = iv + encrypted
         digest = hmac.new(mac_key, authenticated, hashlib.sha256).digest()
         payload = {"version": 1, "cipher": "aes-256-ctr+hmac-sha256",
@@ -67,6 +55,20 @@ class CorrectedAudioStore:
         path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         os.chmod(path, 0o600)
         return str(path)
+
+    @staticmethod
+    def decrypt(payload: dict, master: bytes) -> bytes:
+        """Authenticate and decrypt one stored artifact payload."""
+        if (payload.get("version") != 1
+                or payload.get("cipher") != "aes-256-ctr+hmac-sha256"):
+            raise ValueError("unsupported audio artifact format")
+        iv = base64.b64decode(payload["iv"], validate=True)
+        encrypted = base64.b64decode(payload["ciphertext"], validate=True)
+        supplied = base64.b64decode(payload["mac"], validate=True)
+        expected = hmac.new(master[32:64], iv + encrypted, hashlib.sha256).digest()
+        if not hmac.compare_digest(supplied, expected):
+            raise ValueError("audio artifact authentication failed")
+        return aes256_ctr(master[:32], iv, encrypted)
 
     def delete(self, artifact_path: str | Path) -> bool:
         path = Path(artifact_path).resolve()

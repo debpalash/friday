@@ -4,8 +4,8 @@
   "locks": {
     "application": {
       "path": "requirements/runtime.lock",
-      "sha256": "ae67b3f430d193a26c87967c221229289374864587339c93cf96544cd786b4c8",
-      "packages": 125
+      "sha256": "7d30b103c012162901f2904ae37c284801d24fa2b44c2ed04b7615f754ef2b79",
+      "packages": 126
     },
     "qwen_runtime": {
       "path": "requirements/qwen-runtime.lock",

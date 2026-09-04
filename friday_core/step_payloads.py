@@ -18,11 +18,11 @@ import hmac
 import json
 import os
 import secrets
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from .graph import canonical_json
+from .local_cipher import aes256_ctr
 
 
 class StepPayloadCipher:
@@ -75,13 +75,14 @@ class StepPayloadCipher:
         return context.encode("utf-8") + b"\0" + iv + ciphertext
 
     def seal(self, value: dict[str, Any], *, context: str) -> str:
+        return self._seal_with_iv(value, context=context,
+                                  iv=secrets.token_bytes(16))
+
+    def _seal_with_iv(self, value: dict[str, Any], *, context: str,
+                      iv: bytes) -> str:
         master = self._load_key()
-        iv = secrets.token_bytes(16)
         plaintext = canonical_json(value).encode("utf-8")
-        ciphertext = subprocess.run(
-            ["openssl", "enc", "-aes-256-ctr", "-K", master[:32].hex(),
-             "-iv", iv.hex()], input=plaintext, capture_output=True,
-            timeout=10, check=True).stdout
+        ciphertext = aes256_ctr(master[:32], iv, plaintext)
         digest = hmac.new(
             master[32:], self._authenticated_bytes(context, iv, ciphertext),
             hashlib.sha256).digest()
@@ -110,11 +111,7 @@ class StepPayloadCipher:
             hashlib.sha256).digest()
         if not hmac.compare_digest(supplied_mac, expected_mac):
             raise RuntimeError("durable step payload authentication failed")
-        plaintext = subprocess.run(
-            ["openssl", "enc", "-d", "-aes-256-ctr",
-             "-K", master[:32].hex(), "-iv", iv.hex()],
-            input=ciphertext, capture_output=True, timeout=10,
-            check=True).stdout
+        plaintext = aes256_ctr(master[:32], iv, ciphertext)
         try:
             value = json.loads(plaintext)
         except json.JSONDecodeError as exc:

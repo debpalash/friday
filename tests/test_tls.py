@@ -162,3 +162,109 @@ class TLSBootstrapTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OpenSSLInteropTests(unittest.TestCase):
+    """Certificates issued in-process interoperate with the openssl CLI both ways."""
+
+    OPENSSL = "/usr/bin/openssl"
+
+    def setUp(self) -> None:
+        if not Path(self.OPENSSL).is_file():
+            self.skipTest("environment: openssl is not installed")
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.root.chmod(0o700)
+
+    def _openssl(self, *arguments: str, input_bytes: bytes | None = None) -> bytes:
+        import subprocess
+
+        return subprocess.run(
+            [self.OPENSSL, *arguments], input=input_bytes, check=True,
+            capture_output=True, timeout=15).stdout
+
+    def test_in_process_material_verifies_with_openssl(self) -> None:
+        material = ensure_tls_material(self.root, ["omarchy.local"])
+        self._openssl("verify", "-CAfile", str(material.cafile), str(material.certfile))
+        sans = self._openssl(
+            "x509", "-in", str(material.certfile), "-noout", "-ext",
+            "subjectAltName").decode()
+        self.assertIn("DNS:omarchy.local", sans)
+        self.assertIn("IP Address:127.0.0.1", sans)
+        self.assertIn("DNS:localhost", sans)
+        key_spki = self._openssl(
+            "pkey", "-in", str(material.keyfile), "-pubout", "-outform", "DER")
+        certificate_public = self._openssl(
+            "x509", "-in", str(material.certfile), "-pubkey", "-noout")
+        certificate_spki = self._openssl(
+            "pkey", "-pubin", "-outform", "DER", input_bytes=certificate_public)
+        self.assertEqual(key_spki, certificate_spki)
+        text = self._openssl("x509", "-in", str(material.certfile), "-noout", "-text").decode()
+        self.assertIn("CA:FALSE", text)
+        self.assertIn("TLS Web Server Authentication", text)
+        self.assertIn("Digital Signature, Key Encipherment", text)
+        ca_text = self._openssl("x509", "-in", str(material.cafile), "-noout", "-text").decode()
+        self.assertIn("CA:TRUE", ca_text)
+        self.assertIn("Certificate Sign, CRL Sign", ca_text)
+
+    def test_material_generated_by_openssl_is_validated_and_renewed_in_process(self) -> None:
+        """Reproduce the pre-port openssl commands, then let the new code adopt them."""
+        from friday_core import tls as tls_module
+
+        state = self.root
+        tls_root = state / "tls"
+        tls_root.mkdir(mode=0o700)
+        ca_key = tls_root / "ca-key.pem"
+        ca_certificate = tls_root / "friday-local-ca.crt"
+        self._openssl("genpkey", "-algorithm", "EC", "-pkeyopt",
+                      "ec_paramgen_curve:P-256", "-out", str(ca_key))
+        self._openssl(
+            "req", "-x509", "-new", "-sha256", "-key", str(ca_key), "-out",
+            str(ca_certificate), "-days", "3650", "-subj",
+            "/CN=Friday Local Controller CA", "-addext",
+            "basicConstraints=critical,CA:TRUE", "-addext",
+            "keyUsage=critical,keyCertSign,cRLSign", "-addext",
+            "subjectKeyIdentifier=hash")
+        generation = tls_root / f"generation_{'ab' * 16}"
+        generation.mkdir(mode=0o700)
+        key = generation / "server-key.pem"
+        certificate = generation / "server-cert.pem"
+        request = generation / "server.csr"
+        extensions = generation / "server-extensions.cnf"
+        extensions.write_text(
+            "[server_ext]\nbasicConstraints=critical,CA:FALSE\n"
+            "keyUsage=critical,digitalSignature,keyEncipherment\n"
+            "extendedKeyUsage=serverAuth\n"
+            "subjectAltName=IP:127.0.0.1,IP:::1,DNS:localhost\n"
+            "subjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n")
+        self._openssl("genpkey", "-algorithm", "EC", "-pkeyopt",
+                      "ec_paramgen_curve:P-256", "-out", str(key))
+        self._openssl("req", "-new", "-sha256", "-key", str(key), "-out",
+                      str(request), "-subj", "/CN=Friday Local Assistant")
+        self._openssl(
+            "x509", "-req", "-sha256", "-in", str(request), "-CA",
+            str(ca_certificate), "-CAkey", str(ca_key), "-set_serial",
+            "0x" + "1f" * 16, "-out", str(certificate), "-days", "397",
+            "-extfile", str(extensions), "-extensions", "server_ext")
+        request.unlink()
+        extensions.unlink()
+        for path in (ca_key, ca_certificate, key, certificate):
+            path.chmod(0o600)
+        hosts = ("127.0.0.1", "::1", "localhost")
+        tls_module._publish_generation(tls_root, ca_certificate, generation, hosts)
+
+        adopted = ensure_tls_material(state, [])
+        self.assertEqual(adopted.generation, generation.name)
+        self.assertEqual(adopted.hosts, hosts)
+        self.assertEqual(adopted.transport_binding_sha256, self._digest(ca_certificate))
+
+        renewed = ensure_tls_material(state, ["omarchy.local"])
+        self.assertNotEqual(renewed.generation, generation.name)
+        self.assertEqual(renewed.transport_binding_sha256, adopted.transport_binding_sha256,
+                         "renewal keeps the openssl-generated trust anchor")
+        self._openssl("verify", "-CAfile", str(renewed.cafile), str(renewed.certfile))
+
+    @staticmethod
+    def _digest(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
