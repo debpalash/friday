@@ -27,6 +27,10 @@ from friday_core.processes import (BackendObservation, ProcessLaunchBinding,
                                    ProcessPresentation, ProcessResources)
 from friday_core.tasks import TaskService
 
+from tests.platform_markers import require_platform
+
+require_platform('linux')
+
 
 SESSION = sha256_text("test-hyprland-session")
 EXECUTABLE = ExecutableIdentity(

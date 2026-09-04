@@ -10,6 +10,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.platform_markers import require_platform
+
+require_platform('linux', 'darwin')
+
 
 ROOT = Path(__file__).resolve().parents[1]
 BOOTSTRAP = ROOT / "site" / "public" / "install"
@@ -112,7 +116,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("SHA256SUMS", text)
         subprocess.run(["bash", "-n", str(BOOTSTRAP)], check=True)
 
-    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is not installed")
+    @unittest.skipUnless(shutil.which("pwsh"), "environment: PowerShell is not installed")
     def test_windows_bootstrap_parses(self) -> None:
         subprocess.run(
             ["pwsh", "-NoProfile", "-Command",

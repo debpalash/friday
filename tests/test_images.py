@@ -74,7 +74,7 @@ class ImageExtractionTests(unittest.TestCase):
                     self.assertEqual(
                         receipt["source_sha256"], hashlib.sha256(source).hexdigest())
 
-    @unittest.skipUnless(FONT.is_file(), "stable OCR test font is unavailable")
+    @unittest.skipUnless(FONT.is_file(), "environment: stable OCR test font is unavailable")
     def test_real_sandboxed_png_and_jpeg_ocr_returns_bound_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             for suffix, image_format in (("png", "PNG"), ("jpg", "JPEG")):
@@ -98,7 +98,7 @@ class ImageExtractionTests(unittest.TestCase):
                     self.assertEqual(
                         result["source_sha256"], hashlib.sha256(payload).hexdigest())
 
-    @unittest.skipUnless(FONT.is_file(), "stable OCR test font is unavailable")
+    @unittest.skipUnless(FONT.is_file(), "environment: stable OCR test font is unavailable")
     def test_blank_image_is_valid_evidence_of_no_detected_text(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "blank.png"
@@ -130,7 +130,7 @@ class ImageExtractionTests(unittest.TestCase):
                         self._extract(path)
                 decoder.assert_not_called()
 
-    @unittest.skipUnless(FONT.is_file(), "stable OCR test font is unavailable")
+    @unittest.skipUnless(FONT.is_file(), "environment: stable OCR test font is unavailable")
     def test_character_limit_hashes_only_the_returned_text(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "limit.png"
@@ -159,7 +159,7 @@ class ImageOperatorTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    @unittest.skipUnless(FONT.is_file(), "stable OCR test font is unavailable")
+    @unittest.skipUnless(FONT.is_file(), "environment: stable OCR test font is unavailable")
     def test_ocr_requires_read_grant_rejects_symlink_and_detects_mutation(self):
         scope = self.project / "images"
         scope.mkdir()

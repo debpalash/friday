@@ -1,0 +1,65 @@
+{
+  "linux": {
+    "platform": [],
+    "environment": [
+      "tests.test_bootstrap",
+      "tests.test_capabilities",
+      "tests.test_embeddings",
+      "tests.test_host_procs",
+      "tests.test_images",
+      "tests.test_local_cipher",
+      "tests.test_process_server_integration",
+      "tests.test_speech",
+      "tests.test_supervisor_engines",
+      "tests.test_tls",
+      "tests.test_vad"
+    ]
+  },
+  "darwin": {
+    "platform": [
+      "tests.test_desktop_broker",
+      "tests.test_machine_operator",
+      "tests.test_process_broker",
+      "tests.test_qwen_provisioner"
+    ],
+    "environment": [
+      "tests.test_bootstrap",
+      "tests.test_capabilities",
+      "tests.test_embeddings",
+      "tests.test_host_procs",
+      "tests.test_images",
+      "tests.test_local_cipher",
+      "tests.test_process_server_integration",
+      "tests.test_speech",
+      "tests.test_supervisor_engines",
+      "tests.test_tls",
+      "tests.test_vad"
+    ]
+  },
+  "win32": {
+    "platform": [
+      "tests.test_bootstrap",
+      "tests.test_desktop_broker",
+      "tests.test_host_fs",
+      "tests.test_installer",
+      "tests.test_installer_rehearsal",
+      "tests.test_machine_operator",
+      "tests.test_process_broker",
+      "tests.test_qwen_provisioner",
+      "tests.test_step_restart_sigkill"
+    ],
+    "environment": [
+      "tests.test_bootstrap",
+      "tests.test_capabilities",
+      "tests.test_embeddings",
+      "tests.test_host_procs",
+      "tests.test_images",
+      "tests.test_local_cipher",
+      "tests.test_process_server_integration",
+      "tests.test_speech",
+      "tests.test_supervisor_engines",
+      "tests.test_tls",
+      "tests.test_vad"
+    ]
+  }
+}
