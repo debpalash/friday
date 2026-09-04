@@ -56,4 +56,35 @@ def open_loopback_request(
     return opener.open(request, timeout=timeout)
 
 
-__all__ = ["normalize_loopback_model_base_url", "open_loopback_request"]
+__all__ = [
+    "count_prompt_tokens","normalize_loopback_model_base_url", "open_loopback_request"]
+
+
+def count_prompt_tokens(engine: str, tokenize_url: str, body: dict,
+                        headers: dict[str, str], open_request, *,
+                        timeout: float = 5) -> int:
+    """Count a chat prompt's tokens through the engine's own endpoints.
+
+    vLLM and Friday's MLX wrapper accept the chat body on ``/tokenize`` and
+    report ``count``. llama-server renders the template on ``/apply-template``
+    first and then tokenizes the rendered prompt.
+    """
+    import json  # noqa: PLC0415
+    import urllib.request  # noqa: PLC0415
+
+    if engine == "llama_server":
+        rendered = urllib.request.Request(
+            tokenize_url.rsplit("/", 1)[0] + "/apply-template",
+            data=json.dumps(body).encode(), headers=headers)
+        with open_request(rendered, timeout=timeout) as response:
+            prompt = json.loads(response.read())["prompt"]
+        request = urllib.request.Request(
+            tokenize_url,
+            data=json.dumps({"content": prompt, "add_special": False}).encode(),
+            headers=headers)
+        with open_request(request, timeout=timeout) as response:
+            return len(json.loads(response.read())["tokens"])
+    request = urllib.request.Request(
+        tokenize_url, data=json.dumps(body).encode(), headers=headers)
+    with open_request(request, timeout=timeout) as response:
+        return int(json.loads(response.read())["count"])

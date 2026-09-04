@@ -909,6 +909,25 @@ def runtime_boot_candidates(
     fingerprints = {proposed.fingerprint}
     if proposed.overrides:
         return tuple(candidates)
+    if getattr(proposed, "portable_engine", False):
+        # Portable engines have no KV-mode or CUDA-graph ladder; halve the
+        # context and drop concurrency, never below the 8K floor.
+        prior = proposed
+        for context, sequences in ((proposed.context_tokens // 2, 2),
+                                   (proposed.context_tokens // 4, 1)):
+            if len(candidates) >= maximum or context < 8192:
+                break
+            candidate = replace(
+                prior, name=f"{proposed.name}-boot-safe-{context}",
+                source="bounded-degradation", context_tokens=context,
+                max_sequences=min(sequences, prior.max_sequences),
+                warnings=prior.warnings + (
+                    "bounded automatic boot fallback reduced context/concurrency",))
+            if candidate.fingerprint not in fingerprints:
+                candidates.append(candidate)
+                fingerprints.add(candidate.fingerprint)
+                prior = candidate
+        return tuple(candidates)
 
     if (len(candidates) < maximum
             and last_known_good is not None
@@ -970,7 +989,8 @@ def runtime_benchmark_candidates(
     """
     if not 1 <= maximum <= 3:
         raise ValueError("benchmark candidate maximum must be between 1 and 3")
-    if proposed.overrides or not proposed.local_runtime_available:
+    if (proposed.overrides or not proposed.local_runtime_available
+            or getattr(proposed, "portable_engine", False)):
         return (proposed,)
     modes = (
         ("huge", 200_000),
