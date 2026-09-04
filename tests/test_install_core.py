@@ -147,6 +147,11 @@ class MacInstallerLifecycleTests(unittest.TestCase):
         env = dict(self.env)
         env.pop("FRIDAY_INSTALL_REHEARSAL")
         result = self._install("--local", str(self.source), env=env)
+        if sys.platform == "darwin":
+            # A real Mac needs no rehearsal flag: the override matches the host.
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((self.app / "current").is_symlink())
+            return
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("FRIDAY_INSTALL_REHEARSAL", result.stderr)
         self.assertFalse((self.app / "releases").exists())
