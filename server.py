@@ -79,6 +79,10 @@ from friday_core.omarchy import (
     OmarchyDesktopBackend, OmarchyDesktopBroker,
 )
 from friday_host import desktop_io, procs
+from friday_host.host import current_host
+from friday_host.platform_capabilities import compute_capabilities
+from friday_core.platform_gate import (filter_tool_schema, inventory_entries,
+                                       platform_status, unsupported_tools)
 from friday_core.embeddings import configured_local_embedder
 from friday_core.vision_evals import has_qualified_native_vision_score
 from friday_core.tasks import (tool_arguments_are_private,
@@ -289,39 +293,26 @@ def _native_vision_qualified() -> bool:
     return has_qualified_native_vision_score(
         graph, model=model, runtime_fingerprint=fingerprint,
         max_side=max_side)
+def _remote_enabled() -> bool:
+    router = globals().get("MODEL_ROUTER")
+    return bool(router is not None and router.remote_enabled)
 def current_tool_schema() -> list[dict]:
     capabilities = globals().get("CAPABILITIES")
-    router = globals().get("MODEL_ROUTER")
-    builtins = [
-        item for item in TOOL_SCHEMA
-        if ((item["function"]["name"] != "remote_reason"
-             or (router is not None and router.remote_enabled))
-            and (item["function"]["name"] != "machine_understand_image"
-                 or _native_vision_qualified()))]
+    builtins = filter_tool_schema(
+        TOOL_SCHEMA, unsupported=unsupported_tools(globals().get("PLATFORM")),
+        remote_enabled=_remote_enabled(),
+        vision_qualified=_native_vision_qualified())
     return builtins + (capabilities.tool_schemas() if capabilities else [])
 def available_tool_names() -> set[str]:
     capabilities = globals().get("CAPABILITIES")
-    names = set(BUILTIN_TOOL_NAMES)
-    router = globals().get("MODEL_ROUTER")
-    if router is None or not router.remote_enabled:
-        names.discard("remote_reason")
-    if not _native_vision_qualified():
-        names.discard("machine_understand_image")
+    names = {item["function"]["name"] for item in current_tool_schema()
+             if item["function"]["name"] in BUILTIN_TOOL_NAMES}
     return names | (capabilities.active_names() if capabilities else set())
 def capability_inventory() -> list[dict]:
-    router = globals().get("MODEL_ROUTER")
-    builtins = [
-        {"name": item["function"]["name"],
-         "description": item["function"]["description"],
-         "kind": "builtin",
-         "status": ("unavailable" if (
-             item["function"]["name"] == "remote_reason"
-             and (router is None or not router.remote_enabled)) or (
-             item["function"]["name"] == "machine_understand_image"
-             and not _native_vision_qualified())
-                    else "active")}
-        for item in TOOL_SCHEMA
-    ]
+    builtins = inventory_entries(
+        TOOL_SCHEMA, unsupported=unsupported_tools(globals().get("PLATFORM")),
+        remote_enabled=_remote_enabled(),
+        vision_qualified=_native_vision_qualified())
     capabilities = globals().get("CAPABILITIES")
     dynamic = ([{**item, "kind": "dynamic"} for item in capabilities.list()]
                if capabilities else [])
@@ -2365,13 +2356,25 @@ if DESKTOP_MODE not in {"auto", "required", "disabled"}:
     raise RuntimeError(
         "FRIDAY_DESKTOP_MODE must be auto, required, or disabled")
 
+HOST = current_host()
+# Fails closed at import when the configuration demands an action class this
+# host cannot provide (for example FRIDAY_DESKTOP_MODE=required on macOS).
+PLATFORM = compute_capabilities(
+    HOST, desktop_mode=DESKTOP_MODE,
+    accelerator="cuda" if HOST.has_nvidia_smi else "none")
+
+
 def _desktop_expected() -> bool:
-    if DESKTOP_MODE == "disabled":
+    if DESKTOP_MODE == "disabled" or not HOST.is_linux:
         return False
     if DESKTOP_MODE == "required":
         return True
     runtime = procs.runtime_dir()
     return runtime is not None and (runtime / "hypr").is_dir()
+
+
+def _platform_status() -> dict:
+    return platform_status(HOST, PLATFORM)
 
 
 def _curated_process_registry() -> ProcessSpecRegistry:
@@ -3461,12 +3464,17 @@ async def _load():
             f"retired {retired['retired']} obsolete controller approval(s)",
             flush=True,
         )
-    PROCESS_BROKER = ProcessBroker(
-        GRAPH, _curated_process_registry(), SystemdUserProcessBackend(),
-        ADMISSION, state_root=STATE_DIR / "process-runtime")
-    reconciled = await _reconcile_processes_once()
-    if reconciled:
-        print(f"reconciled {len(reconciled)} managed process(es)", flush=True)
+    if PLATFORM.managed_processes:
+        PROCESS_BROKER = ProcessBroker(
+            GRAPH, _curated_process_registry(), SystemdUserProcessBackend(),
+            ADMISSION, state_root=STATE_DIR / "process-runtime")
+        reconciled = await _reconcile_processes_once()
+        if reconciled:
+            print(f"reconciled {len(reconciled)} managed process(es)", flush=True)
+    else:
+        PROCESS_BROKER = None
+        print("managed processes unavailable on this platform: "
+              f"{PLATFORM.reasons.get('managed_processes')}", flush=True)
     DESKTOP_BROKER = None
     DESKTOP_LAST_ERROR = None
     if _desktop_expected():
@@ -3511,8 +3519,9 @@ async def _load():
         except Exception as exc:
             print(f"startup voice activation failed: {exc}", flush=True)
     (STATE_DIR / "friday.pid").write_text(str(os.getpid()))
-    PROCESS_MONITOR_TASK = asyncio.create_task(
-        _process_monitor_loop(), name="friday-process-monitor")
+    if PROCESS_BROKER is not None:
+        PROCESS_MONITOR_TASK = asyncio.create_task(
+            _process_monitor_loop(), name="friday-process-monitor")
     TASKS.recover_interrupted()
     WORKER = DurableStepWorker(
         TASKS, FRIDAY.execute_claimed_step,
@@ -3754,6 +3763,7 @@ async def api_status():
                             if FRIDAY is not None else None),
             "resolved_profile": resolved_profile,
         },
+        "platform": _platform_status(),
         "reminders": {"scheduled": len(REMINDERS.list(status="scheduled"))},
         "workers": {
             "durable_actions": bool(WORKER is not None and WORKER.is_running),

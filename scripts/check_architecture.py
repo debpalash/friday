@@ -17,6 +17,8 @@ BOUNDARIES = {
     "voice_transport": ROOT / "friday_core" / "voice_transport.py",
     "task_orchestration": ROOT / "friday_core" / "task_orchestration.py",
     "frontend_loader": ROOT / "friday_core" / "frontend.py",
+    "platform_gate": ROOT / "friday_core" / "platform_gate.py",
+    "host_platform": ROOT / "friday_host" / "platform_capabilities.py",
     "frontend_asset": ROOT / "frontend" / "index.html",
 }
 
@@ -32,6 +34,8 @@ def inspect_architecture() -> dict[str, object]:
         "voice_transport": "from friday_core.voice_transport import",
         "task_orchestration": "from friday_core.task_orchestration import",
         "frontend_loader": "from friday_core.frontend import",
+        "platform_gate": "from friday_core.platform_gate import",
+        "host_platform": "from friday_host.platform_capabilities import",
     }
     missing_imports = sorted(name for name, marker in imports.items()
                              if marker not in source)
