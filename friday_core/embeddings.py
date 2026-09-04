@@ -1,4 +1,9 @@
-"""Pinned, offline, CPU-first text embeddings for private local retrieval."""
+"""Pinned, offline, CPU-only text embeddings for private local retrieval.
+
+The encoder runs the official ONNX export of the pinned checkpoint through
+onnxruntime with the ``tokenizers`` library, so it needs no torch and behaves
+identically on every platform.
+"""
 
 from __future__ import annotations
 
@@ -26,6 +31,9 @@ _ASSETS = {
     "model.safetensors": (
         470_641_600,
         "1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477"),
+    "onnx/model.onnx": (
+        470_268_510,
+        "ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665"),
     "sentencepiece.bpe.model": (
         5_069_051,
         "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865"),
@@ -59,7 +67,7 @@ def _host_capacity() -> tuple[int, int]:
 
 
 class LocalTextEmbedder:
-    """Lazy local E5 encoder; no hub/network path exists after construction."""
+    """Lazy local E5 encoder; no network path exists after construction."""
 
     dimension = MODEL_DIMENSION
     fingerprint = MODEL_FINGERPRINT
@@ -77,6 +85,7 @@ class LocalTextEmbedder:
         self._lock = threading.RLock()
         self._tokenizer = None
         self._model = None
+        self._input_names: set[str] = set()
         self._verified = False
 
     def _verify(self) -> None:
@@ -107,18 +116,24 @@ class LocalTextEmbedder:
             if self._model is not None:
                 return
             self._verify()
-            os.environ.setdefault("HF_HUB_OFFLINE", "1")
-            os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-            from transformers import AutoModel, AutoTokenizer
-            tokenizer = AutoTokenizer.from_pretrained(
-                self.model_path, local_files_only=True, trust_remote_code=False)
-            model = AutoModel.from_pretrained(
-                self.model_path, local_files_only=True,
-                trust_remote_code=False).to("cpu").eval()
-            hidden = int(getattr(model.config, "hidden_size", 0))
+            import onnxruntime  # noqa: PLC0415 - heavy import stays lazy
+            from tokenizers import Tokenizer  # noqa: PLC0415
+
+            tokenizer = Tokenizer.from_file(str(self.model_path / "tokenizer.json"))
+            tokenizer.enable_truncation(max_length=256)
+            tokenizer.enable_padding(pad_id=1, pad_token="<pad>")
+            options = onnxruntime.SessionOptions()
+            options.inter_op_num_threads = 1
+            options.intra_op_num_threads = max(1, min(8, _host_capacity()[0]))
+            session = onnxruntime.InferenceSession(
+                str(self.model_path / "onnx" / "model.onnx"),
+                sess_options=options, providers=["CPUExecutionProvider"])
+            outputs = session.get_outputs()
+            hidden = int(outputs[0].shape[-1]) if outputs and outputs[0].shape else 0
             if hidden != self.dimension:
                 raise RuntimeError("pinned embedding dimension is incompatible")
-            self._tokenizer, self._model = tokenizer, model
+            self._input_names = {item.name for item in session.get_inputs()}
+            self._tokenizer, self._model = tokenizer, session
 
     @staticmethod
     def _validated(texts: Sequence[str], kind: str) -> list[str]:
@@ -139,18 +154,24 @@ class LocalTextEmbedder:
     def encode(self, texts: Sequence[str], *, kind: str) -> np.ndarray:
         values = self._validated(texts, kind)
         self._load()
-        import torch
         chunks: list[np.ndarray] = []
-        with self._lock, torch.inference_mode():
+        with self._lock:
             for offset in range(0, len(values), self.batch_size):
-                batch = self._tokenizer(
-                    values[offset:offset + self.batch_size], padding=True,
-                    truncation=True, max_length=256, return_tensors="pt")
-                result = self._model(**batch).last_hidden_state
-                mask = batch["attention_mask"].unsqueeze(-1)
-                pooled = (result * mask).sum(dim=1) / mask.sum(dim=1)
-                pooled = torch.nn.functional.normalize(pooled, p=2, dim=1)
-                chunks.append(pooled.detach().cpu().numpy().astype("<f4"))
+                encodings = self._tokenizer.encode_batch(
+                    values[offset:offset + self.batch_size])
+                input_ids = np.asarray(
+                    [item.ids for item in encodings], dtype=np.int64)
+                attention = np.asarray(
+                    [item.attention_mask for item in encodings], dtype=np.int64)
+                feeds = {"input_ids": input_ids, "attention_mask": attention}
+                if "token_type_ids" in self._input_names:
+                    feeds["token_type_ids"] = np.zeros_like(input_ids)
+                hidden = np.asarray(self._model.run(None, feeds)[0], dtype=np.float32)
+                mask = attention[:, :, None].astype(np.float32)
+                pooled = (hidden * mask).sum(axis=1) / np.maximum(
+                    mask.sum(axis=1), 1e-9)
+                norms = np.linalg.norm(pooled, axis=1, keepdims=True)
+                chunks.append((pooled / np.maximum(norms, 1e-12)).astype("<f4"))
         encoded = np.concatenate(chunks, axis=0)
         if (encoded.shape != (len(values), self.dimension)
                 or not np.isfinite(encoded).all()):

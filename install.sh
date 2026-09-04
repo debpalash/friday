@@ -469,6 +469,7 @@ PY
     "$release_dir/venv/bin/python" "$release_dir/ops/install_piper_voice.py"
     "$release_dir/venv/bin/python" "$release_dir/ops/install_omnivoice_model.py"
     "$release_dir/venv/bin/python" "$release_dir/ops/install_embedding_model.py"
+    "$release_dir/venv/bin/python" "$release_dir/ops/install_vad_model.py"
   fi
 
   if [[ -z "$llm_root" ]]; then

@@ -39,7 +39,7 @@ class LocalEmbeddingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             embedder.encode(["x" * 4_001], kind="query")
 
-    @unittest.skipUnless(MODEL.is_dir(), "pinned embedding checkpoint not installed")
+    @unittest.skipUnless(MODEL.is_dir(), "environment: pinned embedding checkpoint not installed")
     def test_real_pinned_encoder_is_cpu_local_normalized_and_multilingual(self):
         old_hub, old_transformers = (
             os.environ.get("HF_HUB_OFFLINE"),
@@ -68,7 +68,24 @@ class LocalEmbeddingTests(unittest.TestCase):
         self.assertTrue(np.allclose(np.linalg.norm(passages, axis=1), 1, atol=1e-5))
         scores = queries @ passages.T
         self.assertTrue(np.all(scores[:, 0] > scores[:, 1]))
-        self.assertEqual(next(embedder._model.parameters()).device.type, "cpu")
+        self.assertEqual(embedder._model.get_providers(), ["CPUExecutionProvider"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+    @unittest.skipUnless(MODEL.is_dir(), "environment: pinned embedding checkpoint not installed")
+    def test_onnx_vectors_match_the_recorded_torch_vectors(self):
+        import json
+
+        fixture = json.loads((Path(__file__).resolve().parent / "fixtures"
+                              / "embeddings" / "e5_torch_vectors_v1.json").read_text())
+        embedder = LocalTextEmbedder(MODEL, batch_size=2)
+        for kind, texts in fixture["texts"].items():
+            observed = embedder.encode(texts, kind=kind)
+            expected = np.asarray(fixture["vectors"][kind], dtype=np.float32)
+            cosine = np.sum(observed * expected, axis=1)
+            self.assertTrue(np.all(cosine >= 0.999), cosine)
 
 
 if __name__ == "__main__":
