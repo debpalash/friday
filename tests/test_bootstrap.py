@@ -76,6 +76,50 @@ class BootstrapTests(unittest.TestCase):
             ["--local", "checkout", "--build-venv"],
         )
 
+    def test_macos_uses_shasum_when_sha256sum_is_absent(self) -> None:
+        fake_bin = self.temporary / "darwin-bin"
+        fake_bin.mkdir()
+        for tool in ("bash", "curl", "mktemp", "grep", "sed", "head", "rm"):
+            real = shutil.which(tool)
+            self.assertIsNotNone(real, tool)
+            (fake_bin / tool).symlink_to(real)
+        sha256sum = shutil.which("sha256sum")
+        self.assertIsNotNone(sha256sum)
+        (fake_bin / "uname").write_text(
+            '#!/bin/sh\ncase "$1" in -m) echo arm64;; *) echo Darwin;; esac\n')
+        (fake_bin / "shasum").write_text(
+            "#!/bin/sh\n# shasum -a 256 --check ... -> sha256sum --check ...\n"
+            "shift 2\n"
+            f"exec {sha256sum} \"$@\"\n")
+        for name in ("uname", "shasum"):
+            (fake_bin / name).chmod(0o755)
+        env = {
+            **os.environ,
+            "PATH": str(fake_bin),
+            "FRIDAY_VERSION": TAG,
+            "FRIDAY_RELEASE_BASE_URL": self.temporary.as_uri(),
+            "FRIDAY_RELEASE_API_URL": "http://127.0.0.1:9/never",
+        }
+        result = subprocess.run(["bash", str(BOOTSTRAP), "--no-start"], env=env,
+                                capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("checksum verified", result.stderr)
+        self.assertEqual(self.marker.read_text(encoding="utf-8").strip(), "--no-start")
+
+    def test_intel_macs_and_other_systems_are_refused(self) -> None:
+        fake_bin = self.temporary / "intel-bin"
+        fake_bin.mkdir()
+        (fake_bin / "uname").write_text(
+            '#!/bin/sh\ncase "$1" in -m) echo x86_64;; *) echo Darwin;; esac\n')
+        (fake_bin / "uname").chmod(0o755)
+        env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+               "FRIDAY_VERSION": TAG, "FRIDAY_RELEASE_BASE_URL": self.temporary.as_uri()}
+        result = subprocess.run(["bash", str(BOOTSTRAP)], env=env, capture_output=True,
+                                text=True, timeout=60, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Apple Silicon", result.stderr)
+        self.assertFalse(self.marker.exists())
+
     def test_works_when_piped_into_bash_like_curl(self) -> None:
         result = self.run_bootstrap("--flag", via_stdin=True)
         self.assertEqual(result.returncode, 0, result.stderr)
