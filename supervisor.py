@@ -40,7 +40,10 @@ from friday_core.graph import GraphStore
 from friday_core.tls import ensure_tls_material
 from friday_core.vision_evals import (NativeVisionEvalRunner,
                                       has_qualified_native_vision_score)
+from friday_core.runtime_engines import (EnginePreflightError, engine_for,
+                                         ensure_local_api_key, runtime_root)
 from friday_host import fs, procs
+from friday_host.paths import venv_python
 
 REPO = Path(__file__).resolve().parent
 _CONFIGURED_STATE_DIR = os.environ.get("FRIDAY_STATE_DIR", "").strip()
@@ -93,8 +96,60 @@ class DegradableCapacityBootError(RuntimeError):
     """A bounded context/concurrency reduction may repair this boot failure."""
 
 
+_ENGINE_BINDING: dict[str, Any] = {
+    "engine": "vllm", "cwd": None, "owner": "vllm serve", "stop": "vllm",
+    "launch": "start_qwen.sh",
+}
+
+
+def _bind_engine(profile: RuntimeProfile) -> None:
+    """Point the process-identity accessors at the profile's engine."""
+    if getattr(profile, "portable_engine", False):
+        engine = engine_for(profile)
+        _ENGINE_BINDING.update({
+            "engine": profile.engine, "cwd": REPO,
+            "owner": engine.owner_marker, "stop": engine.stop_marker,
+            "launch": engine.owner_marker,
+        })
+    else:
+        _ENGINE_BINDING.update({
+            "engine": "vllm", "cwd": None, "owner": "vllm serve",
+            "stop": "vllm", "launch": "start_qwen.sh",
+        })
+
+
+def _model_cwd() -> Path:
+    cwd = _ENGINE_BINDING["cwd"]
+    return QWEN if cwd is None else cwd
+
+
+def _owner_marker() -> str:
+    return str(_ENGINE_BINDING["owner"])
+
+
+def _stop_marker() -> str:
+    return str(_ENGINE_BINDING["stop"])
+
+
+def _runtime_root() -> Path:
+    return runtime_root(os.environ, qwen_root=QWEN)
+
+
+def _portable_key_file() -> Path:
+    return STATE / "local-api-key"
+
+
+def _credential_probe_url(profile: RuntimeProfile) -> str:
+    if getattr(profile, "portable_engine", False):
+        base = profile.local_base_url.rstrip("/")[:-3]
+        return base + engine_for(profile).credential_probe_path
+    return profile.local_base_url.rstrip("/") + "/models"
+
+
 def resolve_runtime_profile() -> RuntimeProfile:
-    return select_runtime_profile(detect_hardware(), environment=os.environ)
+    profile = select_runtime_profile(detect_hardware(), environment=os.environ)
+    _bind_engine(profile)
+    return profile
 
 
 def _local_api_key(environment: Mapping[str, str]) -> str | None:
@@ -121,6 +176,10 @@ def _local_api_key(environment: Mapping[str, str]) -> str | None:
     # also lets the compatibility probe authenticate without exposing the key.
     try:
         return (QWEN / "api_key.txt").read_text().strip() or None
+    except OSError:
+        pass
+    try:
+        return _portable_key_file().read_text().strip() or None
     except OSError:
         return None
 
@@ -496,7 +555,7 @@ def _qwen_listener_binding(
             or euid_before != os.geteuid()
             or namespaces_before is None
             or namespaces_before != _process_namespace_identity(os.getpid())
-            or not owned(expected_pid, QWEN, "vllm serve")):
+            or not owned(expected_pid, _model_cwd(), _owner_marker())):
         return None
     listeners = _loopback_listener_records(port)
     if listeners is None or len(listeners) != 1:
@@ -515,7 +574,7 @@ def _qwen_listener_binding(
     if (start_ticks_after != start_ticks_before
             or euid_after != euid_before
             or namespaces_after != namespaces_before
-            or not owned(expected_pid, QWEN, "vllm serve")):
+            or not owned(expected_pid, _model_cwd(), _owner_marker())):
         return None
     return (inode, socket_uid, start_ticks_after,
             namespaces_after[0], namespaces_after[1])
@@ -676,7 +735,7 @@ def qwen_api_rejects_invalid_credential(
         timeout: float = 2.0) -> bool:
     """Prove the endpoint enforces its credential instead of accepting any key."""
     request = urllib.request.Request(
-        profile.local_base_url.rstrip("/") + "/models",
+        _credential_probe_url(profile),
         headers={"Authorization": (
             "Bearer friday-invalid-calibration-credential")})
     binding = _qwen_listener_binding(profile, expected_pid)
@@ -799,55 +858,80 @@ def qwen_boot_calibration(
             "local model endpoint did not enforce its startup credential")
     identity_ms = round((time.monotonic() - identity_started) * 1000)
 
-    base = profile.local_base_url.rstrip("/")
-    if not base.endswith("/v1"):
-        raise NonDegradableBootError(
-            "local model base URL is not an OpenAI v1 endpoint")
-    payload = json.dumps({
-        "model": profile.served_model,
-        "prompt": "Friday authenticated boot calibration canary",
-    }).encode()
-    request = urllib.request.Request(
-        base[:-3] + "/tokenize", data=payload, method="POST",
-        headers={
-            "Authorization": f"Bearer {credential}",
-            "Content-Type": "application/json",
-        })
-    binding = _qwen_listener_binding(profile, expected_pid)
-    if binding is None:
-        raise NonDegradableBootError(
-            "tokenization calibration listener identity is unavailable")
-    tokenize_started = time.monotonic()
-    try:
-        with _credentialed_urlopen(request, timeout=timeout) as response:
-            if response.status != 200:
-                raise NonDegradableBootError(
-                    "tokenization calibration was rejected")
-            result = json.loads(response.read())
-    except urllib.error.HTTPError as exc:
-        exc.close()
-        raise NonDegradableBootError(
-            "authenticated tokenization calibration failed") from exc
-    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
-        raise NonDegradableBootError(
-            "authenticated tokenization calibration failed") from exc
-    if _qwen_listener_binding(profile, expected_pid) != binding:
-        raise NonDegradableBootError(
-            "tokenization calibration listener identity changed")
-    tokenize_ms = round((time.monotonic() - tokenize_started) * 1000)
-    if not isinstance(result, dict):
-        raise NonDegradableBootError(
-            "tokenization calibration returned an invalid response")
-    observed_context = result.get("max_model_len")
-    token_count = result.get("count")
-    if (isinstance(observed_context, bool)
-            or not isinstance(observed_context, int)
-            or observed_context != profile.context_tokens
-            or isinstance(token_count, bool)
-            or not isinstance(token_count, int)
-            or token_count < 1):
-        raise NonDegradableBootError(
-            "tokenization calibration did not prove the candidate context")
+    if getattr(profile, "portable_engine", False):
+        binding = _qwen_listener_binding(profile, expected_pid)
+        if binding is None:
+            raise NonDegradableBootError(
+                "tokenization calibration listener identity is unavailable")
+        tokenize_started = time.monotonic()
+        try:
+            observed_context, token_count = engine_for(profile).context_probe(
+                profile, credential, _credentialed_urlopen, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            exc.close()
+            raise NonDegradableBootError(
+                "authenticated tokenization calibration failed") from exc
+        except (OSError, RuntimeError, ValueError, TypeError,
+                json.JSONDecodeError) as exc:
+            raise NonDegradableBootError(
+                "authenticated tokenization calibration failed") from exc
+        if _qwen_listener_binding(profile, expected_pid) != binding:
+            raise NonDegradableBootError(
+                "tokenization calibration listener identity changed")
+        tokenize_ms = round((time.monotonic() - tokenize_started) * 1000)
+        if observed_context != profile.context_tokens or token_count < 1:
+            raise NonDegradableBootError(
+                "tokenization calibration did not prove the candidate context")
+    else:
+        base = profile.local_base_url.rstrip("/")
+        if not base.endswith("/v1"):
+            raise NonDegradableBootError(
+                "local model base URL is not an OpenAI v1 endpoint")
+        payload = json.dumps({
+            "model": profile.served_model,
+            "prompt": "Friday authenticated boot calibration canary",
+        }).encode()
+        request = urllib.request.Request(
+            base[:-3] + "/tokenize", data=payload, method="POST",
+            headers={
+                "Authorization": f"Bearer {credential}",
+                "Content-Type": "application/json",
+            })
+        binding = _qwen_listener_binding(profile, expected_pid)
+        if binding is None:
+            raise NonDegradableBootError(
+                "tokenization calibration listener identity is unavailable")
+        tokenize_started = time.monotonic()
+        try:
+            with _credentialed_urlopen(request, timeout=timeout) as response:
+                if response.status != 200:
+                    raise NonDegradableBootError(
+                        "tokenization calibration was rejected")
+                result = json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            exc.close()
+            raise NonDegradableBootError(
+                "authenticated tokenization calibration failed") from exc
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise NonDegradableBootError(
+                "authenticated tokenization calibration failed") from exc
+        if _qwen_listener_binding(profile, expected_pid) != binding:
+            raise NonDegradableBootError(
+                "tokenization calibration listener identity changed")
+        tokenize_ms = round((time.monotonic() - tokenize_started) * 1000)
+        if not isinstance(result, dict):
+            raise NonDegradableBootError(
+                "tokenization calibration returned an invalid response")
+        observed_context = result.get("max_model_len")
+        token_count = result.get("count")
+        if (isinstance(observed_context, bool)
+                or not isinstance(observed_context, int)
+                or observed_context != profile.context_tokens
+                or isinstance(token_count, bool)
+                or not isinstance(token_count, int)
+                or token_count < 1):
+            raise NonDegradableBootError(
+                "tokenization calibration did not prove the candidate context")
     native_vision_required = bool(
         getattr(profile, "native_vision_enabled", False))
     vision_started = time.monotonic() if native_vision_required else None
@@ -924,7 +1008,8 @@ def _qwen_process_vram_mib(expected_pid: int) -> int | None:
             return None
         process_id, used_mib = map(int, fields)
         try:
-            process_group = os.getpgid(process_id)
+            process_group = (os.getpgid(process_id) if hasattr(os, "getpgid")
+                             else process_id)
         except (OSError, ProcessLookupError):
             continue
         if process_id == expected_pid or process_group == expected_pid:
@@ -1047,8 +1132,11 @@ def calibrate_qwen_performance(
             "performance calibration runtime identity changed")
     vram_mib = _qwen_process_vram_mib(expected_pid)
     if vram_mib is None:
-        raise NonDegradableBootError(
-            "performance calibration VRAM observation is unavailable")
+        if getattr(profile, "portable_engine", False):
+            vram_mib = 0
+        else:
+            raise NonDegradableBootError(
+                "performance calibration VRAM observation is unavailable")
     status = PerformanceCalibrationStore(
         PERFORMANCE_CALIBRATION_FILE).record(
             profile, runtime_identity=runtime_identity, samples=samples,
@@ -1081,7 +1169,7 @@ def benchmark_qwen_performance_profiles(
     candidates: tuple[RuntimeProfile, ...] = ()
     restored = False
     with _service_start_lock(QWEN_START_LOCK):
-        original_pid = verified_pid(QWEN_PID, QWEN, "vllm serve")
+        original_pid = verified_pid(QWEN_PID, _model_cwd(), _owner_marker())
         active_manifest = read_active_runtime_profile()
         original = match_active_candidate(
             _boot_candidates(proposed), active_manifest)
@@ -1110,14 +1198,14 @@ def benchmark_qwen_performance_profiles(
             for candidate in ordered:
                 try:
                     current_pid = verified_pid(
-                        QWEN_PID, QWEN, "vllm serve")
+                        QWEN_PID, _model_cwd(), _owner_marker())
                     current_manifest = read_active_runtime_profile()
                     if (current_pid is None
                             or not active_profile_matches(
                                 candidate, current_manifest)
                             or not active_runtime_process_matches(
                                 current_manifest, current_pid)):
-                        stop_pid(QWEN_PID, QWEN, "vllm", group=True)
+                        stop_pid(QWEN_PID, _model_cwd(), _stop_marker(), group=True)
                         current_pid = _start_qwen_locked(candidate)
                     _require_compatible_qwen(
                         candidate, expected_pid=current_pid)
@@ -1143,13 +1231,13 @@ def benchmark_qwen_performance_profiles(
                         "status": "failed",
                     })
         finally:
-            current_pid = verified_pid(QWEN_PID, QWEN, "vllm serve")
+            current_pid = verified_pid(QWEN_PID, _model_cwd(), _owner_marker())
             current_manifest = read_active_runtime_profile()
             if (current_pid is None
                     or not active_profile_matches(original, current_manifest)
                     or not active_runtime_process_matches(
                         current_manifest, current_pid)):
-                stop_pid(QWEN_PID, QWEN, "vllm", group=True)
+                stop_pid(QWEN_PID, _model_cwd(), _stop_marker(), group=True)
                 current_pid = _start_qwen_locked(original)
             _require_compatible_qwen(original, expected_pid=current_pid)
             restored = True
@@ -1414,6 +1502,12 @@ def _terminate_owned_process(pid: int, cwd: Path, marker: str, *,
                              group: bool, grace_seconds: float = 20.0,
                              kill_seconds: float = 5.0) -> None:
     """Terminate the exact inspected process and confirm that it exited."""
+    if not hasattr(os, "killpg"):
+        if not owned(pid, cwd, marker):
+            raise RuntimeError(f"refusing to stop unverified PID {pid}")
+        procs.terminate_tree(pid, grace_seconds=grace_seconds,
+                             kill_seconds=kill_seconds)
+        return
     pidfd: int | None = None
     try:
         if hasattr(os, "pidfd_open"):
@@ -1489,7 +1583,10 @@ def cleanup_orphaned_qwen(profile: RuntimeProfile | None = None) -> list[int]:
         except OSError:
             continue
         cwd, comm = identity.cwd, identity.comm
-        if cwd == QWEN.resolve() and ("VLLM" in comm or "vllm" in comm.lower()):
+        marker = _stop_marker()
+        if cwd == _model_cwd().resolve() and (
+                ("VLLM" in comm or "vllm" in comm.lower()) if marker == "vllm"
+                else (marker in comm or marker in identity.cmdline)):
             os.kill(pid, signal.SIGTERM)
             removed.append(pid)
     if removed:
@@ -1501,11 +1598,11 @@ def _rollback_launched_qwen(pid: int) -> None:
     """Stop the exact new process even if its PID record was never committed."""
     recorded = _pid_file_snapshot(QWEN_PID)
     if recorded in {str(pid), f"{pid}\n"}:
-        stop_pid(QWEN_PID, QWEN, "vllm", group=True)
+        stop_pid(QWEN_PID, _model_cwd(), _stop_marker(), group=True)
         return
-    for marker in ("vllm", "start_qwen.sh"):
-        if owned(pid, QWEN, marker):
-            _terminate_owned_process(pid, QWEN, marker, group=True)
+    for marker in (_stop_marker(), str(_ENGINE_BINDING["launch"])):
+        if owned(pid, _model_cwd(), marker):
+            _terminate_owned_process(pid, _model_cwd(), marker, group=True)
             return
     try:
         os.kill(pid, 0)
@@ -1522,7 +1619,7 @@ def _start_qwen_locked(
         detail = "; ".join(selected.warnings) or "no supported CUDA runtime detected"
         raise RuntimeError(f"local model runtime is unavailable: {detail}")
     if healthy(selected.health_url):
-        pid = verified_pid(QWEN_PID, QWEN, "vllm serve")
+        pid = verified_pid(QWEN_PID, _model_cwd(), _owner_marker())
         if pid is None:
             raise NonDegradableBootError(
                 "healthy Qwen endpoint has no supervisor-owned process")
@@ -1530,9 +1627,9 @@ def _start_qwen_locked(
         _require_compatible_qwen(selected, expected_pid=pid)
         QWEN_PID.write_text(str(pid))
         return pid
-    stop_pid(QWEN_PID, QWEN, "vllm", group=True)
+    stop_pid(QWEN_PID, _model_cwd(), _stop_marker(), group=True)
     cleanup_orphaned_qwen(selected)
-    if discover_pid(QWEN, "vllm") is not None:
+    if discover_pid(_model_cwd(), _stop_marker()) is not None:
         raise NonDegradableBootError(
             "an old Qwen process is still running; refusing an overlapping launch")
     # The prior manifest is no longer authoritative once its process is gone.
@@ -1543,29 +1640,46 @@ def _start_qwen_locked(
     except (OSError, ValueError) as exc:
         raise NonDegradableBootError(
             "cannot invalidate the prior active runtime profile") from exc
-    launcher = QWEN / "single-user" / "start_qwen.sh"
-    if not launcher.is_file():
-        raise NonDegradableBootError(
-            f"Qwen launcher is unavailable: {launcher}; set FRIDAY_LLM_REPO")
-    try:
-        env = build_qwen_environment(selected)
-    except (RuntimeError, ValueError) as exc:
-        raise NonDegradableBootError(
-            "local model launch environment is invalid") from exc
+    _bind_engine(selected)
+    health_timeout = 180
+    if getattr(selected, "portable_engine", False):
+        engine = engine_for(selected)
+        try:
+            ensure_local_api_key(_portable_key_file())
+            launch = engine.prepare_launch(
+                selected, repo=REPO, root=_runtime_root(),
+                key_file=_portable_key_file(), environment=os.environ)
+        except (EnginePreflightError, OSError, ValueError) as exc:
+            raise NonDegradableBootError(str(exc)) from exc
+        command, cwd, env = list(launch.command), launch.cwd, launch.environment
+        log_path = STATE / "logs" / launch.log_name
+        health_timeout = engine.health_timeout
+    else:
+        launcher = QWEN / "single-user" / "start_qwen.sh"
+        if not launcher.is_file():
+            raise NonDegradableBootError(
+                f"Qwen launcher is unavailable: {launcher}; set FRIDAY_LLM_REPO")
+        try:
+            env = build_qwen_environment(selected)
+        except (RuntimeError, ValueError) as exc:
+            raise NonDegradableBootError(
+                "local model launch environment is invalid") from exc
+        command, cwd = ["bash", str(launcher.relative_to(QWEN))], QWEN
+        log_path = QWEN / "qwen.log"
     startup_started_at = time.monotonic()
-    log = _private_log(QWEN / "qwen.log")
+    log = _private_log(log_path)
     try:
         proc = subprocess.Popen(
-            ["bash", str(launcher.relative_to(QWEN))], cwd=QWEN, env=env,
+            command, cwd=cwd, env=env,
             stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-            start_new_session=True)
+            **procs.detached_popen_kwargs())
     finally:
         log.close()
     try:
         STATE.mkdir(exist_ok=True)
         QWEN_PID.write_text(str(proc.pid))
-        wait_health(selected.health_url, 180)
-        if not owned(proc.pid, QWEN, "vllm serve"):
+        wait_health(selected.health_url, health_timeout)
+        if not owned(proc.pid, _model_cwd(), _owner_marker()):
             raise NonDegradableBootError(
                 "Qwen health became ready without the launched process identity")
         # Never send the local bearer credential until the exact process we
@@ -1627,7 +1741,7 @@ def start_qwen_calibrated(
         if healthy(proposed.health_url):
             active = read_active_runtime_profile()
             active_candidate = match_active_candidate(candidates, active)
-            pid = verified_pid(QWEN_PID, QWEN, "vllm serve")
+            pid = verified_pid(QWEN_PID, _model_cwd(), _owner_marker())
             try:
                 if (active_candidate is None or pid is None
                         or not active_runtime_process_matches(active, pid)):
@@ -1679,7 +1793,7 @@ def start_qwen_calibrated(
                 except Exception as exc:
                     # Do not call a runtime calibrated if its required durable
                     # recovery state could not be committed.
-                    stop_pid(QWEN_PID, QWEN, "vllm", group=True)
+                    stop_pid(QWEN_PID, _model_cwd(), _stop_marker(), group=True)
                     pending.discard(candidate.fingerprint)
                     _invalidate_runtime_process_binding()
                     write_pending_runtime_profile(RUNTIME_PROFILE_FILE)
@@ -1701,7 +1815,7 @@ def start_friday(*, activate_voice: str | None = None,
     selected = profile or resolve_runtime_profile()
     STATE.mkdir(exist_ok=True)
     with _service_start_lock(FRIDAY_START_LOCK):
-        qwen_pid = verified_pid(QWEN_PID, QWEN, "vllm serve")
+        qwen_pid = verified_pid(QWEN_PID, _model_cwd(), _owner_marker())
         if qwen_pid is None:
             raise NonDegradableBootError(
                 "Friday requires a supervisor-owned Qwen process")
@@ -1734,9 +1848,9 @@ def start_friday(*, activate_voice: str | None = None,
         log = _private_log(SERVER_LOG_FILE)
         try:
             proc = subprocess.Popen(
-                [str(REPO / "venv/bin/python"), "server.py"], cwd=REPO, env=env,
+                [str(venv_python(REPO)), "server.py"], cwd=REPO, env=env,
                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-                start_new_session=True)
+                **procs.detached_popen_kwargs())
         finally:
             log.close()
         FRIDAY_PID.write_text(str(proc.pid))
@@ -1814,7 +1928,7 @@ def _observe_bound_runtime_calibration(
         with _service_start_lock(QWEN_START_LOCK):
             if not healthy(proposed.health_url):
                 raise RuntimeError("model endpoint changed during observation")
-            pid = verified_pid(QWEN_PID, QWEN, "vllm serve")
+            pid = verified_pid(QWEN_PID, _model_cwd(), _owner_marker())
             if pid is None:
                 raise NonDegradableBootError(
                     "healthy Qwen endpoint has no supervisor-owned process")
@@ -1840,7 +1954,7 @@ def status(profile: RuntimeProfile | None = None) -> dict:
     candidates = _boot_candidates(selected)
     active_candidate = match_active_candidate(candidates, active)
     friday_fingerprint = _read_friday_fingerprint()
-    qwen_pid = verified_pid(QWEN_PID, QWEN, "vllm serve")
+    qwen_pid = verified_pid(QWEN_PID, _model_cwd(), _owner_marker())
     friday_pid = verified_pid(FRIDAY_PID, REPO, "server.py")
     qwen_endpoint_healthy = healthy(selected.health_url)
     friday_endpoint_healthy = healthy(FRIDAY_HEALTH_URL)
@@ -1984,9 +2098,27 @@ def _request_watch_stop(_signum=None, _frame=None) -> None:
 def _reload_watch_if_requested() -> None:
     if not _WATCH_RELOAD_REQUESTED:
         return
+    if os.name != "posix":
+        print("supervisor reload is unsupported here; restart the service",
+              flush=True)
+        return
     os.execv(
         sys.executable,
         [sys.executable, str(Path(__file__).resolve()), "watch"])
+
+
+STOP_REQUEST_FILE = STATE / "supervisor.stop-request"
+
+
+def _consume_stop_request() -> bool:
+    """Honour a planned-stop marker from a service manager without signals."""
+    try:
+        STOP_REQUEST_FILE.unlink()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return False
+    return True
 
 
 def main() -> None:
@@ -2006,7 +2138,7 @@ def main() -> None:
         print(json.dumps(status(profile), indent=2))
     elif args.command == "calibrate-performance":
         with lifecycle_operation(wait_seconds=15):
-            qwen_pid = verified_pid(QWEN_PID, QWEN, "vllm serve")
+            qwen_pid = verified_pid(QWEN_PID, _model_cwd(), _owner_marker())
             if qwen_pid is None:
                 raise NonDegradableBootError(
                     "performance calibration requires supervisor-owned Qwen")
@@ -2042,7 +2174,7 @@ def main() -> None:
         # Validate the still-running model before taking Friday down.  A changed
         # environment/profile should fail closed without creating an avoidable
         # assistant outage.
-        qwen_pid = verified_pid(QWEN_PID, QWEN, "vllm serve")
+        qwen_pid = verified_pid(QWEN_PID, _model_cwd(), _owner_marker())
         if qwen_pid is None:
             raise NonDegradableBootError(
                 "Friday requires a supervisor-owned Qwen process")
@@ -2054,7 +2186,7 @@ def main() -> None:
     elif args.command == "restart-all":
         with lifecycle_operation(voice=args.voice):
             stop_pid(FRIDAY_PID, REPO, "server.py")
-            stop_pid(QWEN_PID, QWEN, "vllm", group=True)
+            stop_pid(QWEN_PID, _model_cwd(), _stop_marker(), group=True)
             _, active_profile, _ = start_qwen_calibrated(profile)
             if active_profile.fingerprint != profile.fingerprint:
                 print(
@@ -2064,11 +2196,16 @@ def main() -> None:
             start_friday(
                 activate_voice=args.voice, profile=active_profile)
     else:
-        signal.signal(signal.SIGHUP, _request_watch_reload)
+        if hasattr(signal, "SIGHUP"):
+            signal.signal(signal.SIGHUP, _request_watch_reload)
         signal.signal(signal.SIGTERM, _request_watch_stop)
+        if hasattr(signal, "SIGBREAK"):
+            signal.signal(signal.SIGBREAK, _request_watch_stop)
         with watch_operation():
             while True:
                 _reload_watch_if_requested()
+                if _consume_stop_request():
+                    _request_watch_stop()
                 if lifecycle_locked():
                     time.sleep(1)
                     continue
@@ -2091,7 +2228,7 @@ def main() -> None:
                 active = read_active_runtime_profile()
                 active_candidate = match_active_candidate(candidates, active)
                 model_endpoint_healthy = healthy(profile.health_url)
-                model_pid = (verified_pid(QWEN_PID, QWEN, "vllm serve")
+                model_pid = (verified_pid(QWEN_PID, _model_cwd(), _owner_marker())
                              if model_endpoint_healthy else None)
                 if model_endpoint_healthy and model_pid is None:
                     print(
@@ -2117,7 +2254,7 @@ def main() -> None:
                             with _service_start_lock(QWEN_START_LOCK):
                                 endpoint_now = healthy(profile.health_url)
                                 owner_now = (verified_pid(
-                                    QWEN_PID, QWEN, "vllm serve")
+                                    QWEN_PID, _model_cwd(), _owner_marker())
                                     if endpoint_now else None)
                                 if endpoint_now and owner_now is None:
                                     raise NonDegradableBootError(
@@ -2141,7 +2278,7 @@ def main() -> None:
                             if not endpoint_now:
                                 if retry_after == 0:
                                     stop_pid(FRIDAY_PID, REPO, "server.py")
-                                    stop_pid(QWEN_PID, QWEN, "vllm", group=True)
+                                    stop_pid(QWEN_PID, _model_cwd(), _stop_marker(), group=True)
                                     _, active_candidate, _ = (
                                         start_qwen_calibrated(profile))
                                     start_friday(profile=active_candidate)

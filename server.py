@@ -89,7 +89,8 @@ from friday_core.tasks import (tool_arguments_are_private,
                                tool_has_private_payload,
                                tool_result_log_summary)
 from friday_core.tls import ensure_tls_material
-from friday_core.local_http import (normalize_loopback_model_base_url,
+from friday_core.local_http import (count_prompt_tokens,
+                                    normalize_loopback_model_base_url,
                                     open_loopback_request)
 from friday_core.frontend import load_frontend
 from friday_core.conversation_runtime import (
@@ -138,6 +139,7 @@ HISTORY_TURNS = 24
 LOCAL_BASE_URL = normalize_loopback_model_base_url(os.environ.get(
     "FRIDAY_LOCAL_BASE_URL", "http://127.0.0.1:18021/v1"))
 LOCAL_MODEL = os.environ.get("FRIDAY_LOCAL_MODEL", "qwen3.8-27b").strip()
+LLM_ENGINE = os.environ.get("FRIDAY_LLM_ENGINE", "vllm").strip() or "vllm"
 TTS_DEVICE = os.environ.get("FRIDAY_TTS_DEVICE", "cuda").strip().lower()
 try:
     MODEL_CONTEXT_TOKENS = int(
@@ -832,15 +834,10 @@ class Friday:
         }
         if use_tools:
             body["tools"] = current_tool_schema()
-        request = urllib.request.Request(
-            _tokenize_url(),
-            data=json.dumps(body).encode(),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": "Bearer " + KEY,
-            })
-        with open_loopback_request(request, timeout=5) as response:
-            return int(json.loads(response.read())["count"])
+        headers = {"Content-Type": "application/json",
+                   "Authorization": "Bearer " + KEY}
+        return count_prompt_tokens(
+            LLM_ENGINE, _tokenize_url(), body, headers, open_loopback_request)
 
     async def _prompt_token_count(self, messages: list[dict],
                                   use_tools: bool) -> int:
