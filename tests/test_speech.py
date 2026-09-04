@@ -110,7 +110,7 @@ class SpeechBackendTests(unittest.TestCase):
             synthesizer = speech.PiperSpeechSynthesizer(
                 repo, output_rate=24_000)
         except (ImportError, RuntimeError) as exc:
-            self.skipTest(f"pinned Piper runtime unavailable: {exc}")
+            self.skipTest(f"environment: pinned Piper runtime unavailable: {exc}")
 
         audio = synthesizer.synthesize("Friday speech is ready.")
 

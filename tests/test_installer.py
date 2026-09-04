@@ -13,6 +13,10 @@ from unittest import mock
 
 from ops import install_asr_model
 
+from tests.platform_markers import require_platform
+
+require_platform('linux', 'darwin')
+
 
 ROOT = Path(__file__).resolve().parents[1]
 

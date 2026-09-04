@@ -49,6 +49,10 @@ from friday_core.processes import (
 )
 from friday_core.tasks import ClaimedStep, TaskService
 
+from tests.platform_markers import require_platform
+
+require_platform('linux')
+
 
 USER_MANAGER_CGROUP = (
     f"/user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service")

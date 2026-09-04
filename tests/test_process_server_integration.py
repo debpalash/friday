@@ -88,7 +88,7 @@ class ProcessServerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             broker = _broker(root, GraphStore(root / "friday.db"))
             specs = {item["spec_id"]: item for item in broker.list_specs()}
             if not Path(server.MANAGED_BROWSER_EXECUTABLE).is_file():
-                self.skipTest("curated Chromium profile is unavailable")
+                self.skipTest("environment: curated Chromium profile is unavailable")
             browser = specs[server.MANAGED_BROWSER_SPEC_ID]
             internal = broker.registry.get(server.MANAGED_BROWSER_SPEC_ID)
             self.assertEqual(
@@ -179,7 +179,7 @@ class ProcessServerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             process_broker = _broker(root, GraphStore(root / "friday.db"))
             spec_id = "app.friday_terminal.foot_1_27_0.v2"
             if not Path("/usr/bin/foot").is_file():
-                self.skipTest("curated Foot profile is unavailable")
+                self.skipTest("environment: curated Foot profile is unavailable")
             process = process_broker.binding_for_launch(spec_id, {})
             spec = process_broker.registry.get(spec_id)
             expected = DesktopApplicationLaunchBinding(
@@ -217,7 +217,7 @@ class ProcessServerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             registry_broker = _broker(root, GraphStore(root / "friday.db"))
             spec_id = "app.friday_terminal.foot_1_27_0.v2"
             if not Path("/usr/bin/foot").is_file():
-                self.skipTest("curated Foot profile is unavailable")
+                self.skipTest("environment: curated Foot profile is unavailable")
             process = registry_broker.binding_for_launch(spec_id, {})
             spec = registry_broker.registry.get(spec_id)
             managed_presentation = spec.presentation.model_copy(update={
@@ -427,7 +427,7 @@ class ProcessServerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             registry_broker = _broker(root, graph)
             spec_id = "app.friday_terminal.foot_1_27_0.v2"
             if not Path("/usr/bin/foot").is_file():
-                self.skipTest("curated Foot profile is unavailable")
+                self.skipTest("environment: curated Foot profile is unavailable")
             process_binding = registry_broker.binding_for_launch(spec_id, {})
             spec = registry_broker.registry.get(spec_id)
             binding = DesktopApplicationLaunchBinding(

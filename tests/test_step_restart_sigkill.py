@@ -30,6 +30,10 @@ if str(ROOT) not in sys.path:
 from friday_core import GraphStore, TaskService  # noqa: E402
 from friday_core.graph import canonical_json, sha256_text  # noqa: E402
 
+from tests.platform_markers import require_platform
+
+require_platform('linux', 'darwin')
+
 
 def _claim_record(claim: Any) -> dict[str, Any]:
     """Return the non-secret invocation identity written before side effects."""

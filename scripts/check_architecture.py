@@ -23,6 +23,35 @@ BOUNDARIES = {
 }
 
 
+POSIX_ONLY_MODULES = {"fcntl", "pwd", "grp", "termios", "resource", "msvcrt",
+                      "winreg", "_winapi"}
+PLATFORM_LAYER_EXEMPT = {ROOT / "friday_host" / "fs.py"}
+
+
+def _posix_only_imports() -> list[str]:
+    import ast
+
+    offenders = []
+    candidates = [ROOT / "server.py", ROOT / "supervisor.py", ROOT / "friday.py",
+                  *sorted((ROOT / "friday_core").glob("*.py")),
+                  *sorted((ROOT / "friday_host").glob("*.py")),
+                  *sorted((ROOT / "ops").glob("*.py"))]
+    for path in candidates:
+        if path in PLATFORM_LAYER_EXEMPT:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [alias.name.split(".")[0] for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                names = [node.module.split(".")[0]]
+            for name in names:
+                if name in POSIX_ONLY_MODULES:
+                    offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}:{name}")
+    return offenders
+
+
 def inspect_architecture() -> dict[str, object]:
     source = SERVER.read_text(encoding="utf-8")
     lines = len(source.splitlines())
@@ -39,6 +68,7 @@ def inspect_architecture() -> dict[str, object]:
     }
     missing_imports = sorted(name for name, marker in imports.items()
                              if marker not in source)
+    posix_only = sorted(_posix_only_imports())
     embedded_frontend = 'HTML = """' in source or "HTML = '''" in source
     external_frontend = (
         'HTML = load_frontend(REPO / "frontend" / "index.html")' in source)
@@ -46,7 +76,9 @@ def inspect_architecture() -> dict[str, object]:
         "passed": (
             not missing and not missing_imports and not embedded_frontend
             and external_frontend and lines <= MAX_SERVER_LINES
+            and not posix_only
         ),
+        "posix_only_imports_outside_platform_layer": posix_only,
         "server_lines": lines,
         "maximum_server_lines": MAX_SERVER_LINES,
         "missing_boundaries": missing,

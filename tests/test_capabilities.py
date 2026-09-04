@@ -24,7 +24,7 @@ class CapabilityTests(unittest.TestCase):
     def require_sandbox(self):
         ready, detail = self.manager.sandbox_status()
         if not ready:
-            self.skipTest(f"Bubblewrap sandbox unavailable: {detail}")
+            self.skipTest(f"environment: Bubblewrap sandbox unavailable: {detail}")
 
     def test_tested_capability_becomes_dynamic_tool(self):
         self.require_sandbox()

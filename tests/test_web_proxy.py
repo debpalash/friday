@@ -79,7 +79,7 @@ class PublicEndpointPolicyTests(unittest.TestCase):
 
     def test_empty_oversized_and_malformed_dns_answers_fail_closed(self):
         for answers in ([], [_answer("93.184.216.34", 443)] * 33,
-                        [(socket.AF_UNIX, socket.SOCK_STREAM, 0, "", ("x", 443))]):
+                        [(getattr(socket, "AF_UNIX", 1), socket.SOCK_STREAM, 0, "", ("x", 443))]):
             with self.subTest(size=len(answers)), self.assertRaises(
                     PublicNetworkUnavailable):
                 resolve_public_endpoints(

@@ -4,6 +4,8 @@ import socket
 import stat
 import tempfile
 import unittest
+
+from tests.platform_markers import posix_only
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -171,6 +173,7 @@ class MachineOperatorTests(unittest.TestCase):
         self.assertEqual(target.read_text(), "real content\n")
         self.assertEqual(outside.read_text(), "outside content\n")
 
+    @posix_only
     def test_special_files_are_rejected_without_being_replaced(self):
         scope = self.project / "special"
         scope.mkdir()
